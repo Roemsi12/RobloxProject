@@ -38,12 +38,19 @@ export type BlockResult = {
 -- the attacker is inside the guard's arc. A guard only stops parryable
 -- attacks from the front. A blocked hit costs no health but fills posture; one
 -- that fills it breaks the guard and lands in full.
-function DamageMath.resolveBlock(damage: number, guarding: boolean, parryable: boolean, facing: boolean, posture: number): BlockResult
+function DamageMath.resolveBlock(
+	damage: number,
+	guarding: boolean,
+	parryable: boolean,
+	facing: boolean,
+	posture: number,
+	maxPosture: number?
+): BlockResult
 	if not guarding or not parryable or not facing or damage <= 0 then
 		return { outcome = "unguarded", damage = damage, posture = posture }
 	end
 
-	local block = PostureMath.block(posture, damage)
+	local block = PostureMath.block(posture, damage, maxPosture)
 	if block.broken then
 		return { outcome = "broken", damage = damage, posture = block.posture }
 	end

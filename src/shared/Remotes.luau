@@ -24,10 +24,14 @@ local REMOTE_EVENTS = {
 	"CriticalRequest",
 	"FeintRequest",
 	"DodgeRequest",
+	"AbilityRequest",
 	"EquipWeapon",
+	"SpendSkillPoint",
+	"ChestTakeItem",
 
 	-- Server -> Client: combat
 	"EnemyTelegraphStart",
+	"ProjectileLaunched",
 	"EnemyStaggered",
 	"EnemyHealthChanged",
 	"PlayerHit",
@@ -41,9 +45,12 @@ local REMOTE_EVENTS = {
 	"ProfileLoaded",
 	"WeaponEquipped",
 	"ChestOpened",
+	"ChestContentsChanged",
 	"InventoryUpdated",
 	"CurrencyUpdated",
 	"UpgradeResult",
+	"ProgressionChanged",
+	"LevelGained",
 
 	-- Server -> Client: the dungeon run
 	"DungeonUpdated",

@@ -11,10 +11,12 @@ local Remotes = require(Shared.Remotes)
 
 local CombatServer = require(script.Combat.CombatServer)
 local DataService = require(script.DataService)
+local ChestService = require(script.Dungeon.ChestService)
 local DungeonService = require(script.Dungeon.DungeonService)
 local QueueService = require(script.Dungeon.QueueService)
 local BlacksmithService = require(script.Economy.BlacksmithService)
 local ArenaService = require(script.PvP.ArenaService)
+local ProgressionService = require(script.Progression.ProgressionService)
 local SpawnService = require(script.SpawnService)
 local WeaponPickups = require(script.WeaponPickups)
 local WeaponVisuals = require(script.WeaponVisuals)
@@ -27,6 +29,12 @@ WeaponVisuals.start()
 
 -- Combat has to be running before the dungeon spawns enemies into it.
 CombatServer.start()
+
+-- Before the dungeon, which registers XP on every enemy it spawns.
+ProgressionService.start()
+
+-- Before the dungeon, which starts building chests as soon as it generates.
+ChestService.start()
 
 -- The start room sits at the origin; every dungeon grows north from its door.
 local startCFrame = DungeonService.start(CFrame.new())

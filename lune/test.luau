@@ -108,6 +108,22 @@ local function makeMatchers(actual: any, negated: boolean)
 		toBeNil = function()
 			check(actual == nil, `expected {show(actual)} to be nil`)
 		end,
+		toBeGreaterThan = function(expected: number)
+			local pass = type(actual) == "number" and actual > expected
+			check(pass, `expected {show(actual)} to be greater than {show(expected)}`)
+		end,
+		toBeGreaterThanOrEqual = function(expected: number)
+			local pass = type(actual) == "number" and actual >= expected
+			check(pass, `expected {show(actual)} to be greater than or equal to {show(expected)}`)
+		end,
+		toBeLessThan = function(expected: number)
+			local pass = type(actual) == "number" and actual < expected
+			check(pass, `expected {show(actual)} to be less than {show(expected)}`)
+		end,
+		toBeLessThanOrEqual = function(expected: number)
+			local pass = type(actual) == "number" and actual <= expected
+			check(pass, `expected {show(actual)} to be less than or equal to {show(expected)}`)
+		end,
 	}
 
 	return setmetatable(matchers, {

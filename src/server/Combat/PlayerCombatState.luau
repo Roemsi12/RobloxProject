@@ -16,12 +16,27 @@ local CombatConstants = require(Shared.CombatConstants)
 local PostureMath = require(Shared.PostureMath)
 local Remotes = require(Shared.Remotes)
 
+local ProgressionService = require(script.Parent.Parent.Progression.ProgressionService)
+
 local PlayerCombatState = {}
+
+-- What this player's posture is worth, after their skill tree. Every posture
+-- number in combat goes through here rather than reading CombatConstants
+-- directly, so a Tank who spent points into Deep Stance actually has the
+-- deeper stance.
+function PlayerCombatState.limits(player: Player): PostureMath.Limits
+	local mods = ProgressionService.modifiers(player)
+	return {
+		max = CombatConstants.MAX_POSTURE + mods.maxPosture,
+		regenPerSecond = CombatConstants.POSTURE_REGEN_PER_SECOND + mods.postureRegen,
+		parryRestore = CombatConstants.PARRY_POSTURE_RESTORE + mods.parryRestore,
+	}
+end
 
 -- "parry" is the block key going down (a parry attempt and a raised guard);
 -- "guard_end" is it coming up. "critical" is the heavy attack; "feint" cancels
 -- a swing; "dodge" is the dash.
-export type CombatAction = "swing" | "critical" | "parry" | "guard_end" | "feint" | "dodge"
+export type CombatAction = "swing" | "critical" | "parry" | "guard_end" | "feint" | "dodge" | "ability"
 
 -- Tells every client a player has done something, so everyone can animate
 -- it — not just the player doing it. Called once the server has accepted the
@@ -69,6 +84,13 @@ export type State = {
 	feintReadyAt: number,
 	dodgeStartedAt: number?,
 	dodgeReadyAt: number,
+	-- One cooldown per ability slot (SkillTreeDefs.abilities). Slots a player
+	-- hasn't unlocked simply never get used.
+	abilityReadyAt: { number },
+	-- A ward in effect: until when, and the fraction of incoming damage it
+	-- turns away. A warded guard also cannot be broken.
+	wardUntil: number,
+	wardReduction: number,
 }
 
 local states: { [Player]: State } = {}
@@ -101,6 +123,9 @@ local function getOrCreate(player: Player): State
 		feintReadyAt = 0,
 		dodgeStartedAt = nil,
 		dodgeReadyAt = 0,
+		abilityReadyAt = { 0, 0, 0 },
+		wardUntil = 0,
+		wardReduction = 0,
 	}
 	states[player] = created
 	return created
@@ -112,7 +137,13 @@ end
 -- regardless of server framerate and costs nothing while nobody is fighting.
 function PlayerCombatState.sync(player: Player, now: number): State
 	local state = getOrCreate(player)
-	state.posture = PostureMath.regenerate(state.posture, state.postureUpdatedAt, state.postureDamagedAt, now)
+	state.posture = PostureMath.regenerate(
+		state.posture,
+		state.postureUpdatedAt,
+		state.postureDamagedAt,
+		now,
+		PlayerCombatState.limits(player).regenPerSecond
+	)
 	state.postureUpdatedAt = now
 	return state
 end
@@ -165,12 +196,20 @@ function PlayerCombatState.publish(player: Player)
 		return
 	end
 
+	local limits = PlayerCombatState.limits(player)
+
 	Remotes.get("CombatStateChanged"):FireClient(player, {
 		posture = state.posture,
 		postureUpdatedAt = state.postureUpdatedAt,
 		postureDamagedAt = state.postureDamagedAt,
+		-- Sent rather than assumed: the HUD's bar is drawn against the
+		-- player's own maximum, which their skill tree may have raised.
+		maxPosture = limits.max,
+		postureRegen = limits.regenPerSecond,
 		stunnedUntil = state.stunnedUntil,
 		dodgeReadyAt = state.dodgeReadyAt,
+		abilityReadyAt = table.clone(state.abilityReadyAt),
+		wardUntil = state.wardUntil,
 		criticalReadyAt = state.criticalReadyAt,
 		riposteUntil = state.riposteUntil,
 	})

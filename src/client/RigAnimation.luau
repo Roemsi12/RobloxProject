@@ -87,6 +87,10 @@ export type Controller = {
 	-- The rig's size (RigDefs.scaleOf). Animations are authored at size 1, so
 	-- their offsets in studs are multiplied by this.
 	scale: number,
+	-- Hip and chest turn, in degrees, laid over whatever is playing
+	-- (LocomotionMath). Zero on anything that isn't strafing.
+	twistHip: number,
+	twistShoulder: number,
 }
 
 local function clock(): number
@@ -149,6 +153,8 @@ function RigAnimation.new(model: Model, rigId: string, external: boolean): Contr
 		-- A player's avatar is whatever size Roblox built it; only our own rigs
 		-- carry a scale.
 		scale = if external then 1 else RigDefs.scaleOf(rigId),
+		twistHip = 0,
+		twistShoulder = 0,
 	}
 end
 
@@ -368,6 +374,38 @@ local function toCFrame(values: KeyframeMath.PoseValues, scale: number): CFrame
 		* CFrame.Angles(math.rad(values.rx), math.rad(values.ry), math.rad(values.rz))
 end
 
+-- Turning the hips toward where a strafing character is going, and the chest
+-- back against them. Both are laid over whatever the joint already holds, so
+-- the walk cycle underneath keeps playing — the legs it moves simply point
+-- somewhere else now.
+--
+-- Pre-multiplied: that turns the joint about its own origin in the parent's
+-- frame, which is a hip turning. Post-multiplying would swing the part around
+-- its far end instead.
+local HIP_JOINT = "LowerTorso"
+local CHEST_JOINT = "UpperTorso"
+
+local function twistOf(controller: Controller, part: string): CFrame?
+	local degrees = if part == HIP_JOINT
+		then controller.twistHip
+		elseif part == CHEST_JOINT then controller.twistShoulder
+		else 0
+	if degrees == 0 then
+		return nil
+	end
+	-- Negated. LocomotionMath measures the turn the way a person would — to
+	-- the right is positive — while a positive rotation about Y in Roblox
+	-- turns left. Without this, walking right turned the body left.
+	return CFrame.Angles(0, -math.rad(degrees), 0)
+end
+
+-- Degrees, from LocomotionMath. Set every frame on player avatars; nothing
+-- else in the game strafes.
+function RigAnimation.setTwist(controller: Controller, hip: number, shoulder: number)
+	controller.twistHip = hip
+	controller.twistShoulder = shoulder
+end
+
 -- Advance one frame and pose the rig. Call from PreSimulation.
 function RigAnimation.step(controller: Controller, deltaTime: number)
 	local now = clock()
@@ -460,12 +498,13 @@ function RigAnimation.step(controller: Controller, deltaTime: number)
 		for part, joint in controller.joints do
 			local stanceValues = overlayBase[part]
 			local actionValues = pose[part]
-			if stanceValues or actionValues then
+			local twist = twistOf(controller, part)
+			if stanceValues or actionValues or twist then
 				local transform = if stanceValues then toCFrame(stanceValues, controller.scale) else joint.Transform
 				if actionValues then
 					transform = transform:Lerp(toCFrame(actionValues, controller.scale), overlayWeight)
 				end
-				joint.Transform = transform
+				joint.Transform = if twist then twist * transform else transform
 			end
 		end
 	else

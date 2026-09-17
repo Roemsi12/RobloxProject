@@ -55,6 +55,9 @@ end
 
 AnimationDefs.DODGE = "dodge"
 AnimationDefs.GUARD_BREAK = "guard_break"
+-- Players: the weapon's signature move (AbilityDefs). One animation for all
+-- three, because all three are the same shape — gather, then release.
+AnimationDefs.ABILITY = "ability"
 -- A flinch from a hit that didn't stagger. Enemies and players both have one.
 AnimationDefs.HURT = "hurt"
 
@@ -1390,6 +1393,48 @@ local R15Player: { [string]: AnimationDef } = {
 				LeftLowerArm = { rx = 12 },
 			})),
 			kf(1.0, {}),
+		},
+	},
+
+	-- An ability: gather in, then drive out. Deliberately upper body only —
+	-- the legs keep walking underneath, and nothing here can put a foot
+	-- through the floor. Shield Break shoves, Shadowstep lunges and Mending
+	-- Pulse opens; one arc covers all three, because all three gather before
+	-- they release. Worth giving each its own once they've been seen.
+	[AnimationDefs.ABILITY] = {
+		length = 0.75,
+		looped = false,
+		priority = "Action",
+		keyframes = {
+			kf(0, {}, "In"),
+			-- Gather: shoulders round, arms drawn across the chest.
+			kf(0.26, {
+				LowerTorso = { ry = 14 },
+				UpperTorso = { rx = 16, ry = 16 },
+				Head = { rx = 10, ry = 8 },
+				RightUpperArm = { rx = -20, ry = -30, rz = 18 },
+				LeftUpperArm = { rx = -24, ry = 24, rz = -12 },
+				RightLowerArm = { rx = 68 },
+				LeftLowerArm = { rx = 74 },
+			}, "Out"),
+			-- Release: the chest opens and both arms drive forward and out.
+			kf(0.42, {
+				LowerTorso = { ry = -10 },
+				UpperTorso = { rx = -14, ry = -12 },
+				Head = { rx = -8, ry = -6 },
+				RightUpperArm = { rx = -78, ry = 12, rz = 30 },
+				LeftUpperArm = { rx = -74, ry = -12, rz = -30 },
+				RightLowerArm = { rx = 12 },
+				LeftLowerArm = { rx = 14 },
+			}, "Out"),
+			kf(0.58, {
+				UpperTorso = { rx = -4 },
+				RightUpperArm = { rx = -34, rz = 16 },
+				LeftUpperArm = { rx = -32, rz = -16 },
+				RightLowerArm = { rx = 18 },
+				LeftLowerArm = { rx = 20 },
+			}),
+			kf(0.75, {}),
 		},
 	},
 

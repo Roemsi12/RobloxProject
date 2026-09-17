@@ -9,6 +9,7 @@
 --   Right click / X   feint (early in a swing)
 --   F / L1            press to parry, hold to block
 --   Q / B             dodge
+--   Z / X / C         the abilities unlocked in the skill tree
 --
 -- The client mirrors the server's rules (combo steps, cooldowns, stuns) only to
 -- decide what to animate. If the two disagree, the server's call stands and
@@ -21,13 +22,23 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage.Shared
+local AbilityDefs = require(Shared.AbilityDefs)
 local CombatConstants = require(Shared.CombatConstants)
 local Loadout = require(Shared.Loadout)
+local SkillTreeDefs = require(Shared.SkillTreeDefs)
 local Remotes = require(Shared.Remotes)
 
 local PlayerAnimation = require(script.Parent.PlayerAnimation)
 
 local CombatClient = {}
+
+-- Slot 1 is the leftmost branch of the skill tree, and so on, so a player who
+-- knows the tree knows what their keys do before they press one.
+local ABILITY_KEYS = {
+	Enum.KeyCode.Z,
+	Enum.KeyCode.X,
+	Enum.KeyCode.C,
+}
 
 -- Number-key weapon swapping, for comparing weapons back to back while
 -- tuning. Studio only, on both ends: in a live game the weapon stands are the
@@ -61,6 +72,10 @@ local swingEndsAt = 0
 local criticalReadyAt = 0
 local feintReadyAt = 0
 local dodgeReadyAt = 0
+local abilityReadyAt = { 0, 0, 0 }
+-- slot -> AbilityDefs id, from the skill tree. Empty until something is
+-- unlocked, which is why an ability key does nothing at level 1.
+local abilities: { [number]: string } = {}
 
 local baseWalkSpeed = 16
 
@@ -158,7 +173,7 @@ local function attack()
 
 	if dueling then
 		beginSwing(profile.pvpTelegraph)
-		attackReadyAt = t + profile.pvpTelegraph + profile.cooldown
+		attackReadyAt = t + profile.pvpTelegraph + profile.recovery
 		PlayerAnimation.playLocal("swing", id, profile.pvpTelegraph, 1)
 	else
 		local step = Loadout.nextComboStep(profile, comboStep, t, comboExpiresAt)
@@ -268,6 +283,36 @@ local function dodge()
 	PlayerAnimation.playLocal("dodge", weaponId :: string)
 end
 
+-- An ability, on the key its branch of the skill tree landed on. Predicted
+-- locally like every other input: the animation plays on the press, and the
+-- server decides whether anything actually happened.
+local function castAbility(slot: number)
+	local id = weaponId
+	local abilityId = abilities[slot]
+	if not id or not abilityId or dueling then
+		return
+	end
+
+	local def = AbilityDefs.get(abilityId)
+	if not def then
+		return
+	end
+
+	local t = now()
+	if t < stunnedUntil or t < (abilityReadyAt[slot] or 0) then
+		return
+	end
+
+	-- Predicted at the base cooldown. The server's own figure arrives on the
+	-- next CombatStateChanged and replaces it, so a tree that shortens the
+	-- cooldown is never held back by this guess.
+	abilityReadyAt[slot] = t + def.cooldown
+	guarding = false
+
+	Remotes.get("AbilityRequest"):FireServer({ slot = slot })
+	PlayerAnimation.playLocal("ability", id, def.windup)
+end
+
 --[[ Setup ]]
 
 local function bindDebugSwaps()
@@ -307,6 +352,12 @@ function CombatClient.start()
 	bindPress("Attack", "Attack", true, attack, Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2)
 	bindPress("Critical", "Critical", true, critical, Enum.KeyCode.R, Enum.KeyCode.ButtonR1)
 	bindPress("Dodge", "Dodge", true, dodge, Enum.KeyCode.Q, Enum.KeyCode.ButtonB)
+	-- One key per branch of the tree, in the order the tree draws them.
+	for slot, keyCode in ABILITY_KEYS do
+		bindPress(`Ability{slot}`, `Ability {slot}`, true, function()
+			castAbility(slot)
+		end, keyCode)
+	end
 
 	ContextActionService:BindAction("Feint", function(_, inputState)
 		if inputState == Enum.UserInputState.Begin and feint() then
@@ -348,6 +399,13 @@ function CombatClient.start()
 		stunnedUntil = payload.stunnedUntil
 		dodgeReadyAt = payload.dodgeReadyAt
 		criticalReadyAt = payload.criticalReadyAt
+		abilityReadyAt = payload.abilityReadyAt or abilityReadyAt
+	end)
+
+	-- Which keys do anything comes from the tree, so a point spent on a
+	-- capstone puts an ability under your hand without a respawn.
+	Remotes.get("ProgressionChanged").OnClientEvent:Connect(function(payload)
+		abilities = if payload.weaponId then SkillTreeDefs.abilities(payload.weaponId, payload.skills or {}) else {}
 	end)
 
 	Remotes.get("PlayerHit").OnClientEvent:Connect(function(payload)
@@ -398,7 +456,11 @@ function CombatClient.start()
 		elseif guarding then
 			fraction = CombatConstants.BLOCK_WALK_FRACTION
 		end
-		current.WalkSpeed = baseWalkSpeed * fraction
+		-- The skill tree can raise walk speed, and the server publishes the
+		-- result as an attribute. Read every frame rather than cached at
+		-- spawn, so spending a point takes effect without a respawn.
+		local base = current:GetAttribute("BaseWalkSpeed")
+		current.WalkSpeed = (if type(base) == "number" then base else baseWalkSpeed) * fraction
 	end)
 end
 

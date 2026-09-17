@@ -83,7 +83,12 @@ export type AttackProfile = {
 	range: number,
 	arcDegrees: number,
 	-- Pause after a non-finisher swing lands before the next can start.
-	cooldown: number,
+	--
+	-- This is the number that decides whether melee is a rhythm or a mash. It
+	-- was 0.06-0.1s, which is no pause at all: the answer to everything was to
+	-- hold the button down. A swing now costs real time, whether it lands or
+	-- not (CombatConstants.MISS_RECOVERY).
+	recovery: number,
 }
 
 export type WeaponDef = {
@@ -116,20 +121,20 @@ local WeaponDefs: { [string]: WeaponDef } = {
 		-- critical is a spinning cleave.
 		attack = {
 			combo = {
-				{ windup = 0.28, damageMultiplier = 1 },
-				{ windup = 0.26, damageMultiplier = 1 },
-				{ windup = 0.26, damageMultiplier = 1 },
-				{ windup = 0.36, damageMultiplier = 1.5 },
+				{ windup = 0.34, damageMultiplier = 1 },
+				{ windup = 0.32, damageMultiplier = 1.05 },
+				{ windup = 0.32, damageMultiplier = 1.1 },
+				{ windup = 0.46, damageMultiplier = 1.6 },
 			},
-			comboWindow = 0.6,
-			finisherRecovery = 0.55,
+			comboWindow = 0.7,
+			finisherRecovery = 0.75,
 			lunge = 9,
 			critical = { windup = 0.6, damageMultiplier = 2.6, cooldown = 6, range = 12, arcDegrees = 170 },
 			pvpTelegraph = 0.5,
 			damage = 12,
 			range = 11,
 			arcDegrees = 120,
-			cooldown = 0.1,
+			recovery = 0.22,
 		},
 	},
 
@@ -154,20 +159,20 @@ local WeaponDefs: { [string]: WeaponDef } = {
 		-- critical is a leaping X-slash.
 		attack = {
 			combo = {
-				{ windup = 0.16, damageMultiplier = 1 },
-				{ windup = 0.15, damageMultiplier = 1 },
-				{ windup = 0.15, damageMultiplier = 1 },
-				{ windup = 0.22, damageMultiplier = 1.5 },
+				{ windup = 0.2, damageMultiplier = 1 },
+				{ windup = 0.19, damageMultiplier = 1.05 },
+				{ windup = 0.19, damageMultiplier = 1.1 },
+				{ windup = 0.28, damageMultiplier = 1.6 },
 			},
-			comboWindow = 0.45,
-			finisherRecovery = 0.45,
+			comboWindow = 0.55,
+			finisherRecovery = 0.55,
 			lunge = 11,
 			critical = { windup = 0.42, damageMultiplier = 2.2, cooldown = 5, range = 9, arcDegrees = 100 },
 			pvpTelegraph = 0.3,
 			damage = 6,
 			range = 8,
 			arcDegrees = 80,
-			cooldown = 0.06,
+			recovery = 0.14,
 		},
 	},
 
@@ -193,20 +198,20 @@ local WeaponDefs: { [string]: WeaponDef } = {
 		-- critical is a full spinning sweep that hits all around.
 		attack = {
 			combo = {
-				{ windup = 0.25, damageMultiplier = 1 },
-				{ windup = 0.24, damageMultiplier = 1 },
-				{ windup = 0.24, damageMultiplier = 1 },
-				{ windup = 0.32, damageMultiplier = 1.45 },
+				{ windup = 0.3, damageMultiplier = 1 },
+				{ windup = 0.29, damageMultiplier = 1.05 },
+				{ windup = 0.29, damageMultiplier = 1.1 },
+				{ windup = 0.4, damageMultiplier = 1.55 },
 			},
-			comboWindow = 0.6,
-			finisherRecovery = 0.5,
+			comboWindow = 0.65,
+			finisherRecovery = 0.65,
 			lunge = 7,
 			critical = { windup = 0.55, damageMultiplier = 2.3, cooldown = 6, range = 13, arcDegrees = 360 },
 			pvpTelegraph = 0.45,
 			damage = 8,
 			range = 12,
 			arcDegrees = 110,
-			cooldown = 0.1,
+			recovery = 0.18,
 		},
 	},
 }

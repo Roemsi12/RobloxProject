@@ -43,10 +43,25 @@ export type AttackDef = {
 	cooldown: number,
 	-- Applied only when the hit lands unparried.
 	dot: DotDef?,
+	-- A thrown or spat attack: the telegraph ends with something leaving the
+	-- enemy, and the hit lands where it arrives rather than where the enemy is
+	-- aiming. Sidestepping after the throw works, which is what makes a
+	-- ranged enemy worth respecting instead of a damage tick at range.
+	projectile: ProjectileDef?,
 	-- A player's hit can't interrupt this windup. Heavy attacks carry it, so
 	-- the answer to them is a parry, a block or a dodge — never just hitting
 	-- first. Light attacks don't, so attacking into them is a real option.
 	hyperArmor: boolean?,
+}
+
+-- `speed` is studs per second in flight; `radius` how far from where it lands
+-- the hit reaches. A projectile is aimed at where its target stood when it was
+-- launched, so its travel time is the window to move.
+export type ProjectileDef = {
+	speed: number,
+	radius: number,
+	-- Picks the look: "acid" or "bone". ProjectileVFX owns what each means.
+	kind: string,
 }
 
 export type EnemyDef = {
@@ -66,6 +81,10 @@ export type EnemyDef = {
 	-- the top blacksmith tiers (DESIGN.md).
 	coinReward: number,
 	crystalReward: number,
+	-- Paid to everyone who helped, not just the killer: XP is the progress
+	-- that is yours rather than your weapon's, and a party shouldn't be
+	-- racing each other for last hits (ProgressionDefs).
+	xpReward: number,
 	attacks: { [string]: AttackDef },
 }
 
@@ -81,6 +100,7 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		aggroRange = 60,
 		coinReward = 10,
 		crystalReward = 0,
+		xpReward = 12,
 		attacks = {
 			Overhead = {
 				telegraphDuration = 1.2,
@@ -122,6 +142,7 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		aggroRange = 40,
 		coinReward = 25,
 		crystalReward = 1,
+		xpReward = 45,
 		attacks = {
 			Slash = {
 				telegraphDuration = 0.5,
@@ -161,6 +182,7 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		aggroRange = 70,
 		coinReward = 15,
 		crystalReward = 0,
+		xpReward = 20,
 		attacks = {
 			Claw = {
 				telegraphDuration = 0.8,
@@ -203,6 +225,7 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		aggroRange = 80,
 		coinReward = 15,
 		crystalReward = 0,
+		xpReward = 22,
 		attacks = {
 			Spit = {
 				telegraphDuration = 1.4,
@@ -214,6 +237,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 				maxRange = 26,
 				weight = 4,
 				cooldown = 1.5,
+				-- Slow enough to walk out of at range, which is the whole
+				-- point of a spitter you can see winding up.
+				projectile = { speed = 55, radius = 7, kind = "acid" },
 			},
 			-- Unparryable panic option when something is in its face, so
 			-- closing the gap isn't a free win.
@@ -249,6 +275,7 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		aggroRange = 90,
 		coinReward = 250,
 		crystalReward = 4,
+		xpReward = 600,
 		attacks = {
 			Cleave = {
 				telegraphDuration = 0.65,
@@ -296,6 +323,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 				maxRange = 32,
 				weight = 3,
 				cooldown = 3.5,
+				-- Faster and tighter than the Spitter's: a king's spear should
+				-- be read and parried, not strolled away from.
+				projectile = { speed = 95, radius = 5, kind = "bone" },
 			},
 		},
 	},

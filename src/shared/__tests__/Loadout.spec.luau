@@ -2,6 +2,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CombatConstants = require(Shared.CombatConstants)
 local Loadout = require(Shared.Loadout)
 local WeaponDefs = require(Shared.WeaponDefs)
 
@@ -112,7 +113,6 @@ describe("WeaponDefs invariants", function()
 	-- riposte multiplier at or below the stagger bonus would add nothing
 	-- against a staggered target and very little anywhere else.
 	it("keeps every riposte above the universal stagger bonus", function()
-		local CombatConstants = require(Shared.CombatConstants)
 		for _, def in WeaponDefs do
 			if def.payoff.riposteDuration > 0 then
 				expect(def.payoff.riposteMultiplier > CombatConstants.STAGGER_DAMAGE_MULTIPLIER).toBe(true)
@@ -171,5 +171,56 @@ describe("Loadout combos", function()
 				expect({ weaponId, combo[#combo].damageMultiplier > combo[step].damageMultiplier }).toEqual({ weaponId, true })
 			end
 		end
+	end)
+end)
+
+-- The first playtest verdict on melee was "too fast, you can pretty much
+-- spam". These are the floors that keeps it honest: a swing has to cost real
+-- time, so the answer to a fight is never to hold the button down.
+describe("melee pacing", function()
+	local MIN_SWING_CYCLE = 0.3
+	local MIN_FINISHER_CYCLE = 0.6
+
+	it("never lets a swing come round faster than the floor", function()
+		for weaponId, def in WeaponDefs do
+			for step = 1, #def.attack.combo do
+				local timing = Loadout.swingTiming(def.attack, step)
+				local floor = if timing.finisher then MIN_FINISHER_CYCLE else MIN_SWING_CYCLE
+				expect({ weaponId, step, timing.readyAfter >= floor }).toEqual({ weaponId, step, true })
+			end
+		end
+	end)
+
+	it("makes the finisher the slowest swing to recover from", function()
+		for weaponId, def in WeaponDefs do
+			local combo = def.attack.combo
+			local finisher = Loadout.swingTiming(def.attack, #combo)
+			for step = 1, #combo - 1 do
+				local timing = Loadout.swingTiming(def.attack, step)
+				expect({ weaponId, step, finisher.readyAfter > timing.readyAfter }).toEqual({ weaponId, step, true })
+			end
+		end
+	end)
+
+	-- A pause you can't see is a pause that reads as lag, not as commitment.
+	it("gives every weapon a real pause between swings", function()
+		for weaponId, def in WeaponDefs do
+			expect({ weaponId, def.attack.recovery >= 0.12 }).toEqual({ weaponId, true })
+		end
+	end)
+
+	-- Missing has to cost more than connecting, or mashing stays free.
+	it("punishes a whiff harder than any weapon's own recovery", function()
+		for weaponId, def in WeaponDefs do
+			expect({ weaponId, CombatConstants.MISS_RECOVERY > def.attack.recovery }).toEqual({ weaponId, true })
+		end
+	end)
+
+	it("keeps the Assassin the fastest and the Tank the slowest", function()
+		local function cycle(weaponId: string): number
+			return Loadout.swingTiming(WeaponDefs[weaponId].attack, 1).readyAfter
+		end
+		expect(cycle("Daggers")).toBeLessThan(cycle("Staff"))
+		expect(cycle("Staff")).toBeLessThan(cycle("SwordAndShield"))
 	end)
 end)

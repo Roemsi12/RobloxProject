@@ -951,6 +951,253 @@ weapons held **down** at rest rather than up.
   `Workspace`, with no `TeleportService` anywhere. Worth writing down because
   "queue" usually implies a reserved server, and here it deliberately does not.
 
+## Decisions made adding levels and the skill tree (Sept 2026)
+
+The brief: *"work on the lvl and xp system"*, and, asked what a level should
+buy: *"well i want something like a skilltree"*.
+
+- **XP is the half of the loop coins never covered.** Coins buy upgrade
+  levels, which belong to a weapon and are left behind the moment you pick up
+  a different one. Levels belong to the player. Without them the only
+  progression was five upgrade tiers on one weapon, which runs dry in a few
+  runs.
+- **The level is derived from XP, never stored.** Only total XP is saved.
+  Re-tuning the curve then re-levels everyone consistently, instead of leaving
+  players sitting at a level their XP no longer justifies.
+- **The curve is triangular** — going from level L to L+1 costs `120 * L`.
+  Flat steps would make level 20 as cheap as level 2; exponential ones would
+  make the back half of the tree unreachable. Triangular is the shape where a
+  run is always worth something and the last levels still cost. The cap is 20.
+- **Kills pay XP to every armed player, not just the killer.** The dungeon is
+  shared and the design is group-first, and paying only the last hit turns a
+  party into three people racing each other. Coins still go to the killer,
+  which is where that tension belongs. It also means a Healer, who lands
+  fewer killing blows by construction, levels at the same rate as a Tank.
+- **A tree per weapon, not per player** *(chosen by the repo owner: "something
+  like a skilltree")*. Your weapon is your class, so the tree that matches is
+  the weapon's — and `EquipService` already stores upgrade levels that way.
+- **Every tree gets your full level's worth of points.** Not one pool divided
+  between them. Picking up the daggers at level 15 should not mean a bare
+  tree, and should not cost the sword its own. This is the same principle as
+  upgrade levels being kept per weapon: swapping costs you the walk back to
+  camp, not your progress.
+- **No tree can be filled.** Each holds 26 ranks; level 20 pays 19 points. A
+  tree you can complete is a list of chores, and a tree you cannot is a
+  choice. A test enforces the gap, and enforces that each branch is still
+  reachable to the bottom on its own.
+- **Nodes unlock from the one above them**, rather than from points spent in
+  the branch. One rule instead of two, and it is legible from the panel
+  without arithmetic.
+- **Effects are numbers under agreed keys, added up in one place.** Nothing in
+  the tree reaches into combat; `SkillTreeDefs.modifiers` returns a table and
+  combat reads it. Adding a node is a row in a file. Everything is additive —
+  nothing multiplies, so no combination can run away.
+- **The Assassin's backstab finally has a home.** Promised since step 2 and
+  never built, it is now the end of the Shadow branch: the one effect in the
+  game that depends on where you are standing, on the class whose identity is
+  position. It reads the enemy's own facing through the same arc a block uses.
+- **The numbers are deliberately small.** A fully-specced damage branch is
+  around +17%, against a parry's +100% stagger bonus. DESIGN.md's "skill must
+  count as much as level/gear" is the constraint every node was sized
+  against, the same one that caps upgrade damage at +50%.
+- **Max health and walk speed are pushed; everything else is pulled.** Those
+  two live on the Humanoid, so the server writes them on spend and respawn.
+  The rest — damage, parry window, cooldowns, posture — is read at the moment
+  it is used, so there is nothing to keep in sync.
+- **Raising max health heals you by the difference.** A skill point that
+  leaves your health bar emptier than before is a punishment for spending it.
+- **The blacksmith was left alone.** Gating upgrade tiers behind levels was
+  the obvious second lever and was dropped: it would have added a second
+  reason a player can't buy something, on top of a cost they already can't
+  always meet, and levels already have something to give.
+
+## Decisions made fixing the locked camera (Sept 2026)
+
+The brief: *"can you make the shiftlock better? it doesnt look good"*.
+
+- **The moonwalk was the actual complaint.** With the camera locked, the
+  character faces the camera, so walking sideways or backwards played a
+  forward walk cycle while the body slid the other way.
+- **Hips turn, shoulders stay — rather than four new walk cycles.** The
+  obvious fix was authoring strafe-left, strafe-right and backpedal
+  animations. Turning the hips toward the direction of travel and
+  counter-turning the chest is what a real body does, it makes Roblox's own
+  well-tuned walk correct instead of replacing it with something hand-written
+  and worse, and it covers all 360 degrees rather than four. It is also about
+  a tenth of the work, which is not why it was chosen but is worth saying.
+- **The shoulders only take back 80% of the hip turn**, so the chest leans
+  into the direction of travel. Fully undoing it reads as a turret on legs.
+- **The hips are capped at 65 degrees.** A pure sidestep wants 90, which
+  would aim the legs perfectly and twist the waist further than a body reads
+  as able to. The rest is absorbed as a cross-step, which is what a person
+  actually does when they sidestep.
+- **Walking backwards reverses the walk cycle** rather than turning the hips
+  all the way round, which no spine does. There the hips turn the *short* way
+  and the feet stride backwards with the body. Reversing is done by flipping
+  the speed of the Animate script's own track, for the local player only:
+  another player's tracks are playing here by replication, and a speed set on
+  this client wouldn't survive their next update. Their hips still turn, which
+  is what reads at a distance.
+- **There is hysteresis on the forward/backward switch.** Without it,
+  strafing at exactly the boundary flips the cycle every frame.
+- **All of it settles at zero when the camera is unlocked**, because facing
+  and travel agree there — so none of it needs to know whether the lock is on.
+- **The shoulder offset eases, and pulls in at walls.** Snapping it made
+  toggling the lock feel like the camera teleporting; and because the offset
+  moves the camera sideways after Roblox has already chosen somewhere clear
+  to sit, on the inside of a corner it could end up looking through a wall.
+- **A locked camera points somewhere, so it now shows where.** Four ticks
+  around a gap rather than a solid cross: the gap is where the enemy you are
+  reading is, and this game's combat is entirely reading a wind-up. Each tick
+  carries a dark stroke, because a bone-white mark on torchlit stone
+  disappears exactly when a fight starts.
+- **The skill panel borrows the pointer.** Opening it hands the cursor back
+  and closing it takes it again, so spending a point never means fighting the
+  camera for the mouse.
+
+## Decisions from the third playtest (Sept 2026)
+
+The brief: *"the melee attacks are too fast you can pretty much spam"*, *"make
+the skill tree an actual tree"*, *"abilities for classes"*, and *"when you walk
+to the right your character is looking to the left"*.
+
+### Melee
+
+- **The recovery between swings was the whole problem.** It was 0.06–0.1s,
+  which is no pause at all: the cheapest thing a player could do was hold the
+  button down and let the hitbox find something. It is now 0.14–0.22s, and the
+  wind-ups are longer too. A swing cycle went from 0.22s to 0.34s on the
+  daggers and from 0.38s to 0.56s on the sword.
+- **A whiff costs 0.3s and drops the combo to its first step.** This is the
+  part that actually punishes mashing: a swing that connects flows into the
+  next one, a swing at empty air gives up the opening. Tuning the recovery
+  alone would have slowed good play by exactly as much as bad play.
+- **The order of the classes was kept**, and is now a test: the Assassin
+  recovers fastest, the Tank slowest, and the finisher is always the slowest
+  swing of any combo. There are floors under all of it, so this can't quietly
+  drift back.
+- **Each combo step now hits slightly harder than the last** (1, 1.05, 1.1,
+  1.6). A combo that pays the same for every step is four presses with no
+  reason to finish it.
+
+### The tree
+
+- **It is a tree now, not three columns.** One root, three branches off it,
+  each forking into a pair, each pair leading to a capstone — with the
+  connections drawn as real lines, and a line lighting up once the node it
+  leads to is bought. The rules didn't change; the shape is what makes the
+  choices legible, and the path you took visible.
+- **The layout is data, not derived.** Each node carries a column and a tier.
+  Which nodes sit beside each other *is* the design — it is how a player reads
+  what they are choosing between — so it belongs next to the nodes rather than
+  being invented by the panel.
+- **Every branch hangs off one root**, so the first point in any tree is never
+  a choice, and no branch can be entered without committing something.
+- **One line of detail, on hover**, rather than every node showing its numbers
+  at once. Thirteen nodes each shouting three effects is a wall.
+
+### Abilities
+
+- **One per weapon, on Z.** The combo, critical, parry and dodge are the same
+  five inputs whatever you carry; only the numbers change. An ability is the
+  thing that is *only* yours, and it is what makes swapping weapon feel like
+  changing class rather than changing damage numbers.
+- **Three different verbs, not three damage numbers.** Shield Break hits
+  everything around you and opens all of it; Shadowstep puts you behind your
+  target; Mending Pulse heals the party. Each answers a situation that class
+  is otherwise bad at — a Tank surrounded, an Assassin stuck in front, a party
+  already hurt.
+- **Shadowstep and the backstab branch are meant to be taken together.** The
+  ability gets you behind someone; the Shadow branch is what makes being there
+  worth it. Neither is wasted alone, and together they are the Assassin.
+- **Mending Pulse asks nothing of you first**, unlike the parry heal. The
+  parry heal rewards playing well; this one rescues you when you didn't. A
+  Healer needed both.
+- **Abilities wind up before they resolve**, like everything else in this
+  game. An ability that lands on the frame you press it can't be read by
+  anyone you are fighting.
+- **Every tree can improve its own ability** — cooldown or power — and a
+  fully-specced cooldown is still at least five seconds. A cooldown the tree
+  could drive to nothing would make the ability the whole rotation.
+- **One animation for all three**, upper body only, gathering then releasing.
+  Upper body because the legs keep walking underneath and nothing can put a
+  foot through the floor. Each deserves its own once they have been seen.
+
+### The inverted turn
+
+- **`LocomotionMath` measures turns the way a person does** — to the right is
+  positive — while a positive rotation about Y in Roblox turns left. The
+  negation belongs where the engine's types are, not in the pure module, so
+  the module stays readable and the conversion happens once, in `RigAnimation`.
+
+## Decisions from the fourth playtest (Sept 2026)
+
+The brief: *"i want abilities to be part of the tree so you can unlock
+abilities that way"*, *"when you loot a chest you open a menu and can click on
+items to collect them like in deepwoken"*, and *"can you make the ranged
+attacks have projectiles"*.
+
+### Abilities moved into the tree
+
+- **An ability is now the end of a branch, not a perk of a weapon.** Each of
+  the three branches finishes in one, and the branch's position decides the
+  key — leftmost is Z, then X, then C. Reading the tree tells you what your
+  keys will do before you press one.
+- **Nine abilities, four verbs.** `burst` hits everything around you, `blink`
+  puts you behind your target, `mend` heals the party, and `ward` turns damage
+  away and holds a guard that cannot break. Four things the server knows how
+  to do, and nine ways of asking for them — rather than nine damage numbers.
+- **A capstone keeps its passive as well as granting the ability.** The
+  Assassin's *Assassinate* is still the backstab DESIGN.md promised at step 2;
+  it now also unlocks Shadowstep, which is how you get behind someone to use
+  it. The ability and the passive at the end of a branch are meant to be read
+  as one reward.
+- **Unlocking all three is possible at the cap, and costs over half your
+  points.** The first version of this was going to make three impossible; the
+  test written to prove it failed, which was the right answer. The real trade
+  is not whether you get abilities but whether you want three shallow ones or
+  one you have invested in — and that trade already existed without a new rule.
+- **A ward's reduction never scales.** Ability power buys it *seconds*
+  instead, so no stack of nodes can add up to invulnerability. The alternative
+  — clamping a scaling reduction — hides the ceiling instead of not having one.
+
+### Chests became a menu
+
+- **Opening a chest shows what is in it; taking is a second decision.** Three
+  things follow from that: a full inventory no longer means a chest you daren't
+  open, a party can split a chest without racing for the prompt, and finding
+  something is a moment on screen rather than a line of text afterwards.
+- **What you leave stays.** The chest owns its contents, not the player who
+  opened it, so a second player sees the same rows — and the first can come
+  back for what they left. The prompt reads "Search" until it is empty.
+- **The client names a slot, never an item.** Every take is checked server
+  side for reach, for the row still being there, and for inventory space at
+  the moment of taking rather than at the moment of opening.
+- **Taken rows grey out rather than vanishing**, so a row never moves out from
+  under the pointer as someone else takes one.
+- **Vaults hold two things.** A menu with one row in it is a prompt with extra
+  steps; the choice is the point.
+
+### Ranged attacks actually travel
+
+- **A thrown attack lands where it was aimed, not on whoever is standing there
+  when it arrives.** The aim is fixed the moment it leaves the enemy, and the
+  flight time is the window to not be there. That turns a ranged enemy from a
+  damage tick at range into something you can read and step around.
+- **It fell out of the existing model almost for free.** Victims were already
+  collected at the moment of resolution against live positions, so delaying
+  resolution by the flight time and moving the volume to the landing point was
+  the whole change.
+- **The parry is judged on arrival, not on the throw**, which is the only
+  timing that makes sense to a player watching the thing come at them.
+- **Once it is in the air it cannot be interrupted.** Hitting the enemy after
+  it has let go does not un-throw the spear.
+- **The landing circle is drawn honestly**, at the radius the server will
+  actually check, and fills in as the shot closes so the mark is its own timer.
+- **The Spitter's spit lobs and is slow enough to walk out of; the Hollow
+  King's spear is fast and flat.** Same mechanic, two very different things to
+  respect.
+
 ## Open / not yet decided
 
 - ~~Is solo play fully supported, or is this group-first content? This changes
@@ -990,3 +1237,14 @@ weapons held **down** at rest rather than up.
 11. ~~Dungeon runs: randomised layouts, room sizes and purposes, a boss.~~
     Built: see "Decisions made building dungeon runs". Needs playtesting for
     pacing, ambush waves and boss health.
+12. ~~Levels, XP and a skill tree per weapon.~~ Built: see "Decisions made
+    adding levels and the skill tree", then "Decisions from the third
+    playtest" for the tree's shape. Every number in `ProgressionDefs` and
+    `SkillTreeDefs` is a first guess; the curve has never been walked by a
+    real player, and no node has been felt in a fight.
+13. ~~Abilities, unlocked through the skill tree.~~ Built: see "Decisions from
+    the third playtest" for the first version and "Decisions from the fourth"
+    for moving them into the tree. Nine abilities, four kinds; cooldowns and
+    power are first guesses, and all nine share one placeholder animation.
+14. ~~A loot menu on chests, and real projectiles for ranged attacks.~~ Built:
+    see "Decisions from the fourth playtest". Neither has been played.

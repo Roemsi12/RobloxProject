@@ -17,16 +17,22 @@
 --    profile must not delete progress made on content it hasn't heard of.
 
 local EconomyDefs = require(script.Parent.EconomyDefs)
+local ProgressionDefs = require(script.Parent.ProgressionDefs)
 
 local PlayerDataSchema = {}
 
-PlayerDataSchema.CURRENT_VERSION = 1
+PlayerDataSchema.CURRENT_VERSION = 2
 
 -- Keeps a single record comfortably inside the DataStore value size limit.
 PlayerDataSchema.MAX_INVENTORY = 500
 
 -- Keeps counts finite and exactly representable (below 2^53).
 local MAX_COUNT = 1e15
+
+-- Ranks are clamped per node by SkillTreeDefs when they're read, which is the
+-- only place that knows what each node's cap is. This is just a sane ceiling
+-- so a saved rank can't be an astronomical number.
+local MAX_RANK = 99
 
 export type ItemInstance = {
 	itemId: string,
@@ -45,6 +51,13 @@ export type PlayerData = {
 	-- weaponId -> level
 	upgradeLevels: { [string]: number },
 	inventory: { ItemInstance },
+	-- Total XP ever earned. The level is derived from it rather than stored,
+	-- so re-tuning the curve re-levels everyone instead of leaving them at a
+	-- level their XP no longer justifies (ProgressionDefs).
+	xp: number,
+	-- weaponId -> nodeId -> ranks. Per weapon for the same reason
+	-- upgradeLevels is: your weapon is your class (SkillTreeDefs).
+	skills: { [string]: { [string]: number } },
 }
 
 -- Which server currently owns a profile. Stored alongside the data.
@@ -67,6 +80,8 @@ function PlayerDataSchema.default(): PlayerData
 		equipped = {},
 		upgradeLevels = {},
 		inventory = {},
+		xp = 0,
+		skills = {},
 	}
 end
 
@@ -98,6 +113,23 @@ local function sanitizeCountMap(value: unknown, max: number): { [string]: number
 	for key, count in value :: { [any]: any } do
 		if type(key) == "string" and isFiniteNumber(count) then
 			result[key] = toCount(count, max)
+		end
+	end
+
+	return result
+end
+
+-- weaponId -> nodeId -> ranks. Two levels of the same rule as
+-- sanitizeCountMap: fix the shape, keep every id, recognised or not.
+local function sanitizeSkills(value: unknown): { [string]: { [string]: number } }
+	local result = {}
+	if type(value) ~= "table" then
+		return result
+	end
+
+	for weaponId, nodes in value :: { [any]: any } do
+		if type(weaponId) == "string" then
+			result[weaponId] = sanitizeCountMap(nodes, MAX_RANK)
 		end
 	end
 
@@ -173,15 +205,27 @@ function PlayerDataSchema.sanitize(raw: unknown): PlayerData
 		-- clamped to the current one.
 		upgradeLevels = sanitizeCountMap(record.upgradeLevels, EconomyDefs.MAX_UPGRADE_LEVEL),
 		inventory = sanitizeInventory(record.inventory),
+		-- Held at what the level cap is worth, so a maxed player's XP doesn't
+		-- climb forever with nothing to show for it.
+		xp = ProgressionDefs.cap(toCount(record.xp, MAX_COUNT)),
+		skills = sanitizeSkills(record.skills),
 	}
 end
 
 --[[ Migration ]]
 
--- migrations[n] turns a version-n record into a version-(n+1) record. Empty
--- until the schema first changes; add a step here and bump CURRENT_VERSION
--- together.
-local migrations: { [number]: (any) -> any } = {}
+-- migrations[n] turns a version-n record into a version-(n+1) record. Add a
+-- step here and bump CURRENT_VERSION together.
+local migrations: { [number]: (any) -> any } = {
+	-- 1 -> 2: XP and skill trees arrived. Everyone who played before them
+	-- starts at level 1 with an empty tree rather than being paid XP for
+	-- runs nobody recorded — sanitize fills both in, so there is nothing to
+	-- copy across. The step exists to say that out loud, and because a
+	-- missing step is treated as corrupt data.
+	[1] = function(data: any): any
+		return data
+	end,
+}
 
 -- Turns whatever was stored into current-version data, and says whether it
 -- may be written back. For "future_version" and "corrupt", the returned data

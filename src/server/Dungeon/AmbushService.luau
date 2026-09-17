@@ -26,6 +26,7 @@ local Characters = require(script.Parent.Parent.Combat.Characters)
 local CombatServer = require(script.Parent.Parent.Combat.CombatServer)
 local EnemyAI = require(script.Parent.Parent.Combat.EnemyAI)
 local CurrencyService = require(script.Parent.Parent.Economy.CurrencyService)
+local ProgressionService = require(script.Parent.Parent.Progression.ProgressionService)
 local PvPCombatServer = require(script.Parent.Parent.PvP.PvPCombatServer)
 local RoomTemplates = require(script.Parent.RoomTemplates)
 
@@ -210,6 +211,7 @@ function AmbushService.start(
 			spawnBurst(floorPoint, parent)
 			local enemy = CombatServer.spawnEnemy(defId, position, room.centre.Position, bounds, parent, { respawns = false })
 			CurrencyService.trackEnemy(enemy)
+			ProgressionService.trackEnemy(enemy)
 			hooks.onSpawned(enemy)
 			table.insert(living, enemy)
 
