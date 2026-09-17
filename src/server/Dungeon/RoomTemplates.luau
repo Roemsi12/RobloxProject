@@ -1,8 +1,13 @@
 --!strict
 -- Room geometry: a flagstone floor, tall walls with an arched doorway on any
--- side that needs one, carved bays and stone sentinels, the variant's inner
--- layout (pillars, ruins, a throne hall), props and torches. Also the
--- corridors between rooms, so every piece of dungeon shares one look.
+-- side that needs one, carved bays and stone sentinels, a ribbed ceiling, the
+-- variant's inner layout (pillars, ruins, a throne hall), props and torches.
+-- Also the corridors between rooms, so every piece of dungeon shares one look.
+--
+-- The pieces themselves — walls, arches, pillars, torches, statues, banners,
+-- ceilings — come from Stonework, which the hub builds from too. What lives
+-- here is the composition: how a crypt is laid out, which is what makes it
+-- read as a crypt rather than as the great hall upstairs.
 --
 -- One module rather than a RoomTemplates/ folder: each variant is a short
 -- geometry recipe, not enough content to warrant its own file — the same way
@@ -10,77 +15,68 @@
 --
 -- Rooms are only ever translated, never rotated, so walls, corridors and the
 -- leash are all axis-aligned. Dressing (trim, arches, doors, banners, statues,
--- barrels, torches, rubble) is decoration: it never collides, and never
--- changes a room's size, doors or leash. Only the floor, the lower walls, the
--- door posts, the statue plinths and the variant's pillars stop anything —
--- those are the things a player expects to stop them, and the things an
--- enemy's leash is measured against.
---
--- Colours come from Palette, the same one the weapons and rigs draw from: the
--- iron on a door band is the iron on a skeleton's helm.
+-- barrels, torches, rubble, the ceiling) is decoration: it never collides, and
+-- never changes a room's size, doors or leash. Only the floor, the lower
+-- walls, the door posts, the statue plinths and the variant's pillars stop
+-- anything — those are the things a player expects to stop them, and the
+-- things an enemy's leash is measured against.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local DungeonDefs = require(ReplicatedStorage.Shared.DungeonDefs)
-local Palette = require(ReplicatedStorage.Shared.Palette)
+local Stonework = require(script.Parent.Parent.Stonework)
 
 local RoomTemplates = {}
 
 RoomTemplates.DOOR_WIDTH = DungeonDefs.CORRIDOR_WIDTH
 -- The clear height of a doorway, up to where its arch springs. Anything meant
 -- to fill a doorway — a portcullis, a gate — sizes itself from this.
-RoomTemplates.DOOR_HEIGHT = 9
+RoomTemplates.DOOR_HEIGHT = 12
 
 -- How tall the stonework reads, and how much of it is actually solid.
 --
--- Nobody can jump twelve studs, so every stud above COLLIDE_HEIGHT is pure
+-- Nobody can jump fourteen studs, so every stud above COLLIDE_HEIGHT is pure
 -- decoration — and building it non-query means the camera passes straight
--- through it. That is what lets a hall be twice as tall as a player can reach
--- without the camera jamming into a wall every time someone backs up against
--- one. Raising the whole wall as one solid slab would have made every room
--- feel grander and play worse.
-local WALL_HEIGHT = 22
-local COLLIDE_HEIGHT = 12
-local WALL_THICKNESS = 1
+-- through it. That is what lets a hall be more than twice as tall as a player
+-- can reach without the camera jamming into a wall every time someone backs up
+-- against one. Raising the whole wall as one solid slab would have made every
+-- room feel grander and play worse.
+local WALL_HEIGHT = 32
+local COLLIDE_HEIGHT = 14
+local WALL_THICKNESS = 1.5
 
--- Corridors stay low and tunnelled. Stepping out of an eleven-stud passage
--- into a twenty-two-stud hall is what sells the hall; making both tall would
+-- Corridors stay low and tunnelled. Stepping out of a fourteen-stud passage
+-- into a thirty-two-stud hall is what sells the hall; making both tall would
 -- flatten the contrast and cost twice the parts.
-local CORRIDOR_HEIGHT = 11
+local CORRIDOR_HEIGHT = 14
 
 -- How far inside the walls an enemy's leash stops, so a rig backed against a
 -- wall doesn't clip into it. Scaled by the rig's size where it's used.
 RoomTemplates.LEASH_INSET = 3
 
-local function rgb(values: { number }): Color3
-	return Color3.fromRGB(values[1], values[2], values[3])
-end
+-- Pillars are five studs through — better than twice a player's width, which
+-- is the point of them: a pillar you can hide a Shambler behind, not a post.
+local PILLAR_THICKNESS = 5
 
-local FLOOR_COLOR = rgb(Palette.FLOOR)
-local WALL_COLOR = rgb(Palette.WALL)
-local TRIM_COLOR = rgb(Palette.TRIM)
-local PILLAR_COLOR = rgb(Palette.PILLAR)
-local RUBBLE_COLOR = rgb(Palette.RUBBLE)
-local MORTAR_COLOR = rgb(Palette.MORTAR)
-local IRON_COLOR = rgb(Palette.IRON)
-local RUST_COLOR = rgb(Palette.RUST)
-local WOOD_COLOR = rgb(Palette.ROT_WOOD)
-local BONE_COLOR = rgb(Palette.OLD_BONE)
-local BANNER_COLOR = rgb(Palette.CRIMSON)
-local GOLD_COLOR = rgb(Palette.GOLD)
-local DEFAULT_TORCH = rgb(Palette.TORCH_FIRE)
-local GHOST_FIRE = rgb(Palette.GHOST_FIRE)
--- Statues are cut from a paler stone than the walls, so they read as carved
--- rather than as lumps of the wall that happen to stick out.
-local STATUE_COLOR = rgb(Palette.mix(Palette.PILLAR, Palette.BONE, 0.22))
-
-local TORCH_HEIGHT = 8
+local TORCH_HEIGHT = 9
 -- Where the doorway arch springs from, and how wide its ring is.
 local ARCH_SPRING = RoomTemplates.DOOR_HEIGHT
-local ARCH_RADIUS = 4.6
+local ARCH_RADIUS = 5.8
 local VOUSSOIRS = 9
 -- Height of the carved bays between buttresses.
-local BAY_TOP = 15
+local BAY_TOP = 20
+-- Below this width a room is too small to line with sentinels: it reads as
+-- cluttered rather than grand.
+local STATUE_MIN_SIZE = 60
+
+local DEFAULT_TORCH = Stonework.TORCH_FIRE
+
+local WALL_SPEC: Stonework.WallSpec = {
+	height = WALL_HEIGHT,
+	collideHeight = COLLIDE_HEIGHT,
+	thickness = WALL_THICKNESS,
+	courseAt = BAY_TOP + 0.8,
+}
 
 export type Side = "North" | "South" | "East" | "West"
 
@@ -117,194 +113,60 @@ local SIDE_YAW: { [Side]: number } = {
 	West = math.rad(-90),
 }
 
-local function makePart(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?): Part
-	local part = Instance.new("Part")
-	part.Name = name
-	part.Anchored = true
-	part.CanCollide = true
-	part.Size = size
-	part.CFrame = cframe
-	part.Color = color
-	part.Material = material or Enum.Material.SmoothPlastic
-	part.TopSurface = Enum.SurfaceType.Smooth
-	part.BottomSurface = Enum.SurfaceType.Smooth
-	part.Parent = parent
-	return part
-end
-
--- Decoration a player walks through rather than snags on, and that the camera
--- sees straight through.
-local function makeDecor(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?): Part
-	local part = makePart(parent, name, size, cframe, color, material)
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	return part
-end
-
---[[ Walls ]]
-
--- A wall, solid to COLLIDE_HEIGHT and decorative above, with a darker cap
--- along its top, a dentil frieze under it, a string course at shoulder height
--- and a skirting along its base. `cframe` is the wall's centre at half
--- WALL_HEIGHT; its local X runs along the wall.
-local function makeWall(model: Instance, name: string, length: number, cframe: CFrame)
-	local base = cframe * CFrame.new(0, -WALL_HEIGHT / 2, 0)
-	local upper = WALL_HEIGHT - COLLIDE_HEIGHT
-
-	makePart(model, name, Vector3.new(length, COLLIDE_HEIGHT, WALL_THICKNESS), base * CFrame.new(0, COLLIDE_HEIGHT / 2, 0), WALL_COLOR, Enum.Material.Cobblestone)
-	makeDecor(model, `{name}Upper`, Vector3.new(length, upper, WALL_THICKNESS), base * CFrame.new(0, COLLIDE_HEIGHT + upper / 2, 0), WALL_COLOR, Enum.Material.Cobblestone)
-
-	makeDecor(model, `{name}Cap`, Vector3.new(length + 0.5, 0.8, WALL_THICKNESS + 0.6), base * CFrame.new(0, WALL_HEIGHT - 0.4, 0), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, `{name}Frieze`, Vector3.new(length, 0.5, WALL_THICKNESS + 0.4), base * CFrame.new(0, WALL_HEIGHT - 1.2, 0), PILLAR_COLOR, Enum.Material.Granite)
-	makeDecor(model, `{name}Course`, Vector3.new(length, 0.4, WALL_THICKNESS + 0.35), base * CFrame.new(0, BAY_TOP + 0.8, 0), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, `{name}Skirt`, Vector3.new(length + 0.35, 1.0, WALL_THICKNESS + 0.35), base * CFrame.new(0, 0.5, 0), TRIM_COLOR, Enum.Material.Slate)
-end
-
--- A buttress running the full height of the wall, with a moulded foot and a
--- carved capital where the bay arches spring from.
-local function addButtress(model: Instance, at: CFrame)
-	makeDecor(model, "Buttress", Vector3.new(2.0, WALL_HEIGHT - 1.6, 0.7), at * CFrame.new(0, (WALL_HEIGHT - 1.6) / 2, 0), PILLAR_COLOR, Enum.Material.Granite)
-	makeDecor(model, "ButtressFoot", Vector3.new(2.6, 1.0, 1.1), at * CFrame.new(0, 0.5, 0), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, "ButtressCapital", Vector3.new(2.6, 0.7, 1.1), at * CFrame.new(0, BAY_TOP, 0), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, "ButtressCrown", Vector3.new(2.3, 0.6, 0.9), at * CFrame.new(0, WALL_HEIGHT - 1.8, 0), TRIM_COLOR, Enum.Material.Slate)
-end
-
--- A recessed bay between two buttresses: a sunken panel with a moulded head.
--- This is most of what makes a long wall read as built rather than extruded.
-local function addBay(model: Instance, at: CFrame, width: number)
-	makeDecor(model, "BayPanel", Vector3.new(width, BAY_TOP - 2.4, 0.3), at * CFrame.new(0, (BAY_TOP - 2.4) / 2 + 1.2, 0), rgb(Palette.shade(Palette.WALL, 0.82)), Enum.Material.Cobblestone)
-	makeDecor(model, "BayHead", Vector3.new(width + 0.5, 0.5, 0.55), at * CFrame.new(0, BAY_TOP - 1.0, 0), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, "BaySill", Vector3.new(width + 0.5, 0.4, 0.55), at * CFrame.new(0, 1.2, 0), TRIM_COLOR, Enum.Material.Slate)
-end
-
---[[ Statues ]]
-
--- A stone sentinel on a plinth: a hooded figure in a long robe, both hands
--- resting on a sword driven point-down in front of it. Carved from a paler
--- stone than the wall so it reads as a figure and not a buttress.
---
--- Only the plinth collides. The figure stands on top of it and against a
--- wall, so the plinth is the only part of it anyone can walk into anyway.
-local function addStatue(model: Instance, base: CFrame)
-	makePart(model, "StatuePlinth", Vector3.new(3.2, 2.0, 3.0), base * CFrame.new(0, 1.0, 0), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, "StatuePlinthCap", Vector3.new(3.8, 0.45, 3.6), base * CFrame.new(0, 2.2, 0), PILLAR_COLOR, Enum.Material.Granite)
-	makeDecor(model, "StatuePlinthFoot", Vector3.new(3.8, 0.45, 3.6), base * CFrame.new(0, 0.22, 0), PILLAR_COLOR, Enum.Material.Granite)
-
-	-- The figure, from the hem up. What makes a stack of boxes read as a
-	-- person is the taper: a wide hem, a waist narrower than both, shoulders
-	-- wider than everything, and a head big enough to find. Equal-width boxes
-	-- read as a pillar however many you stack. Marble rather than Granite for
-	-- the same reason — at this size Granite's speckle is just noise, and the
-	-- silhouette is doing all the work.
-	local feet = base * CFrame.new(0, 2.4, 0)
-	makeDecor(model, "StatueHem", Vector3.new(2.7, 1.4, 2.1), feet * CFrame.new(0, 0.7, 0), STATUE_COLOR, Enum.Material.Marble)
-	makeDecor(model, "StatueRobe", Vector3.new(1.9, 3.0, 1.5), feet * CFrame.new(0, 2.9, 0), STATUE_COLOR, Enum.Material.Marble)
-	makeDecor(model, "StatueChest", Vector3.new(2.3, 2.0, 1.5), feet * CFrame.new(0, 5.4, 0), STATUE_COLOR, Enum.Material.Marble)
-	makeDecor(model, "StatueMantle", Vector3.new(3.4, 0.8, 2.1), feet * CFrame.new(0, 6.6, 0), PILLAR_COLOR, Enum.Material.Marble)
-
-	-- Arms held clear of the body, folded down onto the pommel.
-	makeDecor(model, "StatueArmRight", Vector3.new(0.6, 2.7, 0.6), feet * CFrame.new(1.35, 5.2, -0.5) * CFrame.Angles(math.rad(-12), 0, math.rad(7)), STATUE_COLOR, Enum.Material.Marble)
-	makeDecor(model, "StatueArmLeft", Vector3.new(0.6, 2.7, 0.6), feet * CFrame.new(-1.35, 5.2, -0.5) * CFrame.Angles(math.rad(-12), 0, math.rad(-7)), STATUE_COLOR, Enum.Material.Marble)
-
-	-- Head on a visible neck, under a great helm with a blank visor.
-	makeDecor(model, "StatueNeck", Vector3.new(0.7, 0.6, 0.7), feet * CFrame.new(0, 7.1, 0), STATUE_COLOR, Enum.Material.Marble)
-	makeDecor(model, "StatueHead", Vector3.new(1.3, 1.4, 1.3), feet * CFrame.new(0, 7.9, 0), STATUE_COLOR, Enum.Material.Marble)
-	makeDecor(model, "StatueHelm", Vector3.new(1.55, 1.1, 1.55), feet * CFrame.new(0, 8.2, 0), PILLAR_COLOR, Enum.Material.Marble)
-	makeDecor(model, "StatueVisor", Vector3.new(1.1, 0.25, 0.12), feet * CFrame.new(0, 7.9, -0.72), rgb(Palette.VOID))
-	makeDecor(model, "StatueCrest", Vector3.new(0.3, 1.1, 1.7), feet * CFrame.new(0, 9.2, 0), PILLAR_COLOR, Enum.Material.Marble)
-
-	-- The sword: point down in front of it, hands resting over the pommel.
-	makeDecor(model, "StatueSwordPommel", Vector3.new(0.55, 0.55, 0.55), feet * CFrame.new(0, 4.6, -1.05), PILLAR_COLOR, Enum.Material.Marble)
-	makeDecor(model, "StatueSwordGrip", Vector3.new(0.4, 1.3, 0.4), feet * CFrame.new(0, 3.85, -1.05), STATUE_COLOR, Enum.Material.Marble)
-	makeDecor(model, "StatueSwordGuard", Vector3.new(2.2, 0.35, 0.45), feet * CFrame.new(0, 3.1, -1.05), PILLAR_COLOR, Enum.Material.Marble)
-	makeDecor(model, "StatueSwordBlade", Vector3.new(0.5, 2.6, 0.24), feet * CFrame.new(0, 1.7, -1.05), STATUE_COLOR, Enum.Material.Marble)
-	makeDecor(model, "StatueSwordTip", Vector3.new(0.3, 0.5, 0.2), feet * CFrame.new(0, 0.2, -1.05), STATUE_COLOR, Enum.Material.Marble)
-end
+local part = Stonework.part
+local decor = Stonework.decor
 
 --[[ Doorways ]]
 
--- The ring of wedge stones over a doorway, with a keystone at the top, and a
--- carved tympanum filling the head above it. Each stone is rotated to sit
--- radially, so the ring reads as cut stone rather than a row of bricks.
--- `frame` looks out through the side; the ring is laid on the inner face.
+-- The ring of wedge stones over a doorway, an outer moulding around it, and
+-- the mark of the place above that. `frame` looks out through the side; the
+-- ring is laid on the inner face.
 local function addArch(model: Instance, frame: CFrame, wallZ: number)
 	local face = wallZ - WALL_THICKNESS / 2 - 0.25
-	for index = 1, VOUSSOIRS do
-		local angle = math.pi * (index - 0.5) / VOUSSOIRS
-		local isKeystone = index == math.ceil(VOUSSOIRS / 2)
-		local reach = if isKeystone then ARCH_RADIUS + 0.15 else ARCH_RADIUS
-		local stone = frame
-			* CFrame.new(math.cos(angle) * reach, ARCH_SPRING + math.sin(angle) * reach, face)
-			* CFrame.Angles(0, 0, angle)
 
-		makeDecor(
-			model,
-			if isKeystone then "Keystone" else "Voussoir",
-			Vector3.new(if isKeystone then 1.8 else 1.4, 2.6, 0.8),
-			stone,
-			if isKeystone then TRIM_COLOR else PILLAR_COLOR,
-			Enum.Material.Granite
-		)
-	end
+	Stonework.arch(model, frame, {
+		springAt = ARCH_SPRING,
+		radius = ARCH_RADIUS,
+		face = face,
+		stones = VOUSSOIRS,
+		depth = 2.8,
+		thickness = 1.6,
+	})
 
-	-- An outer moulding around the ring, and the mark of the place above it.
-	makeDecor(model, "ArchLabel", Vector3.new(RoomTemplates.DOOR_WIDTH + 5.6, 0.6, 0.6), frame * CFrame.new(0, ARCH_SPRING + ARCH_RADIUS + 1.9, face), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, "ArchSigil", Vector3.new(1.4, 1.4, 0.3), frame * CFrame.new(0, ARCH_SPRING + ARCH_RADIUS + 3.2, face) * CFrame.Angles(0, 0, math.rad(45)), GOLD_COLOR, Enum.Material.Metal)
+	decor(model, "ArchLabel", Vector3.new(RoomTemplates.DOOR_WIDTH + 6.4, 0.6, 0.6), frame * CFrame.new(0, ARCH_SPRING + ARCH_RADIUS + 2.2, face), Stonework.TRIM, Enum.Material.Slate)
+	decor(model, "ArchSigil", Vector3.new(1.6, 1.6, 0.3), frame * CFrame.new(0, ARCH_SPRING + ARCH_RADIUS + 3.7, face) * CFrame.Angles(0, 0, math.rad(45)), Stonework.GOLD, Enum.Material.Metal)
 end
 
 -- One leaf of a pair of doors, standing open flat against the wall. Doors are
 -- never shut — a shut door would block the corridor the room is reached by —
 -- so they are pure dressing, and say "this was built to be closed".
 local function addDoorLeaf(model: Instance, frame: CFrame, sign: number, wallZ: number)
-	local width = 3.6
-	local height = 8.2
+	local width = 4.4
+	local height = ARCH_SPRING - 0.8
 	local hinge = sign * (RoomTemplates.DOOR_WIDTH / 2 + 0.2)
 	local leaf = frame
 		* CFrame.new(hinge + sign * width / 2, height / 2, wallZ - WALL_THICKNESS / 2 - 0.5)
 		* CFrame.Angles(0, math.rad(-8 * sign), 0)
 
-	makeDecor(model, "DoorLeaf", Vector3.new(width, height, 0.4), leaf, WOOD_COLOR, Enum.Material.WoodPlanks)
+	decor(model, "DoorLeaf", Vector3.new(width, height, 0.4), leaf, Stonework.WOOD, Enum.Material.WoodPlanks)
 	for _, y in { height / 2 - 1.0, 0, -height / 2 + 1.0 } do
-		makeDecor(model, "DoorBand", Vector3.new(width + 0.12, 0.45, 0.55), leaf * CFrame.new(0, y, 0), IRON_COLOR, Enum.Material.Metal)
+		decor(model, "DoorBand", Vector3.new(width + 0.12, 0.45, 0.55), leaf * CFrame.new(0, y, 0), Stonework.IRON, Enum.Material.Metal)
 	end
-	makeDecor(model, "DoorBrace", Vector3.new(width + 0.12, 0.3, 0.5), leaf * CFrame.Angles(0, 0, math.rad(40)), RUST_COLOR, Enum.Material.Metal)
-	makeDecor(model, "DoorRing", Vector3.new(0.7, 0.7, 0.2), leaf * CFrame.new(-sign * (width / 2 - 0.7), 0.6, -0.3), RUST_COLOR, Enum.Material.Metal)
-end
-
---[[ Torches and light ]]
-
--- An iron sconce holding a burning brand. `cframe` is on the wall's inner
--- face, looking into the room.
-local function addTorch(model: Instance, cframe: CFrame, color: Color3)
-	makeDecor(model, "TorchBracket", Vector3.new(0.3, 0.3, 1.2), cframe * CFrame.new(0, -0.2, -0.6), IRON_COLOR, Enum.Material.Metal)
-	makeDecor(model, "TorchArm", Vector3.new(0.24, 1.0, 0.24), cframe * CFrame.new(0, 0.15, -1.1) * CFrame.Angles(math.rad(18), 0, 0), IRON_COLOR, Enum.Material.Metal)
-	makeDecor(model, "TorchBowl", Vector3.new(0.9, 0.55, 0.9), cframe * CFrame.new(0, 0.55, -1.25), IRON_COLOR, Enum.Material.Metal)
-
-	local head = makeDecor(model, "Torch", Vector3.new(0.45, 1.0, 0.45), cframe * CFrame.new(0, 0.95, -1.25), rgb(Palette.shade(Palette.ROT_WOOD, 0.8)), Enum.Material.Wood)
-
-	local fire = Instance.new("Fire")
-	fire.Size = 3
-	fire.Heat = 8
-	fire.Color = color
-	fire.SecondaryColor = color:Lerp(Color3.new(0, 0, 0), 0.5)
-	fire.Parent = head
-
-	local light = Instance.new("PointLight")
-	light.Color = color
-	light.Brightness = 2.6
-	light.Range = 30
-	light.Shadows = true
-	light.Parent = head
+	decor(model, "DoorBrace", Vector3.new(width + 0.12, 0.3, 0.5), leaf * CFrame.Angles(0, 0, math.rad(40)), Stonework.RUST, Enum.Material.Metal)
+	decor(model, "DoorRing", Vector3.new(0.7, 0.7, 0.2), leaf * CFrame.new(-sign * (width / 2 - 0.7), 0.6, -0.3), Stonework.RUST, Enum.Material.Metal)
 end
 
 --[[ One side of a room ]]
 
 -- Lays out a wall's bays: buttresses at regular intervals, a carved panel in
 -- each bay between them, and a statue in every other bay on a wall long
--- enough to carry one. Returns nothing; everything is decoration.
+-- enough to carry one.
 local function dressWall(model: Model, frame: CFrame, length: number, wallZ: number, hasDoor: boolean, statues: boolean)
-	local spacing = 13
+	-- Wider bays than the first pass, because the rooms are wider. Keeping the
+	-- old thirteen-stud rhythm at this size would have put twelve sentinels in
+	-- an average room — three hundred parts of statue per room, in a dungeon
+	-- that rebuilds itself every clear.
+	local spacing = 20
 	local count = math.max(math.floor(length / spacing) - 1, 0)
 	if count <= 0 then
 		return
@@ -321,7 +183,7 @@ local function dressWall(model: Model, frame: CFrame, length: number, wallZ: num
 	for index = 1, count do
 		local x = -length / 2 + step * index
 		if clear(x, 2.5) then
-			addButtress(model, frame * CFrame.new(x, 0, face - 0.35))
+			Stonework.buttress(model, frame * CFrame.new(x, 0, face - 0.35), WALL_HEIGHT, BAY_TOP, 2.4)
 		end
 	end
 
@@ -330,14 +192,18 @@ local function dressWall(model: Model, frame: CFrame, length: number, wallZ: num
 		local from = -length / 2 + step * index
 		local to = -length / 2 + step * (index + 1)
 		local centre = (from + to) / 2
-		local width = (to - from) - 2.6
+		local width = (to - from) - 3.0
 		if width < 3 or not clear(centre, width / 2 + 1) then
 			continue
 		end
 
-		addBay(model, frame * CFrame.new(centre, 0, face - 0.15), width)
+		Stonework.bay(model, frame * CFrame.new(centre, 0, face - 0.15), width, BAY_TOP)
+		-- No extra yaw: the wall frame's +Z points out through the wall, so
+		-- its -Z already points into the room, which is the way a statue
+		-- faces. The half-turn that used to be here turned every sentinel in
+		-- the game around to stare at the wall behind it.
 		if statues and index % 2 == 0 then
-			addStatue(model, frame * CFrame.new(centre, 0, face - 1.9) * CFrame.Angles(0, math.pi, 0))
+			Stonework.statue(model, frame * CFrame.new(centre, 0, face - 1.9))
 		end
 	end
 end
@@ -353,13 +219,13 @@ local function addSide(model: Model, centre: CFrame, size: number, side: Side, h
 		local segment = (size - RoomTemplates.DOOR_WIDTH) / 2
 		for _, sign in { -1, 1 } do
 			local x = sign * (RoomTemplates.DOOR_WIDTH / 2 + segment / 2)
-			makeWall(model, "WallSegment", segment + WALL_THICKNESS, frame * CFrame.new(x, WALL_HEIGHT / 2, wallZ))
+			Stonework.wall(model, "WallSegment", segment + WALL_THICKNESS, frame * CFrame.new(x, WALL_HEIGHT / 2, wallZ), WALL_SPEC)
 
 			-- A heavy post either side of the doorway, up to the springing.
-			local postX = sign * (RoomTemplates.DOOR_WIDTH / 2 + 0.7)
-			makePart(model, "DoorPost", Vector3.new(1.4, ARCH_SPRING, 2.0), frame * CFrame.new(postX, ARCH_SPRING / 2, wallZ), TRIM_COLOR, Enum.Material.Slate)
-			makeDecor(model, "DoorPostCap", Vector3.new(1.9, 0.5, 2.4), frame * CFrame.new(postX, ARCH_SPRING, wallZ), PILLAR_COLOR, Enum.Material.Granite)
-			makeDecor(model, "DoorPostFoot", Vector3.new(1.9, 0.5, 2.4), frame * CFrame.new(postX, 0.25, wallZ), PILLAR_COLOR, Enum.Material.Granite)
+			local postX = sign * (RoomTemplates.DOOR_WIDTH / 2 + 0.8)
+			part(model, "DoorPost", Vector3.new(1.6, ARCH_SPRING, 2.4), frame * CFrame.new(postX, ARCH_SPRING / 2, wallZ), Stonework.TRIM, Enum.Material.Slate)
+			decor(model, "DoorPostCap", Vector3.new(2.2, 0.5, 2.8), frame * CFrame.new(postX, ARCH_SPRING, wallZ), Stonework.PILLAR, Enum.Material.Granite)
+			decor(model, "DoorPostFoot", Vector3.new(2.2, 0.5, 2.8), frame * CFrame.new(postX, 0.25, wallZ), Stonework.PILLAR, Enum.Material.Granite)
 
 			addDoorLeaf(model, frame, sign, wallZ)
 		end
@@ -368,146 +234,45 @@ local function addSide(model: Model, centre: CFrame, size: number, side: Side, h
 		-- so the camera can follow a player through the doorway.
 		local solid = math.max(COLLIDE_HEIGHT - ARCH_SPRING, 0)
 		local head = WALL_HEIGHT - ARCH_SPRING
-		makePart(
+		part(
 			model,
 			"DoorHead",
-			Vector3.new(RoomTemplates.DOOR_WIDTH + 2.8, solid, WALL_THICKNESS),
+			Vector3.new(RoomTemplates.DOOR_WIDTH + 3.2, solid, WALL_THICKNESS),
 			frame * CFrame.new(0, ARCH_SPRING + solid / 2, wallZ),
-			WALL_COLOR,
+			Stonework.WALL,
 			Enum.Material.Cobblestone
 		)
-		makeDecor(
+		decor(
 			model,
 			"DoorHeadUpper",
-			Vector3.new(RoomTemplates.DOOR_WIDTH + 2.8, head - solid, WALL_THICKNESS),
+			Vector3.new(RoomTemplates.DOOR_WIDTH + 3.2, head - solid, WALL_THICKNESS),
 			frame * CFrame.new(0, ARCH_SPRING + solid + (head - solid) / 2, wallZ),
-			WALL_COLOR,
+			Stonework.WALL,
 			Enum.Material.Cobblestone
 		)
 		addArch(model, frame, wallZ)
 	else
-		makeWall(model, "Wall", size + WALL_THICKNESS * 2, frame * CFrame.new(0, WALL_HEIGHT / 2, wallZ))
+		Stonework.wall(model, "Wall", size + WALL_THICKNESS * 2, frame * CFrame.new(0, WALL_HEIGHT / 2, wallZ), WALL_SPEC)
 	end
 
 	dressWall(model, frame, size, wallZ, hasDoor, statues)
 
-	-- Torches either side of centre on bigger walls, one on smaller ones,
-	-- always clear of the doorway.
-	local offsets = if size >= 52 then { -size / 4, size / 4 } else { size / 4 }
-	for _, x in offsets do
+	-- Torches spaced along the wall, always clear of the doorway. A room this
+	-- size needs more than the two the first pass hung on it, or the middle of
+	-- every wall falls into the dark.
+	local lights = math.clamp(math.floor(size / 26), 1, 3)
+	for index = 1, lights do
+		local x = -size / 2 + (size / (lights + 1)) * index
+		if hasDoor and math.abs(x) < RoomTemplates.DOOR_WIDTH / 2 + 3 then
+			continue
+		end
 		local mount = frame * CFrame.new(x, TORCH_HEIGHT, size / 2)
 		local inward = frame * CFrame.new(x, TORCH_HEIGHT, 0)
-		addTorch(model, CFrame.lookAt(mount.Position, inward.Position), torchColor)
-	end
-end
-
---[[ Floor ]]
-
--- Flagstone seams: thin dark strips ruling the floor into slabs, a few
--- cracked ones, and an inlaid figure at the centre of the room. Far cheaper
--- than laying an actual grid of tiles, and from standing height it reads the
--- same.
-local function addFlagstones(model: Model, centre: CFrame, size: number)
-	local slab = 9
-	local lines = math.max(math.floor(size / slab) - 1, 1)
-	local step = size / (lines + 1)
-
-	for index = 1, lines do
-		local at = -size / 2 + step * index
-		makeDecor(model, "FloorSeam", Vector3.new(size, 0.06, 0.28), centre * CFrame.new(0, 0.02, at), MORTAR_COLOR, Enum.Material.Slate)
-		makeDecor(model, "FloorSeam", Vector3.new(0.28, 0.06, size), centre * CFrame.new(at, 0.02, 0), MORTAR_COLOR, Enum.Material.Slate)
-	end
-
-	-- A ringed figure set into the middle of the floor. Rooms are fought in
-	-- from the centre outward, so this is the piece of floor most often on
-	-- screen.
-	local ring = math.min(size * 0.3, 12)
-	makeDecor(model, "InlayOuter", Vector3.new(ring * 2, 0.07, ring * 2), centre * CFrame.new(0, 0.03, 0) * CFrame.Angles(0, math.rad(45), 0), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, "InlayInner", Vector3.new(ring * 1.5, 0.08, ring * 1.5), centre * CFrame.new(0, 0.04, 0), rgb(Palette.shade(Palette.FLOOR, 1.15)), Enum.Material.Slate)
-	for _, angle in { 0, 45, 90, 135 } do
-		makeDecor(model, "InlaySpoke", Vector3.new(ring * 1.9, 0.09, 0.5), centre * CFrame.new(0, 0.05, 0) * CFrame.Angles(0, math.rad(angle), 0), GOLD_COLOR, Enum.Material.Metal)
-	end
-	makeDecor(model, "InlayBoss", Vector3.new(2.2, 0.1, 2.2), centre * CFrame.new(0, 0.06, 0) * CFrame.Angles(0, math.rad(45), 0), GOLD_COLOR, Enum.Material.Metal)
-
-	-- A handful of slabs that have sunk or cracked.
-	for _ = 1, math.random(2, 4) do
-		local x = (math.random() - 0.5) * (size - 12)
-		local z = (math.random() - 0.5) * (size - 12)
-		local cracked = makeDecor(
-			model,
-			"CrackedSlab",
-			Vector3.new(slab * 0.8, 0.08, slab * 0.8),
-			centre * CFrame.new(x, 0.03, z) * CFrame.Angles(0, math.random() * math.pi, 0),
-			rgb(Palette.shade(Palette.FLOOR, 0.82)),
-			Enum.Material.Slate
-		)
-		cracked.CastShadow = false
+		Stonework.torch(model, CFrame.lookAt(mount.Position, inward.Position), torchColor)
 	end
 end
 
 --[[ Props ]]
-
-local function addBarrel(model: Instance, base: CFrame)
-	makeDecor(model, "Barrel", Vector3.new(1.7, 2.4, 1.7), base * CFrame.new(0, 1.2, 0), WOOD_COLOR, Enum.Material.WoodPlanks)
-	for _, y in { 0.6, 1.8 } do
-		makeDecor(model, "BarrelHoop", Vector3.new(1.85, 0.25, 1.85), base * CFrame.new(0, y, 0), RUST_COLOR, Enum.Material.Metal)
-	end
-end
-
-local function addCrate(model: Instance, base: CFrame)
-	local side = 1.6 + math.random() * 0.7
-	makeDecor(model, "Crate", Vector3.new(side, side, side), base * CFrame.new(0, side / 2, 0), WOOD_COLOR, Enum.Material.WoodPlanks)
-	makeDecor(model, "CrateBand", Vector3.new(side + 0.08, 0.2, side + 0.08), base * CFrame.new(0, side / 2, 0), rgb(Palette.shade(Palette.ROT_WOOD, 0.7)), Enum.Material.Wood)
-end
-
--- What is left of somebody who came this way before.
-local function addBones(model: Instance, base: CFrame)
-	makeDecor(model, "Skull", Vector3.new(0.7, 0.7, 0.8), base * CFrame.new(0, 0.35, 0) * CFrame.Angles(0, math.random() * math.pi, math.rad(20)), BONE_COLOR)
-	for _ = 1, 3 do
-		makeDecor(
-			model,
-			"Bone",
-			Vector3.new(0.22, 0.22, 1.5),
-			base * CFrame.new((math.random() - 0.5) * 1.8, 0.14, (math.random() - 0.5) * 1.8) * CFrame.Angles(0, math.random() * math.pi, math.rad(90)),
-			BONE_COLOR
-		)
-	end
-end
-
--- A chain hanging out of the dark overhead. Long, now that there is height
--- above to hang it from.
-local function addChain(model: Instance, top: CFrame, length: number)
-	local links = math.max(math.floor(length / 0.9), 1)
-	for index = 1, links do
-		makeDecor(
-			model,
-			"ChainLink",
-			Vector3.new(0.2, 0.8, 0.2),
-			top * CFrame.new(0, -index * 0.85, 0) * CFrame.Angles(0, if index % 2 == 0 then 0 else math.rad(90), 0),
-			IRON_COLOR,
-			Enum.Material.Metal
-		)
-	end
-	makeDecor(model, "ChainHook", Vector3.new(0.5, 0.5, 0.5), top * CFrame.new(0, -links * 0.85 - 0.4, 0), RUST_COLOR, Enum.Material.Metal)
-end
-
--- A banner hanging from the string course, with a bar across the top. Long
--- enough to fill the wall above the bays.
-local function addBanner(model: Instance, frame: CFrame, x: number, wallZ: number, color: Color3)
-	local face = wallZ - WALL_THICKNESS / 2 - 0.25
-	local top = WALL_HEIGHT - 2.2
-	makeDecor(model, "BannerRod", Vector3.new(4.2, 0.26, 0.26), frame * CFrame.new(x, top, face), IRON_COLOR, Enum.Material.Metal)
-	makeDecor(model, "Banner", Vector3.new(3.4, 9.0, 0.14), frame * CFrame.new(x, top - 4.6, face), color, Enum.Material.Fabric)
-	makeDecor(model, "BannerTail", Vector3.new(1.7, 1.6, 0.14), frame * CFrame.new(x, top - 9.8, face), color, Enum.Material.Fabric)
-	makeDecor(model, "BannerDevice", Vector3.new(1.5, 1.5, 0.08), frame * CFrame.new(x, top - 4.4, face - 0.1) * CFrame.Angles(0, 0, math.rad(45)), GOLD_COLOR, Enum.Material.Metal)
-end
-
--- Cobweb in the angle of two walls, at a height where it is actually seen.
-local function addCobweb(model: Instance, corner: CFrame)
-	local web = makeDecor(model, "Cobweb", Vector3.new(4.0, 4.0, 0.08), corner * CFrame.Angles(0, math.rad(45), 0), Color3.fromRGB(196, 196, 186), Enum.Material.Fabric)
-	web.Transparency = 0.62
-	web.CastShadow = false
-end
 
 -- Dressing that belongs to every room: things left in the corners, webs in
 -- the angles, and chains out of the dark above. Scaled to the room, kept to
@@ -517,11 +282,11 @@ local function addProps(model: Model, centre: CFrame, size: number)
 
 	for _, xSign in { -1, 1 } do
 		for _, zSign in { -1, 1 } do
-			addCobweb(model, centre * CFrame.new(xSign * (size / 2 - 1.8), 9.5, zSign * (size / 2 - 1.8)))
+			Stonework.cobweb(model, centre * CFrame.new(xSign * (size / 2 - 1.8), 11, zSign * (size / 2 - 1.8)), 5)
 		end
 	end
 
-	local clutter = math.max(math.floor(size / 14), 2)
+	local clutter = math.max(math.floor(size / 12), 3)
 	for _ = 1, clutter do
 		local alongX = math.random() < 0.5
 		local along = (math.random() - 0.5) * (size - 14)
@@ -536,55 +301,52 @@ local function addProps(model: Model, centre: CFrame, size: number)
 
 		local roll = math.random()
 		if roll < 0.34 then
-			addBarrel(model, base)
+			Stonework.barrel(model, base)
 		elseif roll < 0.68 then
-			addCrate(model, base)
+			Stonework.crate(model, base)
 		else
-			addBones(model, base)
+			Stonework.bones(model, base)
 		end
 	end
 
+	-- Chains are built link by link, so a long one is twenty parts. Two or
+	-- three short ones read the same from the floor as five long ones and cost
+	-- a fifth as much.
 	for _ = 1, math.random(2, 3) do
-		local x = (math.random() - 0.5) * (size - 18)
-		local z = (math.random() - 0.5) * (size - 18)
-		addChain(model, centre * CFrame.new(x, WALL_HEIGHT - 1.0, z), 6 + math.random() * 6)
+		local x = (math.random() - 0.5) * (size - 20)
+		local z = (math.random() - 0.5) * (size - 20)
+		Stonework.chain(model, centre * CFrame.new(x, WALL_HEIGHT - 1.4, z), 7 + math.random() * 7)
 	end
 end
 
--- Ribs across the ceiling line. There is no ceiling — the camera looks down
--- through it — but ribs at the top of the walls close the room off overhead,
--- and at this height they are far above anything the camera does.
-local function addCeilingRibs(model: Model, centre: CFrame, size: number)
-	local spacing = 15
-	local count = math.max(math.floor(size / spacing), 1)
-	local step = size / (count + 1)
-	for index = 1, count do
-		local z = -size / 2 + step * index
-		makeDecor(model, "CeilingRib", Vector3.new(size + 2, 1.0, 1.4), centre * CFrame.new(0, WALL_HEIGHT - 0.6, z), TRIM_COLOR, Enum.Material.Slate)
-		makeDecor(model, "CeilingRibTrim", Vector3.new(size + 2, 0.3, 1.9), centre * CFrame.new(0, WALL_HEIGHT - 1.2, z), PILLAR_COLOR, Enum.Material.Granite)
+-- A few loose stones along the walls, placed at random so no two rooms look
+-- quite alike. Kept to the edges and out of doorways.
+local function addRubble(model: Model, centre: CFrame, size: number)
+	local edge = size / 2 - 2.5
+	for _ = 1, math.random(4, 8) do
+		local alongX = math.random() < 0.5
+		local along = (math.random() - 0.5) * (size - 10)
+		if math.abs(along) < RoomTemplates.DOOR_WIDTH / 2 + 2 then
+			continue
+		end
+
+		local wallSide = if math.random() < 0.5 then -edge else edge
+		local x = if alongX then along else wallSide
+		local z = if alongX then wallSide else along
+		Stonework.rubbleStone(model, centre * CFrame.new(x, 0, z))
 	end
 end
 
 --[[ Variants ]]
 
-local function addPillar(model: Model, base: CFrame, height: number)
-	makePart(model, "Pillar", Vector3.new(2.4, math.min(height, COLLIDE_HEIGHT), 2.4), base * CFrame.new(0, math.min(height, COLLIDE_HEIGHT) / 2, 0), PILLAR_COLOR, Enum.Material.Granite)
-	if height > COLLIDE_HEIGHT then
-		makeDecor(model, "PillarUpper", Vector3.new(2.4, height - COLLIDE_HEIGHT, 2.4), base * CFrame.new(0, COLLIDE_HEIGHT + (height - COLLIDE_HEIGHT) / 2, 0), PILLAR_COLOR, Enum.Material.Granite)
-	end
-	makeDecor(model, "PillarBase", Vector3.new(3.4, 1.0, 3.4), base * CFrame.new(0, 0.5, 0), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, "PillarCapital", Vector3.new(3.4, 0.8, 3.4), base * CFrame.new(0, height - 0.4, 0), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, "PillarNecking", Vector3.new(2.8, 0.4, 2.8), base * CFrame.new(0, height - 1.2, 0), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, "PillarBand", Vector3.new(2.7, 0.5, 2.7), base * CFrame.new(0, height * 0.5, 0), TRIM_COLOR, Enum.Material.Slate)
-end
-
 -- Four pillars, a third of the way in from each corner: cover to break a
--- Spitter's line, and something to circle a melee enemy around.
+-- Spitter's line, and something to circle a melee enemy around. Floor to
+-- ceiling, now that there is a ceiling for them to reach.
 local function addPillarsLayout(model: Model, centre: CFrame, size: number)
 	local at = size * 0.28
 	for _, xSign in { -1, 1 } do
 		for _, zSign in { -1, 1 } do
-			addPillar(model, centre * CFrame.new(xSign * at, 0, zSign * at), 18)
+			Stonework.pillar(model, centre * CFrame.new(xSign * at, 0, zSign * at), WALL_HEIGHT, PILLAR_THICKNESS, COLLIDE_HEIGHT)
 		end
 	end
 end
@@ -593,20 +355,20 @@ end
 -- of a telegraph. Kept out of the centre, where enemies spawn, and off the
 -- straight lines between doors.
 local function addRuins(model: Model, centre: CFrame, size: number)
-	for i = 0, 3 do
-		local angle = math.rad(45 + 90 * i) + (math.random() - 0.5) * 0.3
-		local radius = size * (0.28 + math.random() * 0.06)
-		local length = 2.5 + math.random() * 2
-		local height = 2 + math.random() * 1.5
+	for i = 0, 5 do
+		local angle = math.rad(30 + 60 * i) + (math.random() - 0.5) * 0.3
+		local radius = size * (0.26 + math.random() * 0.08)
+		local length = 4 + math.random() * 4
+		local height = 2.4 + math.random() * 1.8
 		local base = centre * CFrame.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
 			* CFrame.Angles(0, angle + math.pi / 2 + (math.random() - 0.5) * 0.5, 0)
 
-		makePart(model, "RuinWall", Vector3.new(length, height, 1.2), base * CFrame.new(0, height / 2, 0), WALL_COLOR, Enum.Material.Cobblestone)
-		makeDecor(model, "RuinCap", Vector3.new(length + 0.3, 0.3, 1.5), base * CFrame.new(0, height, 0), TRIM_COLOR, Enum.Material.Slate)
-		makeDecor(model, "RuinRubble", Vector3.new(1.2, 0.8, 1), base * CFrame.new(length / 2 + 0.6, 0.4, 0.8) * CFrame.Angles(0, 0.6, 0.3), RUBBLE_COLOR, Enum.Material.Slate)
+		part(model, "RuinWall", Vector3.new(length, height, 1.4), base * CFrame.new(0, height / 2, 0), Stonework.WALL, Enum.Material.Cobblestone)
+		decor(model, "RuinCap", Vector3.new(length + 0.3, 0.3, 1.7), base * CFrame.new(0, height, 0), Stonework.TRIM, Enum.Material.Slate)
+		decor(model, "RuinRubble", Vector3.new(1.2, 0.8, 1), base * CFrame.new(length / 2 + 0.6, 0.4, 0.8) * CFrame.Angles(0, 0.6, 0.3), Stonework.RUBBLE, Enum.Material.Slate)
 		-- A broken column stump beside the ruin.
 		if i % 2 == 0 then
-			makeDecor(model, "BrokenColumn", Vector3.new(1.8, 2.6 + math.random() * 2, 1.8), base * CFrame.new(-length / 2 - 1.4, 1.5, -0.5), PILLAR_COLOR, Enum.Material.Granite)
+			decor(model, "BrokenColumn", Vector3.new(2.6, 3.4 + math.random() * 3, 2.6), base * CFrame.new(-length / 2 - 1.8, 1.9, -0.5), Stonework.PILLAR, Enum.Material.Granite)
 		end
 	end
 end
@@ -617,88 +379,48 @@ end
 local function addHall(model: Model, centre: CFrame, size: number, entrance: Side?)
 	local towardThrone = centre * CFrame.Angles(0, SIDE_YAW[entrance or "South"] + math.pi, 0)
 
-	for _, x in { -size * 0.34, size * 0.34 } do
+	for _, x in { -size * 0.3, size * 0.3 } do
 		for _, z in { -size * 0.3, 0, size * 0.3 } do
-			addPillar(model, towardThrone * CFrame.new(x, 0, z), 20)
+			Stonework.pillar(model, towardThrone * CFrame.new(x, 0, z), WALL_HEIGHT, PILLAR_THICKNESS + 1, COLLIDE_HEIGHT)
 		end
 	end
 
-	-- Sentinels down the processional way, facing the aisle the player walks.
+	-- Sentinels down the processional way, turned a quarter onto the aisle the
+	-- player walks up. A statue faces its own -Z, so the one standing to the
+	-- right of the aisle turns +90 to look back across it, not -90.
 	for _, sign in { -1, 1 } do
 		for _, z in { -size * 0.15, size * 0.15 } do
-			addStatue(model, towardThrone * CFrame.new(sign * size * 0.22, 0, z) * CFrame.Angles(0, if sign > 0 then math.rad(-90) else math.rad(90), 0))
+			Stonework.statue(model, towardThrone * CFrame.new(sign * size * 0.19, 0, z) * CFrame.Angles(0, sign * math.rad(90), 0), 1.3)
 		end
 	end
 
 	local throneBack = towardThrone * CFrame.new(0, 0, size / 2 - 2)
-	makePart(model, "ThroneDais", Vector3.new(14, 0.8, 6), throneBack * CFrame.new(0, 0.4, -1.4), TRIM_COLOR, Enum.Material.Slate)
-	makePart(model, "ThroneDaisUpper", Vector3.new(10, 0.8, 4), throneBack * CFrame.new(0, 1.2, -0.8), TRIM_COLOR, Enum.Material.Slate)
-	makeDecor(model, "ThroneStep", Vector3.new(16, 0.4, 1.6), throneBack * CFrame.new(0, 0.2, -4.2), TRIM_COLOR, Enum.Material.Slate)
-	makePart(model, "ThroneSeat", Vector3.new(4.4, 2.8, 3.2), throneBack * CFrame.new(0, 3.0, -0.5), IRON_COLOR, Enum.Material.Metal)
-	makeDecor(model, "ThroneBack", Vector3.new(5.0, 12, 0.9), throneBack * CFrame.new(0, 7.6, 0.8), IRON_COLOR, Enum.Material.Metal)
-	makeDecor(model, "ThroneArmRight", Vector3.new(0.8, 0.8, 3.2), throneBack * CFrame.new(2.4, 4.4, -0.5), IRON_COLOR, Enum.Material.Metal)
-	makeDecor(model, "ThroneArmLeft", Vector3.new(0.8, 0.8, 3.2), throneBack * CFrame.new(-2.4, 4.4, -0.5), IRON_COLOR, Enum.Material.Metal)
-	for _, x in { -2.4, 0, 2.4 } do
-		makeDecor(model, "ThroneSpike", Vector3.new(0.45, 2.2, 0.45), throneBack * CFrame.new(x, 14.6, 0.8), GOLD_COLOR, Enum.Material.Metal)
+	part(model, "ThroneDais", Vector3.new(18, 0.8, 8), throneBack * CFrame.new(0, 0.4, -1.8), Stonework.TRIM, Enum.Material.Slate)
+	part(model, "ThroneDaisUpper", Vector3.new(13, 0.8, 5.4), throneBack * CFrame.new(0, 1.2, -1.0), Stonework.TRIM, Enum.Material.Slate)
+	decor(model, "ThroneStep", Vector3.new(21, 0.4, 2.0), throneBack * CFrame.new(0, 0.2, -5.6), Stonework.TRIM, Enum.Material.Slate)
+	part(model, "ThroneSeat", Vector3.new(5.4, 3.2, 3.8), throneBack * CFrame.new(0, 3.2, -0.6), Stonework.IRON, Enum.Material.Metal)
+	decor(model, "ThroneBack", Vector3.new(6.2, 16, 1.0), throneBack * CFrame.new(0, 9.4, 0.9), Stonework.IRON, Enum.Material.Metal)
+	decor(model, "ThroneArmRight", Vector3.new(0.9, 0.9, 3.8), throneBack * CFrame.new(3.0, 4.8, -0.6), Stonework.IRON, Enum.Material.Metal)
+	decor(model, "ThroneArmLeft", Vector3.new(0.9, 0.9, 3.8), throneBack * CFrame.new(-3.0, 4.8, -0.6), Stonework.IRON, Enum.Material.Metal)
+	for _, x in { -2.8, 0, 2.8 } do
+		decor(model, "ThroneSpike", Vector3.new(0.5, 2.6, 0.5), throneBack * CFrame.new(x, 18.6, 0.9), Stonework.GOLD, Enum.Material.Metal)
 	end
-	makeDecor(model, "ThroneSigil", Vector3.new(2.4, 2.4, 0.25), throneBack * CFrame.new(0, 10.5, 0.35) * CFrame.Angles(0, 0, math.rad(45)), GHOST_FIRE, Enum.Material.Neon)
+	decor(model, "ThroneSigil", Vector3.new(3.0, 3.0, 0.25), throneBack * CFrame.new(0, 13, 0.4) * CFrame.Angles(0, 0, math.rad(45)), Stonework.GHOST_FIRE, Enum.Material.Neon)
 
 	-- Banners down the long walls, in his colour.
 	for _, sign in { -1, 1 } do
 		local wall = towardThrone * CFrame.Angles(0, sign * math.rad(90), 0)
-		for _, z in { -size * 0.22, size * 0.22 } do
-			addBanner(model, wall, z, size / 2 + WALL_THICKNESS / 2, BANNER_COLOR)
+		for _, z in { -size * 0.24, 0, size * 0.24 } do
+			Stonework.banner(model, wall, z, WALL_HEIGHT - 3.0, size / 2 + WALL_THICKNESS / 2 - 0.3, Stonework.CRIMSON, 1.4)
 		end
 	end
 
-	for _, x in { -7.5, 7.5 } do
-		local brazier = makePart(model, "Brazier", Vector3.new(2.2, 3.2, 2.2), throneBack * CFrame.new(x, 1.6, -2.0), IRON_COLOR, Enum.Material.Metal)
-		makeDecor(model, "BrazierBowl", Vector3.new(3.0, 0.9, 3.0), brazier.CFrame * CFrame.new(0, 1.7, 0), IRON_COLOR, Enum.Material.Metal)
-		local flames = makeDecor(model, "Flames", Vector3.new(1.6, 0.2, 1.6), brazier.CFrame * CFrame.new(0, 2.2, 0), GHOST_FIRE, Enum.Material.Neon)
-
-		local fire = Instance.new("Fire")
-		fire.Size = 5
-		fire.Heat = 10
-		fire.Color = GHOST_FIRE
-		fire.SecondaryColor = Color3.fromRGB(30, 60, 140)
-		fire.Parent = flames
-
-		local light = Instance.new("PointLight")
-		light.Color = GHOST_FIRE
-		light.Brightness = 3.5
-		light.Range = 34
-		light.Shadows = true
-		light.Parent = flames
+	for _, x in { -9.5, 9.5 } do
+		Stonework.brazier(model, throneBack * CFrame.new(x, 0, -3.0), Stonework.GHOST_FIRE, 1.3)
 	end
 end
 
--- A few loose stones along the walls, placed at random so no two rooms look
--- quite alike. Kept to the edges and out of doorways.
-local function addRubble(model: Model, centre: CFrame, size: number)
-	local edge = size / 2 - 2.5
-	for _ = 1, math.random(3, 6) do
-		local alongX = math.random() < 0.5
-		local along = (math.random() - 0.5) * (size - 10)
-		if math.abs(along) < RoomTemplates.DOOR_WIDTH / 2 + 2 then
-			continue
-		end
-
-		local wallSide = if math.random() < 0.5 then -edge else edge
-		local x = if alongX then along else wallSide
-		local z = if alongX then wallSide else along
-
-		local stone = 0.6 + math.random() * 1.2
-		local rock = makeDecor(
-			model,
-			"Rubble",
-			Vector3.new(stone, stone * 0.6, stone * (0.8 + math.random() * 0.4)),
-			centre * CFrame.new(x, stone * 0.25, z) * CFrame.Angles(0, math.random() * math.pi, math.rad(math.random(-15, 15))),
-			RUBBLE_COLOR,
-			Enum.Material.Slate
-		)
-		rock.CastShadow = false
-	end
-end
+--[[ Build ]]
 
 -- `origin` is the room's floor centre in the world.
 function RoomTemplates.build(spec: RoomSpec, origin: CFrame): Room
@@ -709,18 +431,30 @@ function RoomTemplates.build(spec: RoomSpec, origin: CFrame): Room
 	local model = Instance.new("Model")
 	model.Name = `{spec.variant}Room`
 
-	makePart(model, "Floor", Vector3.new(size + WALL_THICKNESS * 2, 1, size + WALL_THICKNESS * 2), centre * CFrame.new(0, -0.5, 0), FLOOR_COLOR, Enum.Material.Slate)
-	addFlagstones(model, centre, size)
+	part(model, "Floor", Vector3.new(size + WALL_THICKNESS * 2, 1, size + WALL_THICKNESS * 2), centre * CFrame.new(0, -0.5, 0), Stonework.FLOOR, Enum.Material.Slate)
+	Stonework.flagstones(model, centre, size, size)
+	Stonework.floorInlay(model, centre, math.min(size * 0.22, 14))
 
 	-- Only rooms with wall enough to carry them get sentinels; a small room
 	-- lined with statues reads as cluttered, not grand.
-	local statues = size >= 40 and spec.variant ~= "Hall"
+	local statues = size >= STATUE_MIN_SIZE and spec.variant ~= "Hall"
 
 	for side in SIDE_YAW do
 		addSide(model, centre, size, side, spec.doors[side] == true, torchColor, statues)
 	end
 
-	addCeilingRibs(model, centre, size)
+	-- The ceiling goes on last, and is what makes the room a room: the sky is
+	-- shut out, and the torches on the walls become the only light in it.
+	-- Simpler than the hub's — ribs one way and no coffering, because a crypt
+	-- is not a cathedral and there are a great many of them.
+	Stonework.ceiling(model, centre, {
+		height = WALL_HEIGHT,
+		sizeX = size,
+		sizeZ = size,
+		ribSpacing = 18,
+		coffered = false,
+	})
+
 	addRubble(model, centre, size)
 	addProps(model, centre, size)
 
@@ -760,41 +494,58 @@ function RoomTemplates.leashBounds(room: Room, inset: number): Bounds
 end
 
 -- A walled passage centred on `centre` (floor level), `length` long, running
--- east-west when `alongX`, otherwise north-south. Walled so nobody walks off
--- the edge into the void, and kept low so the halls it joins feel tall.
+-- east-west when `alongX`, otherwise north-south. Walled and roofed so nobody
+-- walks off the edge into the void, and kept low so the halls it joins feel
+-- tall.
 function RoomTemplates.buildCorridor(parent: Instance, centre: Vector3, length: number, alongX: boolean): Model
 	local model = Instance.new("Model")
 	model.Name = "Corridor"
 
 	-- Local Z runs along the corridor.
 	local frame = CFrame.new(centre) * CFrame.Angles(0, if alongX then math.rad(90) else 0, 0)
-	makePart(model, "Floor", Vector3.new(RoomTemplates.DOOR_WIDTH, 1, length), frame * CFrame.new(0, -0.5, 0), FLOOR_COLOR, Enum.Material.Slate)
+	part(model, "Floor", Vector3.new(RoomTemplates.DOOR_WIDTH, 1, length), frame * CFrame.new(0, -0.5, 0), Stonework.FLOOR, Enum.Material.Slate)
 
 	for _, sign in { -1, 1 } do
 		local x = sign * (RoomTemplates.DOOR_WIDTH / 2 + WALL_THICKNESS / 2)
 		local wall = frame * CFrame.new(x, CORRIDOR_HEIGHT / 2, 0) * CFrame.Angles(0, math.rad(90), 0)
-		makePart(model, "CorridorWall", Vector3.new(length, CORRIDOR_HEIGHT, WALL_THICKNESS), wall, WALL_COLOR, Enum.Material.Cobblestone)
-		makeDecor(model, "CorridorSkirt", Vector3.new(length, 0.9, WALL_THICKNESS + 0.3), wall * CFrame.new(0, -CORRIDOR_HEIGHT / 2 + 0.45, 0), TRIM_COLOR, Enum.Material.Slate)
-		makeDecor(model, "CorridorCap", Vector3.new(length, 0.6, WALL_THICKNESS + 0.4), wall * CFrame.new(0, CORRIDOR_HEIGHT / 2 - 0.3, 0), TRIM_COLOR, Enum.Material.Slate)
+		part(model, "CorridorWall", Vector3.new(length, CORRIDOR_HEIGHT, WALL_THICKNESS), wall, Stonework.WALL, Enum.Material.Cobblestone)
+		decor(model, "CorridorSkirt", Vector3.new(length, 0.9, WALL_THICKNESS + 0.3), wall * CFrame.new(0, -CORRIDOR_HEIGHT / 2 + 0.45, 0), Stonework.TRIM, Enum.Material.Slate)
+		decor(model, "CorridorCap", Vector3.new(length, 0.6, WALL_THICKNESS + 0.4), wall * CFrame.new(0, CORRIDOR_HEIGHT / 2 - 0.3, 0), Stonework.TRIM, Enum.Material.Slate)
 	end
 
-	-- Ribs overhead, so the passage reads as tunnelled rather than open.
+	-- A vaulted lid over the passage, with ribs under it.
+	local roof = decor(
+		model,
+		"CorridorRoof",
+		Vector3.new(RoomTemplates.DOOR_WIDTH + WALL_THICKNESS * 2 + 0.4, 1.2, length),
+		frame * CFrame.new(0, CORRIDOR_HEIGHT + 0.6, 0),
+		Stonework.WALL_DARK,
+		Enum.Material.Cobblestone
+	)
+	roof.CastShadow = true
+
 	local ribs = math.max(math.floor(length / 6), 1)
 	local ribStep = length / (ribs + 1)
 	for index = 1, ribs do
 		local z = -length / 2 + ribStep * index
-		makeDecor(model, "CorridorRib", Vector3.new(RoomTemplates.DOOR_WIDTH + 2, 0.9, 1.1), frame * CFrame.new(0, CORRIDOR_HEIGHT - 0.5, z), TRIM_COLOR, Enum.Material.Slate)
+		decor(model, "CorridorRib", Vector3.new(RoomTemplates.DOOR_WIDTH + 2, 0.9, 1.1), frame * CFrame.new(0, CORRIDOR_HEIGHT - 0.5, z), Stonework.TRIM, Enum.Material.Slate)
 	end
 
-	-- One lantern overhead, so the walk between rooms isn't pitch dark.
-	local lantern = makeDecor(model, "Lantern", Vector3.new(0.8, 1, 0.8), frame * CFrame.new(0, CORRIDOR_HEIGHT - 3, 0), Color3.fromRGB(255, 190, 110), Enum.Material.Neon)
-	makeDecor(model, "LanternCage", Vector3.new(1.1, 1.3, 1.1), frame * CFrame.new(0, CORRIDOR_HEIGHT - 3, 0), IRON_COLOR, Enum.Material.Metal).Transparency = 0.55
-	makeDecor(model, "LanternChain", Vector3.new(0.12, 2.2, 0.12), frame * CFrame.new(0, CORRIDOR_HEIGHT - 1.4, 0), IRON_COLOR, Enum.Material.Metal)
-	local light = Instance.new("PointLight")
-	light.Color = DEFAULT_TORCH
-	light.Brightness = 1.4
-	light.Range = 16
-	light.Parent = lantern
+	-- Lanterns overhead, so the walk between rooms isn't pitch dark. More than
+	-- one now that a corridor is twenty studs long and roofed over.
+	local lanterns = math.max(math.round(length / 14), 1)
+	for index = 1, lanterns do
+		local z = -length / 2 + (length / (lanterns + 1)) * index
+		local lantern = decor(model, "Lantern", Vector3.new(0.8, 1, 0.8), frame * CFrame.new(0, CORRIDOR_HEIGHT - 3.5, z), Color3.fromRGB(255, 190, 110), Enum.Material.Neon)
+		decor(model, "LanternCage", Vector3.new(1.1, 1.3, 1.1), frame * CFrame.new(0, CORRIDOR_HEIGHT - 3.5, z), Stonework.IRON, Enum.Material.Metal).Transparency = 0.55
+		decor(model, "LanternChain", Vector3.new(0.12, 2.4, 0.12), frame * CFrame.new(0, CORRIDOR_HEIGHT - 1.8, z), Stonework.IRON, Enum.Material.Metal)
+
+		local light = Instance.new("PointLight")
+		light.Color = DEFAULT_TORCH
+		light.Brightness = 1.8
+		light.Range = 22
+		light.Parent = lantern
+	end
 
 	model.Parent = parent
 	return model

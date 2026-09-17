@@ -167,10 +167,10 @@ end
 -- Pays everyone armed when an enemy dies. Registered per enemy alongside its
 -- chest and its coins, by DungeonGenerator.
 --
--- Armed, rather than "in the dungeon": asking DungeonService who is in camp
--- would make this module require the dungeon, which already requires it.
--- Someone standing in camp with a weapon drawn while their party fights is
--- close enough, and erring toward paying is the right way to err.
+-- Armed, rather than "in the dungeon": asking LobbyService who is in the hub
+-- would make this module require the hub, and the dungeon already requires
+-- this one. Someone standing in the hub with a weapon drawn while their party
+-- fights is close enough, and erring toward paying is the right way to err.
 function ProgressionService.trackEnemy(enemy: EnemyAI.Enemy)
 	local def = enemy.def
 

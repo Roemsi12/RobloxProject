@@ -19,12 +19,14 @@ local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local RoomTemplates = require(script.Parent.Parent.Dungeon.RoomTemplates)
 local Duelist = require(script.Parent.Duelist)
 
--- Well clear of the dungeon, which only ever extends toward +Z from the start
--- room, so no run of combat rooms can ever reach it.
-local ARENA_OFFSET = Vector3.new(0, 0, -200)
-local QUEUE_STAND_OFFSET = Vector3.new(10, 2, -8)
-local RETURN_OFFSET = Vector3.new(0, 3, 0)
-local SPAWN_INSET = 15
+-- Well clear of the hub, and on the opposite side of it from the dungeon,
+-- which is generated far to the north — so no run of combat rooms can ever
+-- reach it.
+local ARENA_OFFSET = Vector3.new(0, 0, -260)
+-- Where a finished duel puts the two of them back: in front of the stand they
+-- queued at, not in the middle of the hall.
+local RETURN_OFFSET = Vector3.new(0, 3, -6)
+local SPAWN_INSET = 22
 local RETURN_DELAY = 1
 
 local ArenaService = {}
@@ -126,11 +128,13 @@ local function endDuel(loser: Player, message: string?)
 	end)
 end
 
-function ArenaService.start(originCFrame: CFrame)
-	originReturnCFrame = originCFrame * CFrame.new(RETURN_OFFSET)
+-- `originCFrame` is the hub, which the arena is placed relative to;
+-- `standCFrame` is where the duel stand goes in it, looking into the hall.
+function ArenaService.start(originCFrame: CFrame, standCFrame: CFrame)
+	originReturnCFrame = standCFrame * CFrame.new(RETURN_OFFSET)
 	arenaBaseCFrame = originCFrame * CFrame.new(ARENA_OFFSET)
 
-	local arena = RoomTemplates.build({ variant = "Empty", size = 40, doors = {} }, arenaBaseCFrame)
+	local arena = RoomTemplates.build({ variant = "Empty", size = 62, doors = {} }, arenaBaseCFrame)
 	arena.model.Name = "Arena"
 	arena.model.Parent = Workspace
 
@@ -141,7 +145,7 @@ function ArenaService.start(originCFrame: CFrame)
 	stand.Size = Vector3.new(2, 4, 2)
 	stand.Color = Color3.fromRGB(60, 58, 70)
 	stand.Material = Enum.Material.Slate
-	stand.CFrame = originCFrame * CFrame.new(QUEUE_STAND_OFFSET)
+	stand.CFrame = standCFrame * CFrame.new(0, 2, 0)
 	stand.Parent = Workspace
 
 	-- Crossed blades over a blue glow, so it reads as "fight here" from across

@@ -59,15 +59,22 @@ export type Reward = {
 local DungeonDefs = {}
 
 -- Room widths in studs (rooms are square).
+--
+-- Roughly half again as large as the first pass, to match the hub: a fight
+-- should happen in a hall you could lose someone in, not a room you can cross
+-- in two dodges. Enemy counts below went up with them — the same three
+-- skeletons in a room half again as wide is a longer walk, not a bigger fight.
 DungeonDefs.SIZES = {
-	Small = 28,
-	Medium = 40,
-	Large = 52,
-	Huge = 68,
+	Small = 44,
+	Medium = 62,
+	Large = 80,
+	Huge = 104,
 } :: { [SizeClass]: number }
 
-DungeonDefs.CORRIDOR_LENGTH = 12
-DungeonDefs.CORRIDOR_WIDTH = 8
+-- Corridors grew with the rooms, but deliberately less: they are the low, tight
+-- thing the halls are read against.
+DungeonDefs.CORRIDOR_LENGTH = 20
+DungeonDefs.CORRIDOR_WIDTH = 10
 
 -- Rooms after the Start, counting the Shrine and the Boss. The rooms between
 -- (length - 2 of them) always include one Elite and one Ambush.
@@ -96,7 +103,7 @@ local NONE: { [SizeClass]: Range } = {}
 
 DungeonDefs.PURPOSES = {
 	Start = {
-		displayName = "Camp",
+		displayName = "Entry Hall",
 		sizes = { "Medium" },
 		variants = { "Empty" },
 		enemyCount = NONE,
@@ -110,9 +117,9 @@ DungeonDefs.PURPOSES = {
 		sizes = { "Small", "Medium", "Large" },
 		variants = { "Empty", "Pillars", "Ruins" },
 		enemyCount = {
-			Small = { min = 1, max = 1 },
-			Medium = { min = 1, max = 2 },
-			Large = { min = 2, max = 3 },
+			Small = { min = 1, max = 2 },
+			Medium = { min = 2, max = 3 },
+			Large = { min = 3, max = 4 },
 		},
 		clearable = true,
 		hasChest = false,
@@ -124,7 +131,7 @@ DungeonDefs.PURPOSES = {
 		sizes = { "Large" },
 		variants = { "Pillars", "Ruins" },
 		enemyCount = {
-			Large = { min = 3, max = 3 },
+			Large = { min = 3, max = 4 },
 		},
 		clearable = true,
 		hasChest = true,
@@ -189,8 +196,8 @@ DungeonDefs.TREASURE_LOOT = {
 }
 
 DungeonDefs.AMBUSH = {
-	waves = { 2, 3 },
-	triggerDepth = 8,
+	waves = { 3, 4 },
+	triggerDepth = 14,
 	sealDelay = 1.5,
 	waveDelay = 1.5,
 	resetAfter = 4,

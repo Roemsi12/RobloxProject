@@ -212,7 +212,7 @@ local function buildInventory(parent: Instance): (Frame, Frame, TextLabel)
 	weaponRow.Font = Enum.Font.Gotham
 	weaponRow.TextSize = 16
 	weaponRow.TextXAlignment = Enum.TextXAlignment.Left
-	weaponRow.Text = "None — take one from a stand"
+	weaponRow.Text = "None — take up a class at an altar"
 	weaponRow.Parent = panel
 
 	local divider = Instance.new("Frame")
@@ -318,16 +318,18 @@ local function buildDungeonHUD(gui: ScreenGui)
 	local run: { [string]: any } = { run = 0, phase = "running", roomsCleared = 0, roomsTotal = 0 }
 	local bossId: string? = nil
 
-	-- The dungeon ready-check. While you are queued you are standing in camp,
-	-- so the countdown is more use on this line than room progress is.
-	local queued: { [string]: any } = { active = false, count = 0 }
+	-- The dungeon ready-check. While you are queued you are standing in the
+	-- hub, so the countdown is more use on this line than room progress is —
+	-- and it names the gate, because there are three of them and they run
+	-- their countdowns separately.
+	local queued: { [string]: any } = { active = false, count = 0, gate = "The gate" }
 
 	local function renderStatus()
 		if queued.active then
 			local seconds = math.max(math.ceil((queued.entersAt or 0) - Workspace:GetServerTimeNow()), 0)
 			status.Text = if queued.count > 1
-				then `Entering the dungeon in {seconds}s  ·  {queued.count} waiting`
-				else `Entering the dungeon in {seconds}s`
+				then `{queued.gate} opens in {seconds}s  ·  {queued.count} waiting`
+				else `{queued.gate} opens in {seconds}s`
 			status.TextColor3 = NOTICE_COLORS.danger
 			return
 		end
@@ -391,6 +393,7 @@ local function buildDungeonHUD(gui: ScreenGui)
 	Remotes.get("DungeonQueueChanged").OnClientEvent:Connect(function(payload)
 		queued.active = payload.queued == true
 		queued.count = payload.count or 0
+		queued.gate = payload.gate or "The gate"
 		queued.entersAt = payload.entersAt
 		renderStatus()
 	end)
@@ -734,7 +737,7 @@ local function buildBranch(parent: Instance, fromX: number, fromY: number, toX: 
 end
 
 -- The tree panel (K). Each weapon's tree is drawn once, the first time it is
--- needed, and shown or hidden after that — swapping weapon in camp shouldn't
+-- needed, and shown or hidden after that — swapping class at an altar shouldn't
 -- pay to rebuild a tree you already looked at.
 local function buildSkillPanel(gui: ScreenGui, onSpend: (string) -> ()): (Frame, (Progression) -> ())
 	local panel = Instance.new("Frame")
@@ -888,7 +891,7 @@ local function buildSkillPanel(gui: ScreenGui, onSpend: (string) -> ()): (Frame,
 		local weaponId = state.weaponId
 		if not weaponId then
 			heading.Text = "Skills"
-			abilityLabel.Text = "Pick a weapon from a stand — each has its own tree and its own ability."
+			abilityLabel.Text = "Take up a class at an altar — each has its own tree and its own ability."
 			if shown and built[shown] then
 				built[shown].holder.Visible = false
 				shown = nil
@@ -1112,7 +1115,7 @@ function GameUI.start()
 
 	-- Bottom-left status stack.
 	local weaponLabel = makeLabel(gui, UDim2.fromOffset(260, 30), UDim2.new(0, 16, 1, -120), 18)
-	weaponLabel.Text = "Weapon: none — pick one from a stand"
+	weaponLabel.Text = "Weapon: none — take up a class at an altar"
 
 	local currencyLabel = makeLabel(gui, UDim2.fromOffset(260, 24), UDim2.new(0, 16, 1, -86), 16)
 	currencyLabel.TextColor3 = GOLD

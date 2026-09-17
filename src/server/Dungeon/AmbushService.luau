@@ -33,7 +33,7 @@ local RoomTemplates = require(script.Parent.RoomTemplates)
 local AmbushService = {}
 
 local POLL = 0.25
-local GATE_HEIGHT = 9.4
+local GATE_HEIGHT = 12.4
 local GATE_COLOR = Color3.fromRGB(170, 80, 255)
 local GATE_SEALED_TRANSPARENCY = 0.1
 

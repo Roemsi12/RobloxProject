@@ -1,6 +1,7 @@
 --!strict
 -- Client bootstrap.
 
+local AtmosphereFX = require(script.AtmosphereFX)
 local CameraLock = require(script.CameraLock)
 local CameraShake = require(script.CameraShake)
 local CombatClient = require(script.CombatClient)
@@ -25,6 +26,9 @@ TelegraphVFX.start()
 ProjectileVFX.start()
 WorldFeedback.start()
 ScreenFX.start()
+-- After ScreenFX, so the combat grade is created before the world grade and
+-- the two stack in a fixed order.
+AtmosphereFX.start()
 CombatFeel.start()
 GameUI.start()
 DebugHUD.start()

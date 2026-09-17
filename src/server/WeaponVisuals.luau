@@ -1,6 +1,6 @@
 --!strict
 -- Builds weapon models from WeaponModelDefs: in each player's hands, and on
--- display above the weapon stands.
+-- display above the class altars.
 --
 -- Server-built so every player sees what everyone else is holding. Pieces are
 -- welded, massless and non-colliding, so they never change how a character

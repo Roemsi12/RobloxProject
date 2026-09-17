@@ -7,9 +7,11 @@
 -- one exception is cosmetic (rubble, ruin angles), which doesn't need to be
 -- reproducible.
 --
--- The Start room is built once by DungeonService and never rebuilt, since
--- the weapon stands, anvil and duel queue stand in it; this module builds
--- everything from the corridor out of the Start onward.
+-- The Start room is built along with everything else, and torn down with it.
+-- It holds nothing and is not clearable: it is the entry hall the gates drop a
+-- party into, with its one door north into the first fight. It used to be the
+-- camp, and outlived every dungeon because the stations stood in it — those
+-- now stand in the hub, which is its own building somewhere else entirely.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -210,10 +212,6 @@ function DungeonGenerator.build(layout: DungeonLayout.Layout, origin: CFrame, pa
 	local cleanups: { () -> () } = {}
 
 	for _, node in layout.rooms do
-		if node.purpose == "Start" then
-			continue
-		end
-
 		local doors: { [RoomTemplates.Side]: boolean } = {}
 		for side in node.doors do
 			doors[side] = true
@@ -289,21 +287,6 @@ function DungeonGenerator.build(layout: DungeonLayout.Layout, origin: CFrame, pa
 		bossRoom = bossRoom,
 		cleanups = cleanups,
 	}
-end
-
--- The Start room, built once: it holds the stations, which outlive dungeons.
-function DungeonGenerator.buildStart(layout: DungeonLayout.Layout, origin: CFrame, parent: Instance): RoomTemplates.Room
-	local node = DungeonLayout.getRoom(layout, layout.startId)
-	local room = RoomTemplates.build({
-		variant = node.variant,
-		size = node.size,
-		-- Every dungeon's Start has its one door to the north.
-		doors = { North = true },
-		torchColor = rgb(DungeonDefs.PURPOSES.Start.torchColor),
-	}, origin * CFrame.new(node.x, 0, node.z))
-	room.model.Name = "StartRoom"
-	room.model.Parent = parent
-	return room
 end
 
 return DungeonGenerator

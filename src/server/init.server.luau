@@ -1,25 +1,30 @@
 --!strict
--- Server bootstrap: combat authority, the dungeon, the start-room stations and
--- the duel arena — then players, who only get a character once their saved
+-- Server bootstrap: combat authority, the hub and its stations, the dungeon
+-- and the duel arena — then players, who only get a character once their saved
 -- progress has loaded.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Shared = ReplicatedStorage.Shared
-local DungeonDefs = require(Shared.DungeonDefs)
-local Remotes = require(Shared.Remotes)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
 
 local CombatServer = require(script.Combat.CombatServer)
 local DataService = require(script.DataService)
-local ChestService = require(script.Dungeon.ChestService)
 local DungeonService = require(script.Dungeon.DungeonService)
 local QueueService = require(script.Dungeon.QueueService)
+local ChestService = require(script.Dungeon.ChestService)
 local BlacksmithService = require(script.Economy.BlacksmithService)
+local ClassAltars = require(script.Lobby.ClassAltars)
+local LobbyService = require(script.Lobby.LobbyService)
 local ArenaService = require(script.PvP.ArenaService)
 local ProgressionService = require(script.Progression.ProgressionService)
 local SpawnService = require(script.SpawnService)
-local WeaponPickups = require(script.WeaponPickups)
 local WeaponVisuals = require(script.WeaponVisuals)
+
+-- How far north of the hub the dungeon is generated. The hub is a hundred and
+-- ninety studs deep and every dungeon grows north from its entry hall, so a
+-- gap this size means no run can ever reach the back of the hall, however
+-- many rooms a seed asks for.
+local DUNGEON_ORIGIN = CFrame.new(0, 0, 600)
 
 -- Remotes must exist before any client starts waiting on them.
 Remotes.init()
@@ -36,24 +41,26 @@ ProgressionService.start()
 -- Before the dungeon, which starts building chests as soon as it generates.
 ChestService.start()
 
--- The start room sits at the origin; every dungeon grows north from its door.
-local startCFrame = DungeonService.start(CFrame.new())
+-- The hub. It is built first because every station stands in it and takes the
+-- frame it stands on from it: the hall owns where things are, the stations own
+-- what they do. The gates' colours come from QueueService so the portal in the
+-- wall and the prompt in front of it agree on which gate is which.
+local lobby = LobbyService.start(CFrame.new(), QueueService.gateColors())
 
-WeaponPickups.start(startCFrame)
-BlacksmithService.start(startCFrame)
-ArenaService.start(startCFrame)
+ClassAltars.start(lobby.altarAnchors)
+BlacksmithService.start(lobby.forgeAnchor)
+ArenaService.start(lobby.centre, lobby.duelAnchor)
 
--- The gate into the dungeon, and the portcullis that makes it the way in.
--- After the stations, so it can sit past them on the walk toward the door.
-QueueService.start(startCFrame, DungeonDefs.SIZES[DungeonDefs.PURPOSES.Start.sizes[1]])
+-- The dungeon, well north of the hub, and the three gates that send players
+-- into it. The gates need the dungeon to exist before anyone can queue, so it
+-- is generated first.
+DungeonService.start(DUNGEON_ORIGIN)
+QueueService.start(lobby.gateAnchors)
 
--- Players start in the safe start room, facing the door to the dungeon, with
--- the weapon stands in front of them. There's no SpawnLocation; SpawnService
--- places every character here.
-SpawnService.start(CFrame.lookAt(
-	startCFrame.Position + Vector3.new(0, 4, 0),
-	startCFrame.Position + Vector3.new(0, 4, 20)
-))
+-- Players arrive on the dais at the south end of the hub, facing the length of
+-- the hall to the gates. There's no SpawnLocation; SpawnService places every
+-- character here, and puts them back here after a death or a dungeon reset.
+SpawnService.start(LobbyService.spawnCFrame())
 
 -- Last, so everything a loaded player can touch already exists. DataService
 -- hands each player to SpawnService once their profile is ready.

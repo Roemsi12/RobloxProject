@@ -1,6 +1,6 @@
 --!strict
 -- The only place equipped-weapon state lives. Kept separate from CombatServer
--- so the weapon stands and the blacksmith can equip or upgrade a player
+-- so the class altars and the blacksmith can equip or upgrade a player
 -- without reaching into combat internals. Loaded and saved by DataService.
 --
 -- Per-weapon upgrade levels live here too, for the same one-place reason: an
@@ -52,7 +52,7 @@ function EquipService.onChanged(callback: ChangedCallback)
 	table.insert(changedCallbacks, callback)
 end
 
--- nil until the player picks a weapon from a stand. Combat ignores an
+-- nil until the player takes up a class at an altar. Combat ignores an
 -- unequipped player's swings and parries.
 function EquipService.getWeaponId(player: Player): string?
 	return equipped[player]

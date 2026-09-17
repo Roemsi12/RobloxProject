@@ -41,7 +41,7 @@ local ABILITY_KEYS = {
 }
 
 -- Number-key weapon swapping, for comparing weapons back to back while
--- tuning. Studio only, on both ends: in a live game the weapon stands are the
+-- tuning. Studio only, on both ends: in a live game the class altars are the
 -- way to equip, and the server ignores this remote outside Studio anyway.
 local SWAP_KEYS = {
 	Enum.KeyCode.One,

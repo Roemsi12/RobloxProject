@@ -12,7 +12,7 @@ local WeaponDefs = require(script.Parent.WeaponDefs)
 local Loadout = {}
 
 -- There is deliberately no default weapon. Players start unequipped in the safe
--- start room and pick one from the weapon stands, which is the first step of
+-- hub and take one from a class altar, which is the first step of
 -- DESIGN.md's core loop ("choose a weapon at start").
 
 export type EquipResult = {

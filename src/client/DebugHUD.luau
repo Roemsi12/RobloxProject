@@ -183,7 +183,7 @@ function DebugHUD.start()
 				CombatConstants.PARRY_COOLDOWN
 			)
 		else
-			weaponLabel.Text = "weapon   none — pick one from a stand"
+			weaponLabel.Text = "weapon   none — take up a class at an altar"
 			framesLabel.Text = "parry    --"
 		end
 

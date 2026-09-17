@@ -7,7 +7,7 @@
 -- can change a profile that hasn't been read yet — no race between loading
 -- and playing.
 --
--- Every character appears in the start room, and respawns there after death.
+-- Every character appears on the hub dais, and respawns there after death.
 
 local Players = game:GetService("Players")
 

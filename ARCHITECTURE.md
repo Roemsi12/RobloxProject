@@ -79,20 +79,38 @@ src/shared/            -> ReplicatedStorage.Shared
   __tests__/             -- Jest specs, mounted by test.project.json only
 
 src/server/            -> ServerScriptService.Server
-  init.server.luau       -- bootstrap: combat, dungeon, stations, arena, then
-                         -- players
+  init.server.luau       -- bootstrap: combat, the hub and its stations, the
+                         -- dungeon, the arena, then players
   DataService.luau       -- loads and saves progress: session locks, autosave,
                          -- final save on leave and on shutdown
   SpawnService.luau      -- when characters exist: first spawn only once a
-                         -- profile has loaded, start-room placement, respawn
+                         -- profile has loaded, hub-dais placement, respawn
   EquipService.luau      -- the only owner of equipped weapon + upgrade levels;
                          -- onChanged tells listeners when either changes
   InventoryService.luau  -- the only owner of inventory
-  WeaponPickups.luau     -- weapon stands in the camp (ProximityPrompt), each
-                         -- showing its weapon. One weapon at a time: taking
-                         -- one replaces the one you carry, and only in camp
+  Stonework.luau         -- the masonry kit every built place is made of: the
+                         -- two part constructors, walls, buttresses, bays,
+                         -- arches, pillars, torches, braziers, chandeliers,
+                         -- light shafts, dust, statues, banners, chains,
+                         -- trophies, clutter, flagstones and ceilings. Shared
+                         -- by RoomTemplates and LobbyBuilder so the hub and
+                         -- the dungeon are cut from the same stone. Pieces
+                         -- only — composition belongs to the caller
   WeaponVisuals.luau     -- builds WeaponModelDefs models: welded into players'
-                         -- hands on equip/respawn, and on the stands
+                         -- hands on equip/respawn, and above the class altars
+  Lobby/
+    LobbyBuilder.luau    -- builds the hub: one 150x190 vaulted hall, pillars
+                         -- floor to ceiling with an arcade between them,
+                         -- clerestory windows and their light shafts, the
+                         -- three gate portals in the north wall, statues,
+                         -- trophies, banners, chandeliers, the arrival dais.
+                         -- Returns the anchors each station stands on
+    LobbyService.luau    -- owns the hub: builds it once, answers isInside,
+                         -- publishes its bounds as model attributes
+    ClassAltars.luau     -- the three class altars (ProximityPrompt), each
+                         -- showing its class's weapon. One weapon at a time:
+                         -- taking one replaces the one you carry, in the hub
+                         -- or not at all
   Combat/
     CombatServer.luau    -- the authority: enemy state machines, PvE parry and
                          -- swing resolution, bleeds, burst heal. Owns the
@@ -104,20 +122,21 @@ src/server/            -> ServerScriptService.Server
                          -- timing; one record shared by PvE and PvP
     Characters.luau      -- character lookups + XZ projection + half-ping
   Dungeon/
-    DungeonService.luau  -- the run: builds the start room once, generates a
-                         -- dungeon, tracks room clears and the boss fight,
-                         -- pays the clear reward, then replaces the dungeon
+    DungeonService.luau  -- the run: generates a dungeon well north of the hub,
+                         -- tracks room clears and the boss fight, pays the
+                         -- clear reward, then replaces the dungeon
     DungeonGenerator.luau -- builds a DungeonLayout into the world: rooms,
                          -- corridors, enemies (no respawn), chests, shrine,
                          -- traps — all in one folder, torn down whole
-    RoomTemplates.luau   -- room geometry: any size, doors on any side,
+    RoomTemplates.luau   -- room composition: any size, doors on any side,
                          -- variants (Empty/Pillars/Ruins/Hall), corridors,
-                         -- arched doorways, buttressed bays, statues,
-                         -- torches; owns the dungeon's look. One module, not
-                         -- a folder — see DESIGN.md
-    QueueService.luau    -- the gate into the dungeon: a ready-check queue on a
-                         -- ProximityPrompt, a countdown, and the portcullis
-                         -- that makes the gate the way in
+                         -- arched doorways, buttressed bays, ceilings; owns
+                         -- the dungeon's look, built from Stonework. One
+                         -- module, not a folder — see DESIGN.md
+    QueueService.luau    -- the three gates into the dungeon: one ready-check
+                         -- queue each on a ProximityPrompt, independent
+                         -- countdowns, and the muster post in front of each
+                         -- portal. Also owns the gates' names and colours
     ChestService.luau    -- chests locked until every guard in the room is
                          -- dead (open at once if none). Owns its contents and
                          -- every take: opening shows a menu, and what you
@@ -136,8 +155,8 @@ src/server/            -> ServerScriptService.Server
     CurrencyService.luau -- the only owner of coins + class-keyed crystals; pays
                          -- the killer via each enemy's death hook, and
                          -- non-kill rewards through grant
-    BlacksmithService.luau -- the start-room anvil: prices an upgrade, takes
-                         -- payment, hands off to EquipService
+    BlacksmithService.luau -- the anvil in the hub's east aisle: prices an
+                         -- upgrade, takes payment, hands off to EquipService
   PvP/
     ArenaService.luau    -- the arena room, the duel queue, who duels whom
     Duelist.luau         -- one side of a duel: state machine + virtual health
@@ -167,6 +186,12 @@ src/client/            -> StarterPlayer.StarterPlayerScripts.Client
   CameraShake.luau       -- trauma-based screen shake, undone every frame
   ScreenFX.luau          -- damage/heal/low-health vignettes, parry colour
                          -- flash and field-of-view kick
+  AtmosphereFX.luau      -- the world's look: god rays, depth of field, bloom,
+                         -- haze and a colour grade that eases between a warm
+                         -- hub and a cold dungeon as the player crosses
+                         -- between them. Reads the hub's bounds off the Lobby
+                         -- model's attributes. All client-side, and
+                         -- authoritative over nothing
   SoundFX.luau           -- plays SoundDefs sounds, positional or flat
   GameUI.luau            -- player-facing UI: posture bar, dodge/critical
                          -- cooldowns, weapon, currency, loot, upgrades,
@@ -254,7 +279,7 @@ All payloads are a single table.
 | `DungeonUpdated` | Server → Client (all) | `{ run, phase, roomsCleared, roomsTotal, resetAt? }` | Where the dungeon run stands. `phase` is `running` \| `cleared` \| `resetting`; `resetAt` (server time) is set while `cleared`. Also sent to each joining player |
 | `DungeonNotice` | Server → Client | `{ text, tone }` | A message to show: room cleared, boss awakens, shrine used. `tone` is `good` \| `bad` \| `info` \| `danger` \| `victory` |
 | `BossEncounter` | Server → Client (all) | `{ enemyId, name, active, defeated }` | The boss fight starting (a player entered the boss room), ending (everyone left for a while), or won (`defeated`) |
-| `DungeonQueueChanged` | Server → Client | `{ queued, count, entersAt? }` | The dungeon ready-check. `queued` is whether *this* player is in it, `count` how many are waiting, `entersAt` (server time) when the countdown fires. Sent to everyone queued whenever anyone joins or leaves, and once with `queued = false` when they go in |
+| `DungeonQueueChanged` | Server → Client | `{ queued, gate, count, entersAt? }` | One gate's ready-check. `gate` is its display name (there are three, each with its own countdown), `queued` whether *this* player is in that one, `count` how many are waiting at it, `entersAt` (server time) when its countdown fires. Sent to everyone queued at that gate whenever anyone joins or leaves it, and once with `queued = false` when they go in |
 | `AbilityRequest` | Client → Server | `{ slot }` | Casts the ability on that key (1–3, one per skill-tree branch). The server checks the slot is unlocked, off cooldown, and that you are not stunned |
 | `ChestTakeItem` | Client → Server | `{ chestId, slot?, coins? }` | Takes one row out of a chest. The client names a slot, never an item, and the server checks you are within reach and that the row is still there |
 | `ChestContentsChanged` | Server → Client (all) | `{ chestId, coins, coinsTaken, rows }` | A chest's contents after someone took something, so an open menu updates |
@@ -538,25 +563,57 @@ holds the loot of the room's first enemy: an Elite room's elite, a Treasure
 room's guard. Plain Combat rooms have no chest. `encounterGroupId` is
 retired: "every enemy in the room" is the group.
 
+## The hub
+
+One building, built once at the world origin by `LobbyBuilder` and owned by
+`LobbyService`. It is where players spawn, respawn and return after a run, and
+the only place that is not the dungeon.
+
+| Where | What stands there | Owned by |
+|---|---|---|
+| South end | The arrival dais. Every character appears here facing the gates | `SpawnService` |
+| West aisle | Three class altars — Tank, Assassin, Healer | `Lobby/ClassAltars` |
+| East aisle | The blacksmith's forge, and the duel stand further south | `Economy/BlacksmithService`, `PvP/ArenaService` |
+| North wall | Three gate portals, each with a muster post in front | `Dungeon/QueueService` |
+
+**Station rule.** The hall owns *where* — `LobbyBuilder.build` returns
+`spawnCFrame`, `gateAnchors`, `altarAnchors`, `forgeAnchor` and `duelAnchor`,
+and the bootstrap hands each station its frame. A station owns *what it does*
+and builds its own furniture on the frame it is given. Nothing outside
+`LobbyBuilder` should hard-code a position in the hub.
+
+**The hub is not part of any dungeon layout.** It used to be the layout's
+`Start` room; it is now its own building, and the dungeon is generated 600
+studs north of it (`DUNGEON_ORIGIN` in `init.server`). The duel arena is 260
+studs south, on the opposite side, so no run can reach either.
+
 ## Dungeon structure
 
 Generated by `DungeonLayout` from `DungeonDefs`, built by `DungeonGenerator`,
-run by `DungeonService`.
+run by `DungeonService`. Room widths are `Small` 44, `Medium` 62, `Large` 80,
+`Huge` 104 studs; corridors are 10 wide and 20 long.
 
 | Purpose | Size | What's in it |
 |---|---|---|
-| `Start` | Medium | The stations. Built once, never rebuilt; one door, north |
-| `Combat` | Small/Medium/Large | 1–3 enemies by size; counts toward rooms cleared |
-| `Elite` | Large | An elite plus two from the late pool; chest (+40 coins); one per dungeon, back half of the main path |
-| `Ambush` | Large | Gates seal once you're inside; waves of 2 then 3 enemies (`AmbushService`); chest (+50 coins) when the last falls; resets if everyone inside dies. One per dungeon, on the main path, never first |
+| `Start` | Medium | The entry hall the gates drop a party into. Empty, not clearable, one door north. Torn down and rebuilt with the rest of the run |
+| `Combat` | Small/Medium/Large | 1–4 enemies by size; counts toward rooms cleared |
+| `Elite` | Large | An elite plus two or three from the late pool; chest (+40 coins); one per dungeon, back half of the main path |
+| `Ambush` | Large | Gates seal once you're inside; waves of 3 then 4 enemies (`AmbushService`); chest (+50 coins) when the last falls; resets if everyone inside dies. One per dungeon, on the main path, never first |
 | `Treasure` | Small | Chest (+60 coins), 50% guarded; always a dead-end branch |
 | `Shrine` | Small | Healing fountain (`ShrineService`); always right before the boss |
 | `Boss` | Huge | The `HollowKing`; one door, from the shrine |
 
 **Layout rules** (all enforced by `DungeonLayout.spec`): the Start is at the
-origin with one door north, and every other room is north of it, which keeps
-the south free for the duel arena. Rooms and corridors never overlap. Every
-room is reachable. The only way into the boss room is through the shrine.
+dungeon's origin with one door north, and every other room is north of it.
+Rooms and corridors never overlap. Every room is reachable. The only way into
+the boss room is through the shrine.
+
+**Every room and corridor has a ceiling** (`Stonework.ceiling`), built as
+decoration — non-colliding so the camera never pops on it, non-query so no
+raycast in the game sees it, and shadow-casting, which is what shuts the sky
+out and leaves torchlight doing the work. Walls read 32 studs and are solid to
+14; the hub's read 58 and are solid to 15. Above the solid height everything is
+decoration, which is what keeps the camera out of the stonework.
 
 **Dungeon enemies never respawn** (`CombatServer.spawnEnemy` with
 `respawns = false`). `CombatServer.despawnEnemy` removes them when the dungeon

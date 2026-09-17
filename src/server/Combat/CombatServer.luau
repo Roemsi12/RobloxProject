@@ -1104,7 +1104,7 @@ end
 --[[ Debug equip ]]
 
 -- Number-key weapon swapping, for comparing weapons back to back while
--- tuning. Studio only: in a live server the weapon stands are the one way to
+-- tuning. Studio only: in a live server the class altars are the one way to
 -- equip, and this remote does nothing.
 local function onEquipWeapon(player: Player, payload: unknown)
 	if not RunService:IsStudio() or typeof(payload) ~= "table" then

@@ -13,16 +13,24 @@ rooms and dusk lighting, all from built-in or public-domain assets. An art pass
 then took the whole game to one **grim dark fantasy** look — cold stone, rusted
 iron, old bone and firelight — across weapons, enemy rigs and dungeon geometry,
 and gave the animations overlap, ankles and anticipation. Rooms were then rebuilt
-grand: 22-stud walls, buttressed bays, stone sentinels and inlaid floors. Every
-colour comes from [`src/shared/Palette.luau`](src/shared/Palette.luau). Nothing
-has had a numeric tuning pass yet. See [`DESIGN.md`](DESIGN.md).
+grand, and then rebuilt again at half again the size, with ceilings over every one
+of them, pillars floor to ceiling, and a hub that is a cathedral of a room. Every
+colour comes from [`src/shared/Palette.luau`](src/shared/Palette.luau); every
+piece of masonry from [`src/server/Stonework.luau`](src/server/Stonework.luau).
+Nothing has had a numeric tuning pass yet. See [`DESIGN.md`](DESIGN.md).
 
-The start area is a camp: weapon stands, a blacksmith's forge, the duel stand,
-and a gate into the dungeon. You carry **one** weapon — taking one from a stand
-leaves the last one behind, and only in camp. The dungeon is entered through the
-gate's ready-check queue: a ten-second countdown anyone else in camp can join,
-which a solo player still passes through alone. The dungeon itself is generated
-in this same server, north of the camp.
+The start area is a **hub**: one huge vaulted hall, 150 by 190 studs, with two
+rows of pillars running floor to ceiling and an arcade of arches between them.
+Down the west aisle stand three **class altars** — Tank, Assassin, Healer — and
+taking up a class is how you choose one. The blacksmith's forge and the duel
+stand are in the east aisle. Three **gates** stand in the north wall, each with
+its own ready-check queue into the dungeon.
+
+You carry **one** weapon — taking up a class leaves the last one behind, and
+only in the hub. Queueing at a gate starts a ten-second countdown anyone else
+can join at that gate, which a solo player still passes through alone; when it
+fires you are pulled through into the dungeon's entry hall. The dungeon itself
+is generated in this same server, well north of the hub.
 
 ## Controls
 
@@ -38,13 +46,14 @@ in this same server, north of the camp.
 | **Left Shift** | Toggle camera lock (on by default) |
 | **I** | Inventory |
 | **K** | Skills: your weapon's tree, and the points to spend in it |
-| **E** at a stand, anvil, gate or chest | Take a weapon, upgrade it, queue for the dungeon, open a chest |
+| **E** at an altar, anvil, gate or chest | Take up a class, upgrade your weapon, queue for the dungeon, open a chest |
 | **1 / 2 / 3** | Swap weapon instantly — **Studio only**, for tuning |
 
-You start unequipped in the camp: take a weapon from one of the three stands
-first. You carry one at a time, and can only change it here. The anvil upgrades
-what you carry, the blue stand queues you for a duel, and the gate queues you for
-the dungeon.
+You start unequipped on the dais at the south end of the hub: walk up the hall
+and take up a class at one of the three altars first. You carry one weapon at a
+time, and can only change it here. The anvil upgrades what you carry, the blue
+stand queues you for a duel, and any of the three gates queues you for the
+dungeon.
 
 ## Documentation
 
@@ -182,11 +191,12 @@ owns its contents, so two players searching the same one see the same rows go.
 
 ## Dungeons
 
-Every server generates a random dungeon north of the start room. Each has a winding
-main path through fights, one elite hall and one ambush, then a shrine that
-heals you to full, then the throne room of **The Hollow King**. Treasure vaults branch
-off to the sides. Rooms stay cleared. Kill the boss and everyone in the dungeon is
-paid; 15 seconds later you're back in the start room and a new dungeon has formed.
+Every server generates a random dungeon well north of the hub. A gate drops you in
+its entry hall; from there a winding main path leads through fights, one elite hall
+and one ambush, then a shrine that heals you to full, then the throne room of
+**The Hollow King**. Treasure vaults branch off to the sides. Rooms stay cleared.
+Kill the boss and everyone in the dungeon is paid; 15 seconds later you're back in
+the hub and a new dungeon has formed.
 
 The rules (room sizes, how many of each room, enemy pools, ambush waves, rewards) are
 data in [`src/shared/DungeonDefs.luau`](src/shared/DungeonDefs.luau). The generator

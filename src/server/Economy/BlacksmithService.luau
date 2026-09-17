@@ -1,9 +1,8 @@
 --!strict
--- The blacksmith: a physical anvil in the start room that upgrades whichever
--- weapon the player has equipped, for coins plus class crystals at the higher
--- tiers.
+-- The blacksmith: a physical anvil in the hub that upgrades whichever weapon
+-- the player has equipped, for coins plus class crystals at the higher tiers.
 --
--- Diegetic rather than a shop menu, matching the weapon stands:
+-- Diegetic rather than a shop menu, matching the class altars:
 -- ProximityPrompt.Triggered already fires server-side with the player, so the
 -- interaction needs no client-callable remote into spending currency. Only the
 -- outcome goes back to the client.
@@ -22,10 +21,6 @@ local Remotes = require(Shared.Remotes)
 
 local EquipService = require(script.Parent.Parent.EquipService)
 local CurrencyService = require(script.Parent.CurrencyService)
-
--- Where the forge stands, off to one side of the camp so the walk from spawn
--- past the weapon stands to the gate stays clear.
-local SHOP_OFFSET = Vector3.new(-12, 0, -5)
 
 local BlacksmithService = {}
 
@@ -89,8 +84,9 @@ local function piece(parent: Instance, name: string, size: Vector3, cframe: CFra
 end
 
 -- The forge itself: a brick hearth with a hood and a chimney, burning hot
--- enough to light this whole corner of the camp. This is the light source the
--- camp is read by, so it is deliberately the warmest thing in the game.
+-- enough to light this whole corner of the hub. This is the warmest light in
+-- the game, on purpose: the hall around it is lit by a sun it cannot reach and
+-- by fires that are all colder than this one.
 local function buildForge(parent: Instance, at: CFrame)
 	local hearth = piece(parent, "Forge", Vector3.new(4.5, 2.6, 3), at * CFrame.new(0, 1.3, 0), STONE, Enum.Material.Brick)
 	hearth.CanCollide = true
@@ -208,17 +204,13 @@ local function dressAnvil(anvil: Part)
 	piece(anvil, "Tongs", Vector3.new(0.18, 0.18, 2.2), base * CFrame.new(1.0, 2.9, 0.3) * CFrame.Angles(0, math.rad(-40), 0), IRON, Enum.Material.Metal)
 end
 
-function BlacksmithService.start(originCFrame: CFrame)
+-- `shopAt` is where the forge stands, looking out of its own open front. The
+-- hub decides that, the way it decides where the altars and the gates go.
+function BlacksmithService.start(shopAt: CFrame)
 	local shop = Instance.new("Folder")
 	shop.Name = "Blacksmith"
 	shop.Parent = Workspace
 
-	-- The shop stands off to one side of the camp, facing its centre, so the
-	-- walk from spawn to the weapon stands to the gate stays clear.
-	local shopAt = CFrame.lookAt(
-		(originCFrame * CFrame.new(SHOP_OFFSET)).Position,
-		(originCFrame * CFrame.new(SHOP_OFFSET.X * 0.2, SHOP_OFFSET.Y, SHOP_OFFSET.Z * 0.2)).Position
-	)
 	buildShop(shop, shopAt)
 
 	-- The anvil's iron body is the station itself: it collides and carries

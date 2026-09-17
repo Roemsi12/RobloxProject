@@ -906,6 +906,12 @@ weapons held **down** at rest rather than up.
 
 ### The camp, the queue and the one-weapon rule
 
+*Superseded in part by "Decisions made building the hub" below: the camp became
+a hall of its own outside the dungeon layout, the weapon stands became class
+altars, the one gate became three, and the portcullis was removed with the
+doorway it closed. The one-weapon rule and the ready-check queue below still
+hold exactly as written — only where they happen changed.*
+
 - **One weapon at a time, swapped only in camp** *(chosen by the repo owner)*.
   Picking a weapon from a stand replaces the one you carry rather than adding
   to it, and the swap is only possible in the start area — never mid-run.
@@ -1197,6 +1203,149 @@ attacks have projectiles"*.
 - **The Spitter's spit lobs and is slow enough to walk out of; the Hollow
   King's spear is fast and flat.** Same mechanic, two very different things to
   respect.
+
+## Decisions made building the hub (Sept 2026)
+
+The brief: *"i want only a hub area in the beginning. along with 3 'gates',
+each being a way for players to queue up. i want this lobby to be huge, with
+pillars spanning from the ceiling to the floor... a smithing shop, along with
+altars dedicated to each class, which is also where you select your current
+class... ceilings... the pillars need to be at least twice as thick as the
+player... random appropriate decoration... chandeliers, torches, statues,
+weapons hanging on the wall"*, a bigger and simpler dungeon, and *"something
+along the lines of what shaders are in Minecraft"*.
+
+### The hub is its own building, not the dungeon's first room
+
+- **The camp was the dungeon layout's `Start` room.** That is why it was
+  medium-sized, square, and had exactly one door: it was a room in a generated
+  dungeon that happened to hold the stations. A hub built that way cannot be
+  huge, cannot have three gates, and cannot be laid out at all — every
+  dimension of it was decided by `DungeonDefs`.
+- **So the hub came out of the layout entirely.** It is now a 150×190 hall
+  built once at the origin by `LobbyBuilder`, and the dungeon is generated 600
+  studs north of it. None of the layout rules changed; the dungeon simply no
+  longer holds anything that has to survive a reset.
+- **The layout kept its `Start` room, as the dungeon's entry hall.** Deleting
+  it would have meant a corridor out of nothing and a special case in every
+  rule that counts rooms. Keeping it costs one empty room and buys something
+  better than it cost: a party arrives together in a room with nothing in it
+  and walks into the dungeon on their own feet, instead of materialising
+  mid-fight.
+- **The hall owns where; the stations own what.** `LobbyBuilder.build` returns
+  a spawn frame, three gate anchors, three altar anchors, a forge anchor and a
+  duel anchor, and each station builds its own furniture on the frame it is
+  handed. Before this the blacksmith knew it stood twelve studs west of the
+  camp centre. Moving a station is now a number in one file.
+
+### Weapon stands became class altars
+
+- **Interacting with an altar takes up that class**, which is the same act as
+  the old "equip Daggers" prompt — a class *is* the weapon you carry
+  (`Loadout`), and there is still no stored class anywhere. What changed is
+  that the altars say so out loud. A stele with the class's mark, braziers in
+  its colour and the weapon turning over the plinth reads as a choice about who
+  you are; three pedestals in a row read as loot.
+- **The one-weapon rule survived intact**, including the check: `ClassAltars`
+  asks `LobbyService.isInside` rather than assuming, the same way
+  `WeaponPickups` asked `DungeonService.isInCamp`.
+- **`WeaponPickups` was deleted rather than renamed**, since the module is a
+  different thing now. The name is retired; don't reuse it for something else.
+
+### Three gates
+
+- **Each gate runs its own ready check.** A group that missed one countdown can
+  start their own at the next gate along instead of waiting out someone else's,
+  which is the actual reason to have three rather than one.
+- **Stepping up to a second gate moves you rather than adding you.** Being
+  listed at two gates means whichever countdown fires first sends a player who
+  is still queued at the other one.
+- **All three currently open on the same dungeon.** There is one generated
+  dungeon in the world at a time, so the gates are three doors into it rather
+  than three places. Making them three difficulties means a dungeon per gate —
+  a much larger change than the gates themselves, and not what was asked for.
+- **The portcullis is gone.** It existed to stop players walking out of the
+  camp's north door instead of queueing. The hub has no door out, so there is
+  nothing left to block.
+
+### Ceilings, and what they cost
+
+- **Every room and corridor has one now**, in the hub and in the dungeon.
+- **A ceiling is decoration that casts a shadow.** `CanCollide` off keeps it
+  out of the camera's occlusion test, which only considers solid parts;
+  `CanQuery` off keeps it out of every other raycast in the game; `CastShadow`
+  on is the entire point, because shutting the sky out is what makes every
+  torch in the place matter.
+- **The camera's zoom is capped at 26 studs** (`CameraMaxZoomDistance`). This
+  is the one thing a ceiling actually breaks: at full default zoom the camera
+  climbs above the roof and you end up looking at the outside of the building.
+  Twenty-six is below the dungeon's 32-stud ceiling, so it cannot happen.
+- **Ambient came up from 0.20 to 0.27.** Roofing every room made the game a
+  stop and a half darker than it was built to be. Raising ambient rather than
+  adding lights keeps the grim look and costs nothing.
+
+### Scale
+
+- **Rooms are half again as wide** — 44 / 62 / 80 / 104 studs — and walls went
+  from 22 to 32. Corridors grew less, to 14 studs tall: they are the low, tight
+  thing the halls are read against, and making both tall flattens the contrast.
+- **Enemy counts went up with the rooms.** The same three skeletons in a room
+  half again as wide is a longer walk, not a bigger fight.
+- **Pillars are five studs through in the dungeon and six and a half in the
+  hub**, against two and a half before. A pillar you can put your back against
+  and not be seen around reads as structure; a two-stud post reads as
+  scaffolding. Both now run floor to ceiling, which they could not do before,
+  because there was no ceiling to run to.
+- **Bays got wider rather than more numerous** (13 → 20 studs in the dungeon).
+  Keeping the old rhythm at the new room size would have put twelve sentinels
+  in an average room — three hundred parts of statue, in a dungeon that
+  rebuilds itself after every clear. The same reasoning capped chains at two or
+  three short ones per room, since a chain is built link by link.
+- **A masonry kit came out of `RoomTemplates`.** Two modules build rooms now,
+  and they have to look like the same world, so every shared piece lives in
+  `Stonework` exactly once. What stayed behind is composition — bay spacing,
+  where a throne goes, which bay carries a statue. That is what makes a crypt
+  read differently from a cathedral, and it is the part that *should* differ.
+- **Sentinels had been facing the wall the whole time.** A statue faces its own
+  -Z, and a wall frame's +Z already points out through the wall, so the
+  half-turn being applied to every statue turned it around to stare at the
+  masonry behind it. Found while moving the code into `Stonework`; the boss
+  hall's processional sentinels had the same sign inverted.
+
+### "Shaders"
+
+Roblox has no fragment shaders, so what a Minecraft shader pack *does* was put
+together out of the parts that do exist, in `AtmosphereFX` and `Stonework`:
+
+- **Volumetric light, twice over.** `SunRaysEffect` handles it in screen space;
+  Beam shafts hung under the hub's clerestory windows handle it in the world,
+  which is what you actually see standing indoors. A `Beam` rather than a stack
+  of translucent slabs: it takes a transparency falloff along its length for
+  free, and `FaceCamera` keeps it reading as a volume from every angle instead
+  of a flat plane you can catch edge-on.
+- **The windows are Neon, not Glass.** The hall is a sealed box — there is
+  nothing behind a window for light to come through — so each one is its own
+  light source, with a non-shadow `PointLight` standing in for a sun the
+  ceiling has already blocked.
+- **The grade changes with the building.** The hub is warm, lifted and open;
+  the dungeon is cold, crushed and hazy. It eases between them over about half
+  a second, which reads as eyes adjusting; anything quicker reads as a cut.
+- **Depth of field never blurs anything in front of the player.** A dungeon
+  crawler that softens the enemy you are about to parry is unplayable, so
+  `NearIntensity` is pinned at zero and only the far plane moves.
+- **Three `ColorCorrectionEffect`s stack on purpose**: the place file's art
+  direction, `AtmosphereFX`'s world grade, and `ScreenFX`'s combat flash. Three
+  reasons to tint the screen, none of them overwriting the others.
+- **The client reads the hub's bounds off the `Lobby` model's attributes**
+  rather than over a remote. The hall never moves, and a joining player gets
+  the attributes along with the model.
+- **Shadows are rationed.** Torches and window light do not cast them — there
+  are dozens of each, and Future lighting charges for every shadow-casting
+  light. Chandeliers, braziers and the forge do, because they are the lights a
+  place is actually read by.
+- **Dust turns in the air of the hub.** Nothing else in the frame moves when a
+  player stands still, and a hall with nothing moving in it reads as a
+  photograph of a hall.
 
 ## Open / not yet decided
 

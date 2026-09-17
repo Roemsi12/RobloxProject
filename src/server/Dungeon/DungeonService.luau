@@ -7,11 +7,13 @@
 --   running   — the dungeon is up. Rooms stay cleared once cleared.
 --   cleared   — the boss is dead. Every player in the dungeon is paid, and a
 --               countdown to the next dungeon starts.
---   resetting — players are brought back to the start room, the old dungeon
---               is torn down and a new one generated. Then running again.
+--   resetting — players are brought back to the hub, the old dungeon is torn
+--               down and a new one generated. Then running again.
 --
--- The Start room and its stations are built once and outlive every dungeon,
--- so players never lose the floor under them during a reset.
+-- The whole dungeon, entry hall included, is torn down and rebuilt on a reset.
+-- Nobody loses the floor under them, because everything that has to survive a
+-- run — the class altars, the forge, the three gates — stands in the hub,
+-- which this module never touches.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -31,7 +33,6 @@ local InventoryService = require(script.Parent.Parent.InventoryService)
 local PvPCombatServer = require(script.Parent.Parent.PvP.PvPCombatServer)
 local SpawnService = require(script.Parent.Parent.SpawnService)
 local DungeonGenerator = require(script.Parent.DungeonGenerator)
-local RoomTemplates = require(script.Parent.RoomTemplates)
 
 local DungeonService = {}
 
@@ -39,11 +40,10 @@ export type Phase = "running" | "cleared" | "resetting"
 
 -- How often the boss room is checked for players.
 local ENCOUNTER_POLL = 0.3
--- Time for characters to land in the start room before the old dungeon goes.
+-- Time for characters to land back in the hub before the old dungeon goes.
 local RESET_SETTLE = 0.5
 
 local origin = CFrame.new()
-local startRoom: RoomTemplates.Room? = nil
 local current: DungeonGenerator.BuiltDungeon? = nil
 local phase: Phase = "running"
 local runNumber = 0
@@ -240,18 +240,11 @@ generateRun = function()
 	publishStatus()
 end
 
--- Builds the start room and the first dungeon. Returns the start room's floor
--- centre, where the stations and spawn go.
-function DungeonService.start(originCFrame: CFrame): CFrame
+-- Builds the first dungeon at `originCFrame`, which is where its entry hall
+-- goes; every room of every run grows north from there. Well away from the
+-- hub, which is its own building and no longer part of any layout.
+function DungeonService.start(originCFrame: CFrame)
 	origin = originCFrame
-
-	-- Any layout's Start is the same room at the origin, so the first seed's
-	-- will do for the one that outlives every dungeon.
-	local startLayout = DungeonLayout.generate(1)
-	local startFolder = Instance.new("Folder")
-	startFolder.Name = "Camp"
-	startFolder.Parent = Workspace
-	startRoom = DungeonGenerator.buildStart(startLayout, origin, startFolder)
 
 	generateRun()
 
@@ -287,12 +280,15 @@ function DungeonService.start(originCFrame: CFrame): CFrame
 		end
 	end)
 
-	return (startRoom :: RoomTemplates.Room).centre
 end
 
--- Where the queue drops players: just inside the first room of the run,
--- facing deeper in. `frame` looks in from a room's entrance, so +Z on it is
--- back toward the door the players came through.
+-- Where the gates drop players: the back of the dungeon's entry hall, facing
+-- its one door north into the run. A room's `frame` looks deeper into it, so
+-- +Z on it is back toward the wall behind them.
+--
+-- Arriving in the entry hall rather than in the first fight is the point of
+-- keeping the Start room: a party lands together, in a room with nothing in
+-- it, and walks into the dungeon on their own feet.
 --
 -- Returns nil while a dungeon is being torn down and rebuilt, which is the
 -- signal for the queue to hold rather than send anyone into nothing.
@@ -303,27 +299,12 @@ function DungeonService.entryCFrame(): CFrame?
 	end
 
 	for _, built in dungeon.rooms do
-		if built.node.parentId == dungeon.layout.startId then
-			return built.frame * CFrame.new(0, 3, built.node.size / 2 - 6)
+		if built.node.id == dungeon.layout.startId then
+			return built.frame * CFrame.new(0, 3, built.node.size / 2 - 8)
 		end
 	end
 
 	return nil
-end
-
--- Whether `position` is inside the camp. The weapon stands use this: a weapon
--- is swapped in camp or not at all.
-function DungeonService.isInCamp(position: Vector3): boolean
-	local room = startRoom
-	if not room then
-		return false
-	end
-
-	local bounds = room.floorBounds
-	return position.X >= bounds.minX
-		and position.X <= bounds.maxX
-		and position.Z >= bounds.minZ
-		and position.Z <= bounds.maxZ
 end
 
 return DungeonService
