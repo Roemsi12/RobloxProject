@@ -39,8 +39,10 @@ in this same server, north of the camp.
 | **E** at a stand, anvil, gate or chest | Take a weapon, upgrade it, queue for the dungeon, open a chest |
 | **1 / 2 / 3** | Swap weapon instantly — **Studio only**, for tuning |
 
-You start unequipped in the start room: pick a weapon from one of the three stands
-first. The blue stand queues you for a duel.
+You start unequipped in the camp: take a weapon from one of the three stands
+first. You carry one at a time, and can only change it here. The anvil upgrades
+what you carry, the blue stand queues you for a duel, and the gate queues you for
+the dungeon.
 
 ## Documentation
 
