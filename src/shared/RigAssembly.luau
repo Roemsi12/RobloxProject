@@ -42,6 +42,18 @@ local function color(api: Api, rgb: { number }): any
 	return api.Color3.fromRGB(rgb[1], rgb[2], rgb[3])
 end
 
+-- A decoration's own rotation, in degrees, applied after its offset. Lets a
+-- piece sit at an angle — a horn, a slanted pauldron, a strap across a chest —
+-- without needing a part whose axes already point that way.
+local function rotationOf(api: Api, degrees: { number }?): any
+	if not degrees then
+		-- CFrame.new() rather than CFrame.identity: both Roblox's CFrame and
+		-- @lune/roblox's have the constructor, and this module runs under both.
+		return api.CFrame.new()
+	end
+	return api.CFrame.Angles(math.rad(degrees[1]), math.rad(degrees[2]), math.rad(degrees[3]))
+end
+
 local function makePart(api: Api, name: string, size: any, rgb: { number }, material: string?, shape: string?): any
 	local part = api.Instance.new("Part")
 	part.Name = name
@@ -101,7 +113,7 @@ function RigAssembly.attach(api: Api, root: any, rigId: string, parent: any): { 
 		local piece = makePart(api, decoration.name, size, decoration.color, decoration.material, decoration.shape)
 		piece.Transparency = decoration.transparency or 0
 
-		local placement = offset(api, ORIGIN, decoration.offset, scale)
+		local placement = offset(api, ORIGIN, decoration.offset, scale) * rotationOf(api, decoration.rotation)
 		piece.CFrame = host.CFrame * placement
 		piece.Parent = parent
 

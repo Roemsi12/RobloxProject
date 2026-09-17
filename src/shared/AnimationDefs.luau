@@ -127,6 +127,15 @@ local function crouch(angle: number): Poses
 	}
 end
 
+-- The ankle angle that leaves a foot `tilt` degrees off flat, given how far
+-- the thigh and shin above it have turned. Poses accumulate down a limb, so a
+-- foot only lies flat when its own angle cancels everything above it — asking
+-- for "flat, plus 8 degrees of toe-up" is far easier to get right by hand than
+-- working that sum out at every keyframe. Positive tilt lifts the toe.
+local function ankle(thigh: number, shin: number, tilt: number): number
+	return -(thigh + shin) + tilt
+end
+
 type IdleParams = {
 	length: number,
 	lean: number,
@@ -139,26 +148,47 @@ type IdleParams = {
 	sway: number,
 }
 
+-- Three things happen at once, on three different clocks, which is what stops
+-- a standing rig looking like one rigid piece pumping in time with itself:
+--
+--   breath   the chest rising and the shoulders opening
+--   lag      the same motion reaching the head and arms late (overlap: a limb
+--            is dragged by the body, it doesn't move with it)
+--   weight   a slow lean from one foot to the other, one full cycle per loop
+--            so it returns to where it started and the loop closes
 local function idle(p: IdleParams): AnimationDef
-	local function pose(breath: number): Poses
-		return merge(crouch(p.knee), {
-			UpperTorso = { rx = p.lean + breath, ry = breath * p.sway },
-			Head = { rx = -p.lean * 0.6 - breath * 0.5, rz = p.headTilt },
-			RightUpperArm = { rx = p.armForward + breath * 0.5, rz = p.armOut + breath },
-			LeftUpperArm = { rx = p.armForward + breath * 0.5, rz = -(p.armOut + breath) },
-			RightLowerArm = { rx = p.elbow },
-			LeftLowerArm = { rx = p.elbow },
+	local crouched = crouch(p.knee)
+	local drop = (crouched.LowerTorso :: any).py or 0
+
+	local function pose(breath: number, lag: number, weight: number): Poses
+		return merge(crouched, {
+			-- Re-stating py: merge replaces a part's whole pose, so a hips
+			-- pose here would otherwise drop the crouch's height correction.
+			LowerTorso = { py = drop, rz = weight, ry = weight * 0.4 },
+			UpperTorso = { rx = p.lean + breath, ry = breath * p.sway - weight * 0.5, rz = -weight * 0.6 },
+			Head = { rx = -p.lean * 0.6 - lag * 0.5, ry = -weight * 0.9, rz = p.headTilt + weight * 0.4 },
+			RightUpperArm = { rx = p.armForward + lag * 0.5, ry = -weight * 0.5, rz = p.armOut + lag },
+			LeftUpperArm = { rx = p.armForward + lag * 0.5, ry = -weight * 0.5, rz = -(p.armOut + lag) },
+			RightLowerArm = { rx = p.elbow + lag * 0.7 },
+			LeftLowerArm = { rx = p.elbow + lag * 0.7 },
 		})
 	end
 
+	local L = p.length
+	local b = p.breathe
+	-- A rig that already sways a lot shifts its weight further.
+	local shift = 0.7 + p.sway * 0.4
+
 	return {
-		length = p.length,
+		length = L,
 		looped = true,
 		priority = "Idle",
 		keyframes = {
-			kf(0, pose(0)),
-			kf(p.length / 2, pose(p.breathe)),
-			kf(p.length, pose(0)),
+			kf(0, pose(0, 0, 0)),
+			kf(L * 0.25, pose(b * 0.8, b * 0.2, shift)),
+			kf(L * 0.5, pose(b, b * 0.7, 0)),
+			kf(L * 0.75, pose(b * 0.35, b * 0.9, -shift)),
+			kf(L, pose(0, 0, 0)),
 		},
 	}
 end
@@ -181,28 +211,37 @@ type WalkParams = {
 
 -- A four-beat cycle: contact, passing, mirrored contact, mirrored passing.
 local function walk(p: WalkParams): AnimationDef
+	-- Contact: the front heel lands with the toe up, the back foot is still
+	-- pushing off with the toe down, and the hips turn against the shoulders.
 	local contact: Poses = {
-		LowerTorso = { py = -p.bob, rz = p.rock },
+		LowerTorso = { py = -p.bob, rz = p.rock, ry = -p.twist * 0.6 },
 		UpperTorso = { rx = p.lean, ry = p.twist },
-		Head = { rx = -p.lean * 0.6 },
+		Head = { rx = -p.lean * 0.6, ry = -p.twist * 0.4 },
 		RightUpperLeg = { rx = p.stride },
 		RightLowerLeg = { rx = -5 },
+		RightFoot = { rx = ankle(p.stride, -5, 9) },
 		LeftUpperLeg = { rx = -p.stride },
 		LeftLowerLeg = { rx = -p.knee },
+		LeftFoot = { rx = ankle(-p.stride, -p.knee, -16) },
 		RightUpperArm = { rx = p.armForward - p.armSwing, rz = p.armOut },
 		LeftUpperArm = { rx = p.armForward + p.armSwing, rz = -p.armOut },
 		RightLowerArm = { rx = p.elbow },
-		LeftLowerArm = { rx = p.elbow },
+		-- The arm swinging forward bends at the elbow as it comes through.
+		LeftLowerArm = { rx = p.elbow + p.armSwing * 0.3 },
 	}
 
+	-- Passing: weight over one flat foot, the other swinging through with the
+	-- toe lifted so it clears the floor.
 	local passing: Poses = {
 		LowerTorso = { py = p.bob },
 		UpperTorso = { rx = p.lean },
 		Head = { rx = -p.lean * 0.6 },
 		RightUpperLeg = { rx = 0 },
 		RightLowerLeg = { rx = -5 },
+		RightFoot = { rx = ankle(0, -5, 0) },
 		LeftUpperLeg = { rx = p.stride * 0.2 },
 		LeftLowerLeg = { rx = -p.knee * 1.6 },
+		LeftFoot = { rx = ankle(p.stride * 0.2, -p.knee * 1.6, 7) },
 		RightUpperArm = { rx = p.armForward, rz = p.armOut },
 		LeftUpperArm = { rx = p.armForward, rz = -p.armOut },
 		RightLowerArm = { rx = p.elbow },
@@ -369,6 +408,10 @@ end
 -- hit pose the follow-through carries.
 local COIL = 1.12
 local FOLLOW_THROUGH = 1.15
+-- How far the other way the body gathers before it draws back, and how early
+-- in the windup that happens.
+local ANTICIPATE = 0.16
+local ANTICIPATE_AT = 0.4
 
 -- An attack or swing: rest, the windup peaking at `windupAt`, a coil that
 -- holds the tension, the strike at `impact`, a follow-through carrying past
@@ -383,8 +426,14 @@ local function strike(length: number, impact: number, windupAt: number, windup: 
 	local followAt = impact + math.min(0.07, (length - impact) * 0.2)
 
 	local keyframes = {
-		-- Snaps into the windup and settles there...
+		-- A beat the other way first: the upper body gathers before it draws
+		-- back, which is what makes a windup read as a decision rather than a
+		-- pose the rig teleported into. Only the upper body counter-moves —
+		-- `exaggerate` leaves the hips and legs at their windup values, so the
+		-- feet plant first and the arms follow, the order a real strike loads.
 		kf(0, {}, "Out"),
+		kf(windupAt * ANTICIPATE_AT, exaggerate(windup, -ANTICIPATE)),
+		-- Snaps into the windup and settles there...
 		kf(windupAt, windup),
 		-- ...then accelerates from the coil into the hit, so it lands with
 		-- weight, and carries through fast before slowing.
@@ -869,19 +918,31 @@ end
 -- A looping stance: the pose, breathing slightly. Upper body only, so it sits
 -- over Roblox's own walk and run.
 local function stanceLoop(pose: Poses): AnimationDef
-	local breath = merge(pose)
-	nudge(breath, "UpperTorso", -2, 0, 0)
-	nudge(breath, "RightUpperArm", 2, 0, 0)
-	nudge(breath, "LeftUpperArm", 2, 0, 0)
+	-- The same three clocks as an enemy idle — breath, a late-arriving lag in
+	-- the arms, and a slow sway — but upper body only, so Roblox's own walk
+	-- and run keep playing underneath it.
+	local function at(breath: number, lag: number, sway: number): Poses
+		local poses = merge(pose)
+		nudge(poses, "UpperTorso", -2 * breath, sway * 1.4, 0)
+		nudge(poses, "Head", -breath, -sway * 1.8, sway * 0.8)
+		nudge(poses, "RightUpperArm", 2 * lag, 0, sway)
+		nudge(poses, "LeftUpperArm", 2 * lag, 0, sway)
+		nudge(poses, "RightLowerArm", 1.5 * lag, 0, 0)
+		nudge(poses, "LeftLowerArm", 1.5 * lag, 0, 0)
+		return poses
+	end
 
+	local L = 2.4
 	return {
-		length = 2.4,
+		length = L,
 		looped = true,
 		priority = "Idle",
 		keyframes = {
-			kf(0, pose),
-			kf(1.2, breath),
-			kf(2.4, pose),
+			kf(0, at(0, 0, 0)),
+			kf(L * 0.25, at(0.8, 0.2, 1)),
+			kf(L * 0.5, at(1, 0.8, 0)),
+			kf(L * 0.75, at(0.35, 1, -1)),
+			kf(L, at(0, 0, 0)),
 		},
 	}
 end
@@ -911,15 +972,32 @@ local SHIELD_BACK: Poses = {
 	LeftLowerArm = { rx = 70 },
 }
 
+-- The shield lowered to the side, carried rather than held up. Only for the
+-- resting stance; every guard and swing still raises it.
+local SHIELD_DOWN: Poses = {
+	LeftUpperArm = { rx = 10, rz = -7 },
+	LeftLowerArm = { rx = 28 },
+}
+
 local R15Player: { [string]: AnimationDef } = {
 	--[[ Sword & Shield ]]
 
-	-- Bladed stance: sword forward and up, shield across the chest.
-	[AnimationDefs.stance("SwordAndShield")] = stanceLoop(merge(SHIELD_UP, {
-		UpperTorso = { ry = 12 },
-		Head = { ry = -12 },
-		RightUpperArm = { rx = 28, rz = 14 },
-		RightLowerArm = { rx = 48 },
+	-- At rest: the sword hangs point-down, shield lowered off the arm.
+	--
+	-- How far a resting weapon can dip is set by its length, not by taste. The
+	-- hand sits about 2.3 studs up, and a piece `L` long angled `a` below
+	-- horizontal puts its tip at 2.3 - L*sin(a) — so the arming sword, at
+	-- roughly 4.5 studs from grip to point, can only drop about 25 degrees
+	-- before the tip is through the floor. The wrist does the dipping, because
+	-- swinging the shoulder back far enough to aim the blade down reads as
+	-- winding up, not resting.
+	[AnimationDefs.stance("SwordAndShield")] = stanceLoop(merge(SHIELD_DOWN, {
+		UpperTorso = { ry = 8 },
+		Head = { ry = -8 },
+		RightUpperArm = { rx = 6, rz = 6 },
+		RightLowerArm = { rx = 12 },
+		-- Sums with the arm above it to about -24: tip just clear of the floor.
+		RightHand = { rx = -42 },
 	})),
 
 	-- Shield up in front of the face, sword held low and ready.
@@ -1028,13 +1106,17 @@ local R15Player: { [string]: AnimationDef } = {
 	--[[ Daggers ]]
 
 	-- Low and forward, both blades ready.
+	-- Daggers are short enough (about 1.8 studs) to hang almost straight down
+	-- without the points reaching the floor, so they get the full drop.
 	[AnimationDefs.stance("Daggers")] = stanceLoop({
-		UpperTorso = { rx = -10 },
-		Head = { rx = 8 },
-		RightUpperArm = { rx = 35, rz = 20 },
-		RightLowerArm = { rx = 70 },
-		LeftUpperArm = { rx = 50, rz = -20 },
-		LeftLowerArm = { rx = 80 },
+		UpperTorso = { rx = -4 },
+		Head = { rx = 4 },
+		RightUpperArm = { rx = 8, rz = 7 },
+		RightLowerArm = { rx = 14 },
+		RightHand = { rx = -96 },
+		LeftUpperArm = { rx = 8, rz = -7 },
+		LeftLowerArm = { rx = 14 },
+		LeftHand = { rx = -96 },
 	}),
 
 	-- Blades crossed in front of the face.
@@ -1138,13 +1220,17 @@ local R15Player: { [string]: AnimationDef } = {
 	--[[ Staff ]]
 
 	-- Two hands on the staff, held across the body.
+	-- The staff is gripped below its middle and runs up the hand's +Y, so a
+	-- hanging arm already stands it upright like a walking stave, butt near
+	-- the floor. Resting it is a matter of letting the arm down, not of
+	-- turning the wrist.
 	[AnimationDefs.stance("Staff")] = stanceLoop({
-		UpperTorso = { ry = 15 },
-		Head = { ry = -12 },
-		RightUpperArm = { rx = 35, rz = 10 },
-		RightLowerArm = { rx = 60 },
-		LeftUpperArm = { rx = 60, rz = -5 },
-		LeftLowerArm = { rx = 85 },
+		UpperTorso = { ry = 8 },
+		Head = { ry = -7 },
+		RightUpperArm = { rx = 5, rz = 5 },
+		RightLowerArm = { rx = 10 },
+		LeftUpperArm = { rx = 9, rz = -6 },
+		LeftLowerArm = { rx = 22 },
 	}),
 
 	-- Staff raised level in front, both hands wide.

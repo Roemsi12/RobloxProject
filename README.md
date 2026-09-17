@@ -7,10 +7,20 @@ blacksmith to upgrade what you carry. A 1v1 duel arena runs on the same combat r
 
 **Status:** all ten build-order steps are code-complete, including saved progress.
 Dungeons are randomised runs ending in a boss fight.
-Enemies are Part-built R15 rigs with first-draft animations, ready to be refined.
+Enemies are Part-built R15 rigs, animated from keyframe data in this repo.
 A game-feel pass added weapons in hand, hit-stop, screen shake, sound, torch-lit
-rooms and dusk lighting, all from built-in or public-domain assets. Nothing has had
-a tuning pass yet. See [`DESIGN.md`](DESIGN.md).
+rooms and dusk lighting, all from built-in or public-domain assets. An art pass
+then took the whole game to one **grim dark fantasy** look — cold stone, rusted
+iron, old bone and firelight — across weapons, enemy rigs and dungeon geometry,
+and gave the animations overlap, ankles and anticipation. Rooms were then rebuilt
+grand: 22-stud walls, buttressed bays, stone sentinels and inlaid floors. Every
+colour comes from [`src/shared/Palette.luau`](src/shared/Palette.luau). Nothing
+has had a numeric tuning pass yet. See [`DESIGN.md`](DESIGN.md).
+
+Next up, already decided and written down under *"Agreed, not yet built"* in
+[`DESIGN.md`](DESIGN.md): one weapon at a time swapped only in camp, the equipped
+weapon shown in the inventory panel, a ready-check queue into the dungeon, and a
+camp with the blacksmith in a real forge building.
 
 ## Controls
 
@@ -98,9 +108,16 @@ rojo serve test.project.json
 ## Animations
 
 Every enemy (idle, walk, each attack, stagger, death) and every player combat move
-(a swing per weapon, the parry) has a rough first-draft animation, stored as data in
+(a swing per weapon, the parry) is animated from keyframe data in
 [`src/shared/AnimationDefs.luau`](src/shared/AnimationDefs.luau). The game plays them
-as-is; nothing needs uploading. To refine one in Roblox's Animation Editor:
+as-is; nothing needs uploading.
+
+Most of the motion comes from a handful of shared helpers — `idle`, `walk`,
+`strike`, `stanceLoop` — so a change to one improves every rig and every weapon at
+once. They carry the timing principles the animations rely on: overlap (arms and
+head arrive late), weight shift, heel-strike and toe-off at the ankles, and a beat
+of anticipation before every windup. To refine an individual one in Roblox's
+Animation Editor:
 
 1. Build the workbench — every rig, with every animation loaded on it:
    ```sh

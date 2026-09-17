@@ -491,6 +491,11 @@ rule.)*
   other sites carry licence terms. Part-built rigs are free of all three
   problems. Real meshes can replace the parts one for one later, under the
   same names, without touching animation.
+  *Partly superseded in the art pass:* the first reason is no longer true —
+  Studio is reachable over MCP now, and can generate meshes as well as insert
+  Toolbox models. The decision stands on the other two reasons plus a third
+  found later (a part-built model is data in git; a mesh is not). See that
+  pass below.
 - **R15-style rigs** *(chosen by the repo owner)*: elbows and knees make proper
   walk cycles and attack arcs possible, and sharing a default R15 avatar's
   part and joint names means one animation vocabulary covers enemies and
@@ -779,6 +784,154 @@ dodged, and group content.
 - **The debug readout is hidden** and Studio-only (F2). The game's own HUD
   shows only posture (while it's above zero) and the dodge and critical
   cooldowns.
+
+## Decisions made in the art pass (Sept 2026)
+
+The brief: weapons, enemies and dungeon geometry that read as a real place
+rather than a gray-box, in one theme — **grim dark fantasy** *(chosen by the
+repo owner)*. Cold wet stone, black iron gone to rust, old bone, tarnished
+gold, and firelight as nearly the only warm thing on screen.
+
+- **Still part-built, still in the repo** *(chosen by the repo owner)*. The
+  earlier rule was justified by "from this repo there's no access to Studio's
+  Toolbox or 3D importer" — that premise no longer holds, since Studio is now
+  reachable over MCP and can generate meshes. The rule was kept anyway, on
+  better grounds: a part-built model is data in git, reviewable in a diff and
+  rebuildable from source, whereas a generated mesh lives in the place and the
+  cloud, and the place is the one thing this project deliberately does not
+  commit. Meshes can still replace pieces one-for-one under the same names.
+- **One `Palette` module, and no colour literals in art data.** Rigs, weapons
+  and rooms now take every colour from `src/shared/Palette.luau`. A named
+  colour used in three places is what makes a sword, a skeleton and a wall
+  sconce look like one world; three hand-picked greys is what makes them look
+  like three people built them. It is pure, so `RoomTemplates` converts to
+  `Color3` at the point of use.
+- **Every stone colour is blue-shifted** — blue channel highest, red lowest.
+  Warm stone reads as a sunlit castle however dark you make it, and the dusk
+  `Lighting` in `default.project.json` already lays a warm tint over the whole
+  frame. Cold stone is what lets the torches do the warming. *(Caught by
+  building a room in Studio and looking at it: the first pass kept the old
+  warm greys and read as sandstone.)*
+- **Rig decorations can now carry a rotation**, as weapon pieces already
+  could. Silhouette is most of what makes an enemy readable at a distance, and
+  almost every strong silhouette cue — a horn, a splayed crown spike, a
+  pauldron sloping off a shoulder, a jaw hanging open — needs a piece that
+  isn't square to the part it hangs on.
+- **The Spitter's acid sac rides above its shoulders and is left unskinned.**
+  It is the only enemy that attacks from range, so it is the one that must be
+  identifiable before it is in reach; the first version tucked the sac behind
+  a translucent hide layer and the whole rig read as a green blob.
+- **The Hollow King's greatsword was shortened** back to roughly its old
+  reach. At `scale = 1.6` every stud of blade is 1.6 in the world, and a
+  longer one drives through the floor on a ground slam.
+- **Doorways are arched, and the doors stand open.** The arch is a ring of
+  rotated voussoirs with a keystone, laid on the wall above a rectangular
+  opening — collision stays a simple box, which is what keeps the leash and
+  the corridors honest. The doors are dressing only: a shut door would block
+  the corridor its room is reached by.
+- **All new dressing is non-colliding.** Barrels, crates, bones, chains, webs,
+  banners, ceiling ribs and floor seams never change a room's size, doors or
+  leash. Only the floor, walls, door posts and the variant's pillars stop
+  anything — those are the things a player expects to stop them, and the
+  things an enemy's leash is measured against.
+- **Flagstones are seams, not tiles.** Ruling a 56-stud floor into slabs with
+  twelve thin strips costs twelve parts; laying it as a real grid costs
+  forty-nine, per room, for the same read at standing height.
+
+### Animation
+
+The animations were first drafts: correct poses, but every part moving on the
+same clock. The pass changed the shared helpers rather than the per-rig poses,
+so every rig and every weapon improved at once.
+
+- **Idle and stance run three clocks at once** — breath, a *lag* copy of that
+  motion arriving late in the head and arms, and a slow weight shift from one
+  foot to the other. Overlap is the difference between a body breathing and a
+  rigid piece pumping in time with itself. The weight shift is one full cycle
+  per loop so the loop still closes seamlessly.
+- **The walk has ankles.** Feet were never posed before, so the rigs skated.
+  Contact now lands heel-first with the toe up, the back foot pushes off toe
+  down, and the swing foot lifts to clear the floor. Ankle angles are written
+  as "flat, plus a tilt" via a helper, because a foot only lies flat when its
+  own angle cancels the thigh and shin above it — working that sum out by hand
+  at every keyframe is how feet end up through the floor.
+- **Every strike now anticipates.** A short beat the *other* way before the
+  windup. Only the upper body counter-moves; the hips and legs go straight to
+  the windup stance, so the feet plant first and the arms follow — the order a
+  real strike loads in.
+- **The workbench's floor solver is the check that matters.** It solves joints
+  exactly as the engine does across 24 samples of all 61 animations, and fails
+  on anything that sinks, on idle feet that float or dig in, and on a death
+  that doesn't end lying down. Every change above was landed against it.
+
+## Decisions made making the dungeon grand (Sept 2026)
+
+The brief: *"tall walls with statues and designs that make it look grand"*, and
+weapons held **down** at rest rather than up.
+
+- **Walls read 22 studs tall but are only solid to 12.** Nobody can jump
+  twelve studs, so every stud above that is decoration — and building it
+  `CanQuery = false` means the camera passes straight through it. Raising the
+  whole wall as one solid slab would have made every room grander and played
+  worse: the camera would jam into a wall every time a player backed up
+  against one, in a game whose combat depends on seeing telegraphs.
+- **Corridors stayed low, at 11 studs.** Stepping out of a tunnel into a
+  22-stud hall is what sells the hall. Making both tall would flatten the
+  contrast and cost twice the parts for it.
+- **Grandeur is proportion and repetition, not just height.** Each wall gets
+  buttresses at regular intervals, a recessed carved bay between each pair, a
+  string course, a dentil frieze and a moulded cap. A tall blank wall reads as
+  a big blank wall; a tall wall with a rhythm across it reads as built.
+- **Stone sentinels stand in alternate bays**, and line the processional way
+  in the boss hall. Only rooms 40 studs or wider get them — a small room lined
+  with statues reads as cluttered, not grand.
+- **A statue is made of taper, not detail.** The first version stacked boxes
+  of roughly equal width and read as a lumpy pillar. What fixed it was a wide
+  hem, a waist narrower than both, shoulders wider than everything, arms held
+  clear of the body, and a head big enough to find — plus Marble instead of
+  Granite, whose speckle at that size is just noise. Silhouette does the work.
+- **Every room has an inlaid figure at the centre of its floor.** Rooms are
+  fought in from the middle outward, so that is the piece of floor most often
+  on screen.
+- **A resting weapon dips as far as its length allows, and no further.** The
+  hand sits about 2.3 studs up, so a piece `L` long angled `a` below
+  horizontal puts its tip at `2.3 - L*sin(a)`. The arming sword (~4.5 studs)
+  can only drop about 25 degrees before its point is through the floor; the
+  daggers (~1.8) hang nearly straight down; the staff already stands upright
+  from a hanging arm and only needed the arm lowered. The **wrist** does the
+  dipping, not the shoulder — swinging the shoulder back far enough to aim a
+  blade down reads as winding up, not resting.
+- **Only the resting stance lowered.** Every guard and every swing still
+  raises the weapon; the point was a relaxed idle, not a weaker block.
+
+### Agreed, not yet built
+
+Decided with the repo owner in the same pass, for whoever picks this up next:
+
+- **One weapon at a time, swapped only in camp.** Picking a weapon from a
+  stand replaces the one you carry rather than adding to it, and the swap is
+  only possible in the start area — never mid-run. Upgrade levels stay per
+  weapon (`EquipService` already stores them that way), so returning to a
+  weapon you previously upgraded keeps its level. This **reverses** the
+  earlier locked-in decision that respeccing is free and unrestricted; the
+  cost is now the walk back to camp as well as the crystals.
+- **The equipped weapon shows in the inventory panel**, as its own section
+  above the loot list rather than as a fake `ItemInstance`. Weapons are not
+  loot: putting them in the item list would mean inventing itemIds for them,
+  paying the `MAX_INVENTORY` cap for something that is always exactly one, and
+  teaching the save format about a second kind of thing.
+- **The dungeon is entered through a ready-check queue.** Interacting with the
+  gate starts a short countdown; anyone else who queues before it ends goes in
+  together, and a solo player still gets in when it expires. The start room's
+  north doorway gets a portcullis so the queue is the way in rather than a
+  suggestion.
+- **The start area becomes a camp**, with the blacksmith in a proper forge
+  building rather than an anvil standing in the open, and the queue gate
+  opposite it.
+- **The dungeon stays in this server.** It already does — the start room is at
+  the origin and each dungeon is generated north of it in the same `Workspace`,
+  with no `TeleportService` anywhere. Worth writing down because "queue" often
+  implies a reserved server, and here it deliberately does not.
 
 ## Open / not yet decided
 
