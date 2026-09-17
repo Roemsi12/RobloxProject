@@ -33,9 +33,11 @@ in this same server, north of the camp.
 | **Right click** / X | Feint: cancel a swing early in its windup |
 | **F** / L1 | Press just before a hit lands to parry; hold to block |
 | **Q** / B | Dodge: a quick dash you can't be hit during |
+| **Z** / **X** / **C** | The abilities you unlocked in the skill tree |
 | **F2** | Combat debug readout — **Studio only** |
-| **Left Shift** | Toggle camera lock |
+| **Left Shift** | Toggle camera lock (on by default) |
 | **I** | Inventory |
+| **K** | Skills: your weapon's tree, and the points to spend in it |
 | **E** at a stand, anvil, gate or chest | Take a weapon, upgrade it, queue for the dungeon, open a chest |
 | **1 / 2 / 3** | Swap weapon instantly — **Studio only**, for tuning |
 
@@ -136,6 +138,45 @@ Animation Editor:
 The workbench script checks its output before reporting success, including solving
 every animation against the floor. Regenerating replaces the file, so publish (or keep
 your own copy of) anything in progress first.
+
+## Levels and skills
+
+Every kill pays XP to everyone carrying a weapon, not just whoever landed the
+blow. Each level is a skill point, up to level 20.
+
+Points are spent in the tree of the weapon you are holding (**K**). Each
+weapon has its own tree of three branches, and its own points — picking up the
+daggers at level 15 gives you a full 14 points to spend in *their* tree
+without touching the sword's. No tree can be filled: 26 ranks, 19 points at
+the cap, so what you leave out matters as much as what you take.
+
+Each branch ends in an **ability**, and finishing a branch is the only way to
+get one. The branch's position decides its key: leftmost is **Z**, then **X**,
+then **C**. Nine in all — the Tank's Last Stand, Shield Break and Breach; the
+Assassin's Shadowstep, Evasion and Flurry; the Healer's Mending Pulse,
+Sanctified Ward and Arcane Nova. Swapping weapon swaps the tree, the abilities
+and the keys together.
+
+Unlocking all three of a weapon's abilities is possible at the level cap and
+costs over half your points, so the real choice is three shallow abilities or
+one you have actually invested in.
+
+The abilities are data in
+[`src/shared/AbilityDefs.luau`](src/shared/AbilityDefs.luau); the trees are in
+[`src/shared/SkillTreeDefs.luau`](src/shared/SkillTreeDefs.luau) and the curve
+is in
+[`src/shared/ProgressionDefs.luau`](src/shared/ProgressionDefs.luau). Adding a
+node is a row; adding a new *kind* of effect is a row plus wiring it at the one
+place in combat that reads it. `lune run test SkillTreeDefs` checks that no
+node is unreachable, that no tree can be completed, and that every node's
+effects can be put into words for the panel.
+
+## Chests
+
+Opening a chest shows what is inside rather than pushing it into your bags.
+Click a row to take it; anything you leave stays in the chest for whoever comes
+next, and a full inventory no longer means a chest you daren't open. The chest
+owns its contents, so two players searching the same one see the same rows go.
 
 ## Dungeons
 

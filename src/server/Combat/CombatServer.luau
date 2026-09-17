@@ -29,6 +29,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage.Shared
+local AbilityDefs = require(Shared.AbilityDefs)
 local AttackSelector = require(Shared.AttackSelector)
 local CombatConstants = require(Shared.CombatConstants)
 local DamageMath = require(Shared.DamageMath)
@@ -42,9 +43,28 @@ local Characters = require(script.Parent.Characters)
 local EnemyAI = require(script.Parent.EnemyAI)
 local PlayerCombatState = require(script.Parent.PlayerCombatState)
 local EquipService = require(script.Parent.Parent.EquipService)
+local ProgressionService = require(script.Parent.Parent.Progression.ProgressionService)
 local PvPCombatServer = require(script.Parent.Parent.PvP.PvPCombatServer)
 
 local CombatServer = {}
+
+-- Thrown attacks leave the enemy around chest height rather than its feet.
+local PROJECTILE_HEIGHT = 3
+
+-- Even point-blank, something thrown takes a moment to arrive — otherwise a
+-- cornered Spitter's spit would land on the same frame it was spat.
+local MIN_FLIGHT = 0.12
+
+-- How far behind a target Shadowstep puts you: outside their own hitbox, and
+-- inside your own reach.
+local BLINK_STANDOFF = 5
+
+-- Pause after an ability resolves before a swing can follow it, so an ability
+-- is a commitment rather than a free extra hit in the middle of a combo.
+local ABILITY_RECOVERY = 0.4
+
+-- One key per branch of the skill tree.
+local ABILITY_SLOTS = 3
 
 type ActiveAttack = {
 	enemyId: string,
@@ -54,6 +74,10 @@ type ActiveAttack = {
 	-- Set by a player's hit during the windup (unless the attack has hyper
 	-- armour): the attack is cancelled and the enemy flinches.
 	interrupted: boolean,
+	-- Where a thrown attack is going to land. Set at launch; the hit is then
+	-- resolved around this point rather than around the enemy, which is what
+	-- makes stepping aside after the throw work.
+	landing: Vector3?,
 }
 
 -- The profile a player's swing resolves with: a combo step or a critical.
@@ -177,6 +201,20 @@ type Victim = {
 local function collectVictims(enemy: EnemyAI.Enemy, attack: ActiveAttack, now: number): { Victim }
 	local attackerPos = Characters.flat(enemy.root.Position)
 	local attackerFacing = Characters.flat(enemy.root.CFrame.LookVector)
+
+	-- A thrown attack hits around where it landed, not around whoever threw
+	-- it: by the time it arrives the enemy may have moved, and the player
+	-- certainly may have.
+	local range = attack.def.range
+	local arcDegrees = attack.def.arcDegrees
+	local landing = attack.landing
+	local projectile = attack.def.projectile
+	if landing and projectile then
+		attackerPos = Characters.flat(landing)
+		range = projectile.radius
+		arcDegrees = 360
+	end
+
 	local victims = {}
 
 	for _, player in Players:GetPlayers() do
@@ -191,8 +229,8 @@ local function collectVictims(enemy: EnemyAI.Enemy, attack: ActiveAttack, now: n
 			attackerPos = attackerPos,
 			attackerFacing = attackerFacing,
 			targetPos = Characters.flat(root.Position),
-			range = attack.def.range,
-			arcDegrees = attack.def.arcDegrees,
+			range = range,
+			arcDegrees = arcDegrees,
 		})
 		if not inVolume then
 			continue
@@ -227,7 +265,8 @@ local function parries(victim: Victim, attack: ActiveAttack): boolean
 	if not weaponId then
 		return false
 	end
-	return ParryMath.catches(pressAt, Loadout.getDef(weaponId).parry, attack.impactTime)
+	local parry = ParryMath.widen(Loadout.getDef(weaponId).parry, ProgressionService.modifiers(victim.player).parryWindow)
+	return ParryMath.catches(pressAt, parry, attack.impactTime)
 end
 
 -- A strike that at least one player parried: nobody takes it, every parrier
@@ -243,7 +282,8 @@ local function resolveParried(enemy: EnemyAI.Enemy, attack: ActiveAttack, parrie
 		local payoff = weapon.payoff
 
 		state.parryCaught = true
-		PlayerCombatState.setPosture(state, PostureMath.afterParry(state.posture), now, false)
+		local restore = PlayerCombatState.limits(player).parryRestore
+		PlayerCombatState.setPosture(state, PostureMath.afterParry(state.posture, restore), now, false)
 
 		staggerFor = math.max(staggerFor, DamageMath.staggerDuration(CombatConstants.STAGGER_DURATION, payoff.staggerMultiplier))
 
@@ -251,7 +291,8 @@ local function resolveParried(enemy: EnemyAI.Enemy, attack: ActiveAttack, parrie
 			state.riposteUntil = now + payoff.riposteDuration
 		end
 		if payoff.burstHeal > 0 then
-			applyBurstHeal(player, payoff.burstHeal, payoff.burstHealRadius)
+			local healing = payoff.burstHeal * (1 + ProgressionService.modifiers(player).healPower)
+			applyBurstHeal(player, healing, payoff.burstHealRadius)
 		end
 
 		Remotes.get("ParryResult"):FireClient(player, {
@@ -273,7 +314,9 @@ local function resolveLanded(enemy: EnemyAI.Enemy, attack: ActiveAttack, victims
 		local player = victim.player
 		local state = victim.state
 
-		if ParryMath.withinWindow(state.dodgeStartedAt, CombatConstants.DODGE_IFRAMES, attack.impactTime) then
+		local mods = ProgressionService.modifiers(player)
+		local iframes = CombatConstants.DODGE_IFRAMES + mods.dodgeIframes
+		if ParryMath.withinWindow(state.dodgeStartedAt, iframes, attack.impactTime) then
 			Remotes.get("PlayerHit"):FireClient(player, {
 				amount = 0,
 				sourceId = enemy.id,
@@ -283,11 +326,28 @@ local function resolveLanded(enemy: EnemyAI.Enemy, attack: ActiveAttack, victims
 			continue
 		end
 
+		local warded = now < state.wardUntil
 		local incoming = DamageMath.resolveIncoming(attack.def.damage, false)
+		if warded then
+			incoming *= 1 - state.wardReduction
+		end
 		-- Not mid-swing or stunned: attacking out of a guard opens it.
 		local guarding = state.guarding and not state.swinging and not PlayerCombatState.isStunned(state, now)
-		local block = DamageMath.resolveBlock(incoming, guarding, attack.def.parryable, victim.facing, state.posture)
+		local block = DamageMath.resolveBlock(
+			incoming,
+			guarding,
+			attack.def.parryable,
+			victim.facing,
+			state.posture,
+			PlayerCombatState.limits(player).max
+		)
 		PlayerCombatState.setPosture(state, block.posture, now, block.outcome ~= "unguarded")
+
+		-- A warded guard doesn't break: the posture still empties, but the
+		-- stun and the full hit that normally come with it don't.
+		if block.outcome == "broken" and warded then
+			block = { outcome = "blocked", damage = 0, posture = 0 }
+		end
 
 		if block.outcome == "broken" then
 			state.guarding = false
@@ -347,6 +407,39 @@ local function holdEnemyState(enemy: EnemyAI.Enemy, state: EnemyAI.EnemyState, k
 	end
 end
 
+-- Sends a thrown attack on its way, aimed at where its target is standing
+-- right now. Returns how long it will be in the air, or 0 if there was
+-- nothing to throw it at.
+--
+-- The aim is fixed at launch and the flight time is the window to move: a
+-- ranged enemy you can see winding up should be one you can step around,
+-- rather than a damage tick that arrives wherever you are.
+local function launchProjectile(enemy: EnemyAI.Enemy, attack: ActiveAttack, projectile: EnemyDefs.ProjectileDef): number
+	local target = getTarget(enemy)
+	local root = target and Characters.getRoot(target)
+	if not root then
+		return 0
+	end
+
+	local origin = enemy.root.Position + Vector3.new(0, PROJECTILE_HEIGHT, 0)
+	local landing = root.Position
+	local flight = math.max((landing - origin).Magnitude / projectile.speed, MIN_FLIGHT)
+
+	attack.landing = landing
+
+	Remotes.get("ProjectileLaunched"):FireAllClients({
+		enemyId = enemy.id,
+		attackId = attack.attackId,
+		kind = projectile.kind,
+		origin = origin,
+		landing = landing,
+		flight = flight,
+		radius = projectile.radius,
+	})
+
+	return flight
+end
+
 local function runAttack(enemy: EnemyAI.Enemy, attackId: string)
 	local attackDef = enemy.def.attacks[attackId]
 	local now = Workspace:GetServerTimeNow()
@@ -357,6 +450,7 @@ local function runAttack(enemy: EnemyAI.Enemy, attackId: string)
 		def = attackDef,
 		impactTime = now + attackDef.telegraphDuration,
 		interrupted = false,
+		landing = nil,
 	}
 
 	activeAttacks[enemy.id] = attack
@@ -376,16 +470,39 @@ local function runAttack(enemy: EnemyAI.Enemy, attackId: string)
 	-- Held open past impact so a block press made just before the hit, or a
 	-- dodge, has time to arrive. See STRIKE_RESOLUTION_GRACE.
 	waitUntilOrInterrupted(attack.impactTime + CombatConstants.STRIKE_RESOLUTION_GRACE, enemy, attack)
-	activeAttacks[enemy.id] = nil
 
 	if not enemy.alive then
+		activeAttacks[enemy.id] = nil
 		return
 	end
 
 	if attack.interrupted then
+		activeAttacks[enemy.id] = nil
 		holdEnemyState(enemy, "flinched", "flinch", CombatConstants.ENEMY_FLINCH_DURATION)
 		return
 	end
+
+	-- A thrown attack leaves the enemy at the end of the telegraph and lands
+	-- later. Once it is in the air it can't be interrupted — the enemy has
+	-- already let go — so the flinch check above is the last one.
+	local projectile = attackDef.projectile
+	if projectile then
+		local flight = launchProjectile(enemy, attack, projectile)
+		if flight <= 0 then
+			activeAttacks[enemy.id] = nil
+			return
+		end
+		-- The parry is judged against the moment it arrives, not the throw.
+		attack.impactTime += flight
+		task.wait(flight)
+
+		if not enemy.alive then
+			activeAttacks[enemy.id] = nil
+			return
+		end
+	end
+
+	activeAttacks[enemy.id] = nil
 
 	local resolvedAt = Workspace:GetServerTimeNow()
 	local victims = collectVictims(enemy, attack, resolvedAt)
@@ -548,16 +665,35 @@ local function resolveSwing(player: Player, weaponId: string, profile: SwingProf
 
 	local target = findSwingTarget(root, profile)
 	if not target then
+		local now = Workspace:GetServerTimeNow()
+		state.attackReadyAt = math.max(state.attackReadyAt, now + CombatConstants.MISS_RECOVERY)
+		state.comboStep = 0
+		state.comboExpiresAt = 0
 		attackResult(player, { hit = false, reason = "missed", damage = 0, riposte = false })
+		PlayerCombatState.publish(player)
 		return
 	end
 
 	local now = Workspace:GetServerTimeNow()
 	local riposteActive = now < state.riposteUntil
-	local damage = DamageMath.resolveOutgoing(EquipService.getDamage(player, weaponId) * profile.damageMultiplier, {
+	local mods = ProgressionService.modifiers(player)
+
+	-- Struck from behind: the Assassin's payoff, and the one effect in the
+	-- game that depends on where you are standing. Read off the enemy's own
+	-- facing rather than the player's, using the same arc a block uses.
+	local behind = not DamageMath.isFacing(
+		Characters.flat(target.root.Position),
+		Characters.flat(target.root.CFrame.LookVector),
+		Characters.flat(root.Position),
+		CombatConstants.BLOCK_ARC_DEGREES
+	)
+	local backstab = if behind then mods.backstab else 0
+
+	local base = EquipService.getDamage(player, weaponId) * profile.damageMultiplier
+	local damage = DamageMath.resolveOutgoing(base * (1 + mods.damage + backstab), {
 		targetStaggered = target.state == "staggered",
 		riposteActive = riposteActive,
-		riposteMultiplier = weapon.payoff.riposteMultiplier,
+		riposteMultiplier = weapon.payoff.riposteMultiplier + mods.riposte,
 	})
 
 	local killed = EnemyAI.applyDamage(target, damage)
@@ -668,7 +804,8 @@ local function onCriticalRequest(player: Player)
 	local attack = Loadout.getDef(weaponId).attack
 	local critical = attack.critical
 
-	state.criticalReadyAt = now + critical.cooldown
+	local mods = ProgressionService.modifiers(player)
+	state.criticalReadyAt = now + critical.cooldown * (1 - mods.criticalCooldown)
 	state.attackReadyAt = now + critical.windup + attack.finisherRecovery
 	state.comboStep = 0
 
@@ -676,7 +813,7 @@ local function onCriticalRequest(player: Player)
 	startSwing(player, state, weaponId, critical.windup, {
 		range = critical.range,
 		arcDegrees = critical.arcDegrees,
-		damageMultiplier = critical.damageMultiplier,
+		damageMultiplier = critical.damageMultiplier * (1 + mods.criticalDamage),
 	}, now)
 	PlayerCombatState.publish(player)
 end
@@ -777,10 +914,191 @@ local function onDodgeRequest(player: Player, payload: unknown)
 
 	state.guarding = false
 	state.dodgeStartedAt = attemptTime
-	state.dodgeReadyAt = now + CombatConstants.DODGE_COOLDOWN
+	local dodgeCooldown = CombatConstants.DODGE_COOLDOWN * (1 - ProgressionService.modifiers(player).dodgeCooldown)
+	state.dodgeReadyAt = now + dodgeCooldown
 
 	PlayerCombatState.announce(player, "dodge", EquipService.getWeaponId(player) or "")
 	PlayerCombatState.publish(player)
+end
+
+--[[ Abilities ]]
+
+-- One signature move per weapon (AbilityDefs), on Z. Implemented here rather
+-- than in a service of its own because everything it needs — the enemy table,
+-- the stagger helper, the kill path, the burst heal — is already here, and a
+-- second module would have to be handed all of it.
+
+-- Everything alive inside a cone (or a full circle) around the caster.
+local function enemiesAround(origin: Vector3, facing: Vector3, radius: number, arcDegrees: number): { EnemyAI.Enemy }
+	local found = {}
+	local flatOrigin = Characters.flat(origin)
+	local flatFacing = Characters.flat(facing)
+
+	for _, enemy in enemies do
+		if not enemy.alive then
+			continue
+		end
+		local inVolume = DamageMath.isInHitVolume({
+			attackerPos = flatOrigin,
+			attackerFacing = flatFacing,
+			targetPos = Characters.flat(enemy.root.Position),
+			range = radius,
+			arcDegrees = arcDegrees,
+		})
+		if inVolume then
+			table.insert(found, enemy)
+		end
+	end
+
+	return found
+end
+
+local function hitWithAbility(player: Player, enemy: EnemyAI.Enemy, damage: number, stagger: number)
+	local killed = EnemyAI.applyDamage(enemy, damage)
+	broadcastEnemyHealth(enemy)
+
+	if killed then
+		onEnemyKilled(enemy, player)
+		return
+	end
+
+	if stagger > 0 then
+		-- Staggered rather than flinched: an ability you waited fourteen
+		-- seconds for should open an enemy properly, not just interrupt it.
+		local attack = activeAttacks[enemy.id]
+		if attack then
+			attack.interrupted = true
+		end
+		task.spawn(holdEnemyState, enemy, "staggered", "stagger", stagger)
+	end
+end
+
+-- A burst: everything around the caster takes it, and all of it opens up.
+local function castBurst(player: Player, root: BasePart, def: AbilityDefs.AbilityDef, power: number)
+	for _, enemy in enemiesAround(root.Position, root.CFrame.LookVector, def.radius, def.arcDegrees) do
+		hitWithAbility(player, enemy, power, def.stagger)
+	end
+end
+
+-- A blink: behind the nearest enemy in front, then a strike from there. The
+-- move is the ability; whatever the tree pays for hitting a back is the
+-- branch's, and taking both is the point.
+local function castBlink(player: Player, root: BasePart, def: AbilityDefs.AbilityDef, power: number)
+	local candidates = enemiesAround(root.Position, root.CFrame.LookVector, def.radius, def.arcDegrees)
+
+	local target: EnemyAI.Enemy? = nil
+	local nearest = math.huge
+	for _, enemy in candidates do
+		local distance = DamageMath.horizontalDistance(Characters.flat(root.Position), Characters.flat(enemy.root.Position))
+		if distance < nearest then
+			target = enemy
+			nearest = distance
+		end
+	end
+
+	if not target then
+		return
+	end
+
+	local enemy = target :: EnemyAI.Enemy
+	local behind = enemy.root.Position - enemy.root.CFrame.LookVector * BLINK_STANDOFF
+	-- Kept at the caster's own height: the enemy may be a different size, and
+	-- landing inside the floor or above it would both be worse than landing
+	-- next to them.
+	local landing = Vector3.new(behind.X, root.Position.Y, behind.Z)
+	root.CFrame = CFrame.lookAt(landing, Vector3.new(enemy.root.Position.X, landing.Y, enemy.root.Position.Z))
+
+	hitWithAbility(player, enemy, power, def.stagger)
+end
+
+-- A mend: the Healer's rescue, which unlike the parry heal asks nothing of
+-- you first.
+local function castMend(player: Player, _root: BasePart, def: AbilityDefs.AbilityDef, power: number)
+	applyBurstHeal(player, power, def.radius)
+end
+
+-- A ward: for a few seconds, less damage and a guard that holds.
+local function castWard(player: Player, state: PlayerCombatState.State, resolved: AbilityDefs.Resolved, now: number)
+	state.wardUntil = now + resolved.duration
+	state.wardReduction = resolved.power
+	PlayerCombatState.publish(player)
+end
+
+-- Which ability the player has on this key, if any. Read from the tree every
+-- time rather than cached: a point spent mid-fight should work immediately,
+-- and the tree is the only thing that decides this.
+local function abilityInSlot(player: Player, slot: number): AbilityDefs.AbilityDef?
+	local weaponId = EquipService.getWeaponId(player)
+	if not weaponId then
+		return nil
+	end
+
+	local abilityId = ProgressionService.abilities(player)[slot]
+	return if abilityId then AbilityDefs.get(abilityId) else nil
+end
+
+local function onAbilityRequest(player: Player, payload: unknown)
+	if type(payload) ~= "table" or PvPCombatServer.isDueling(player) then
+		return
+	end
+
+	local slot = (payload :: { [string]: any }).slot
+	if type(slot) ~= "number" or slot < 1 or slot > ABILITY_SLOTS or slot ~= math.floor(slot) then
+		return
+	end
+
+	-- Unlocked in the tree, or there is nothing on this key.
+	local def = abilityInSlot(player, slot)
+	if not def then
+		return
+	end
+
+	local now = Workspace:GetServerTimeNow()
+	local state = PlayerCombatState.sync(player, now)
+	local readyAt = state.abilityReadyAt[slot] or 0
+	if PlayerCombatState.isStunned(state, now) or now < readyAt or not Characters.isAlive(player) then
+		return
+	end
+
+	-- A swing in progress is given up for it, on the same terms a dodge is.
+	if state.swinging then
+		if not PlayerCombatState.inCancelWindow(state, now) then
+			return
+		end
+		PlayerCombatState.cancelSwing(state)
+	end
+
+	local mods = ProgressionService.modifiers(player)
+	local resolved = AbilityDefs.resolve(def, mods.abilityCooldown, mods.abilityPower)
+
+	state.guarding = false
+	state.abilityReadyAt[slot] = now + resolved.cooldown
+	state.attackReadyAt = math.max(state.attackReadyAt, now + def.windup + ABILITY_RECOVERY)
+
+	PlayerCombatState.announce(player, "ability", EquipService.getWeaponId(player) or "", def.windup)
+	PlayerCombatState.publish(player)
+
+	-- Resolved after the windup, so it can be seen coming like everything
+	-- else in this game.
+	task.delay(def.windup, function()
+		local castRoot = Characters.getRoot(player)
+		if not castRoot or not Characters.isAlive(player) then
+			return
+		end
+
+		local castNow = Workspace:GetServerTimeNow()
+		local castState = PlayerCombatState.sync(player, castNow)
+
+		if def.kind == "burst" then
+			castBurst(player, castRoot, def, resolved.power)
+		elseif def.kind == "blink" then
+			castBlink(player, castRoot, def, resolved.power)
+		elseif def.kind == "ward" then
+			castWard(player, castState, resolved, castNow)
+		else
+			castMend(player, castRoot, def, resolved.power)
+		end
+	end)
 end
 
 --[[ Debug equip ]]
@@ -856,6 +1174,7 @@ function CombatServer.start()
 	Remotes.get("CriticalRequest").OnServerEvent:Connect(onCriticalRequest)
 	Remotes.get("FeintRequest").OnServerEvent:Connect(onFeintRequest)
 	Remotes.get("DodgeRequest").OnServerEvent:Connect(onDodgeRequest)
+	Remotes.get("AbilityRequest").OnServerEvent:Connect(onAbilityRequest)
 	Remotes.get("EquipWeapon").OnServerEvent:Connect(onEquipWeapon)
 
 	-- A joining player needs every enemy's current health for the HUD.

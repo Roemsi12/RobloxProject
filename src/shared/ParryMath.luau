@@ -133,6 +133,25 @@ function ParryMath.catches(pressTime: number, parryProfile: WeaponDefs.ParryProf
 		and delta <= parryProfile.lateTolerance + BOUNDARY_EPSILON
 end
 
+-- A copy of `profile` with its window widened by `seconds` — what the skill
+-- trees' parryWindow effect buys (SkillTreeDefs).
+--
+-- Split evenly across both halves rather than added to the late one. The
+-- effect has to read as "a wider window": all of it on the late side would
+-- quietly teach players to press after the hit, which is the opposite of
+-- what a parry is.
+function ParryMath.widen(profile: WeaponDefs.ParryProfile, seconds: number): WeaponDefs.ParryProfile
+	if seconds == 0 then
+		return profile
+	end
+
+	local half = seconds / 2
+	local widened = table.clone(profile)
+	widened.earlyTolerance = math.max(profile.earlyTolerance + half, 0)
+	widened.lateTolerance = math.max(profile.lateTolerance + half, 0)
+	return widened
+end
+
 -- Whether a new press gets parry frames. It doesn't if the previous press
 -- caught nothing and its cooldown (from the end of its frames) hasn't run out:
 -- such a press only blocks.

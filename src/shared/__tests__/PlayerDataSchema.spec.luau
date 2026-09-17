@@ -23,6 +23,8 @@ local function validRecord(): { [string]: any }
 			{ itemId = "PracticeToken", rarity = "common", upgradeLevel = 0 },
 			{ itemId = "BoneHiltShard", rarity = "uncommon", upgradeLevel = 0 },
 		},
+		xp = 1500,
+		skills = { Staff = { kind_hand = 2 } },
 	}
 end
 
@@ -35,6 +37,8 @@ describe("PlayerDataSchema.default", function()
 			equipped = {},
 			upgradeLevels = {},
 			inventory = {},
+			xp = 0,
+			skills = {},
 		})
 	end)
 
@@ -56,6 +60,23 @@ describe("PlayerDataSchema.migrate", function()
 		local data, status = PlayerDataSchema.migrate(validRecord())
 		expect(status).toBe("ok")
 		expect(data).toEqual(validRecord())
+	end)
+
+	-- Everyone who played before levels existed has a version-1 profile
+	-- sitting in the DataStore. It must load, keep its coins, and simply
+	-- start at level 1 rather than being read as corrupt.
+	it("carries a pre-levels profile forward", function()
+		local old = validRecord()
+		old.version = 1
+		old.xp = nil
+		old.skills = nil
+
+		local data, status = PlayerDataSchema.migrate(old)
+		expect(status).toBe("ok")
+		expect(data.version).toBe(CURRENT)
+		expect(data.coins).toBe(320)
+		expect(data.xp).toBe(0)
+		expect(data.skills).toEqual({})
 	end)
 
 	-- A server running older code must never overwrite a profile a newer

@@ -18,6 +18,7 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage.Shared
 local AnimationDefs = require(Shared.AnimationDefs)
+local LocomotionMath = require(Shared.LocomotionMath)
 local Remotes = require(Shared.Remotes)
 local RigDefs = require(Shared.RigDefs)
 local SoundDefs = require(Shared.SoundDefs)
@@ -37,6 +38,12 @@ local WHOOSH_AT = 0.6
 type Tracked = {
 	controller: RigAnimation.Controller,
 	character: Model,
+	-- Where the hips and chest are turned to right now, eased toward the goal
+	-- rather than snapped (LocomotionMath).
+	hip: number,
+	shoulder: number,
+	-- Last frame's answer, which is what gives the reversal its hysteresis.
+	reversed: boolean,
 }
 
 local localPlayer = Players.LocalPlayer
@@ -88,6 +95,9 @@ local function onCharacterAdded(player: Player, character: Model)
 	local entry: Tracked = {
 		controller = RigAnimation.new(character, RigDefs.PLAYER_RIG, true),
 		character = character,
+		hip = 0,
+		shoulder = 0,
+		reversed = false,
 	}
 	tracked[player] = entry
 
@@ -97,6 +107,71 @@ local function onCharacterAdded(player: Player, character: Model)
 			refreshStance(entry)
 		end
 	end)
+end
+
+--[[ Strafing ]]
+
+-- Roblox's Animate script names its tracks after the Animation instances it
+-- loads: "WalkAnim", "RunAnim". Matching on the name is how we find the cycle
+-- to run backwards without replacing the whole Animate script.
+local function isWalkCycle(name: string): boolean
+	local lower = string.lower(name)
+	return string.find(lower, "walk", 1, true) ~= nil or string.find(lower, "run", 1, true) ~= nil
+end
+
+-- Backing up plays the walk cycle in reverse, so the feet stride the way the
+-- body is travelling. Re-asserted every frame because the Animate script sets
+-- its own speed whenever the character's velocity changes, and would undo it.
+--
+-- The local player only: another player's tracks are playing here by
+-- replication, and a speed set on this client wouldn't survive the next update
+-- from theirs. Their hips still turn, which is what reads at a distance.
+local function setCycleDirection(humanoid: Humanoid, backwards: boolean)
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		return
+	end
+
+	for _, track in animator:GetPlayingAnimationTracks() do
+		if isWalkCycle(track.Name) then
+			-- Flipped only when the sign is wrong, so the speed the Animate
+			-- script picked for the character's pace is otherwise left alone.
+			local speed = track.Speed
+			if speed ~= 0 and (speed < 0) ~= backwards then
+				track:AdjustSpeed(-speed)
+			end
+		end
+	end
+end
+
+-- The hips turn toward where the character is going and the chest turns back
+-- against them, so a locked camera doesn't leave everyone moonwalking. Facing
+-- and travel agree when the camera is unlocked, so this settles at zero on its
+-- own rather than needing to know whether the lock is on.
+local function updateStrafe(player: Player, entry: Tracked, deltaTime: number)
+	local humanoid = entry.character:FindFirstChildOfClass("Humanoid")
+	local root = rootOf(entry.character)
+
+	local motion: LocomotionMath.Motion
+	if humanoid and root and humanoid.Health > 0 then
+		local move = humanoid.MoveDirection
+		local facing = root.CFrame
+		motion = LocomotionMath.resolve(facing.LookVector:Dot(move), facing.RightVector:Dot(move), entry.reversed)
+	else
+		-- Dead, or not assembled yet: unwind to square.
+		motion = { angle = nil, moving = false, reversed = false }
+	end
+
+	entry.reversed = motion.reversed
+
+	local goal = LocomotionMath.twist(motion)
+	entry.hip = LocomotionMath.approach(entry.hip, goal.hip, deltaTime)
+	entry.shoulder = LocomotionMath.approach(entry.shoulder, goal.shoulder, deltaTime)
+	RigAnimation.setTwist(entry.controller, entry.hip, entry.shoulder)
+
+	if player == localPlayer and humanoid then
+		setCycleDirection(humanoid, motion.moving and motion.reversed)
+	end
 end
 
 local function watchPlayer(player: Player)
@@ -165,6 +240,13 @@ local function play(player: Player, action: string, weaponId: string, windup: nu
 		local root = rootOf(entry.character)
 		if root then
 			SoundFX.playAt("feint", root.Position)
+		end
+	elseif action == "ability" then
+		guardingPlayers[player] = nil
+		RigAnimation.playAction(controller, AnimationDefs.ABILITY, { windup = windup })
+		local root = rootOf(entry.character)
+		if root then
+			SoundFX.playAt("critical_windup", root.Position)
 		end
 	elseif action == "dodge" then
 		guardingPlayers[player] = nil
@@ -245,6 +327,7 @@ function PlayerAnimation.start()
 			if guardWeapon and RigAnimation.currentAction(entry.controller) == nil then
 				holdGuard(entry, guardWeapon, false)
 			end
+			updateStrafe(player, entry, deltaTime)
 			RigAnimation.step(entry.controller, deltaTime)
 		end
 	end)

@@ -85,6 +85,15 @@ CombatConstants.DODGE_COOLDOWN = 1.8
 CombatConstants.DODGE_SPEED = 46
 CombatConstants.DODGE_DURATION = 0.2
 
+-- Extra recovery on a swing that hit nothing, and the combo dropping back to
+-- its first step.
+--
+-- This is what stops melee being a mash. A swing that connects flows into the
+-- next one; a swing at empty air costs you the opening. Without it the
+-- cheapest thing a player can do is hold the button down and let the hitbox
+-- find something, which is exactly the habit the combo is meant to replace.
+CombatConstants.MISS_RECOVERY = 0.3
+
 --[[ Cancelling ]]
 
 -- A swing can be feinted (or dodge-cancelled) only in this first fraction of

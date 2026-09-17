@@ -32,6 +32,7 @@ local PlayerDataSchema = require(Shared.PlayerDataSchema)
 local Remotes = require(Shared.Remotes)
 
 local CurrencyService = require(script.Parent.Economy.CurrencyService)
+local ProgressionService = require(script.Parent.Progression.ProgressionService)
 local EquipService = require(script.Parent.EquipService)
 local InventoryService = require(script.Parent.InventoryService)
 local SpawnService = require(script.Parent.SpawnService)
@@ -192,6 +193,7 @@ end
 local function snapshot(player: Player): PlayerDataSchema.PlayerData
 	local weaponId, upgradeLevels = EquipService.snapshot(player)
 	local coins, crystals = CurrencyService.snapshot(player)
+	local xp, skills = ProgressionService.snapshot(player)
 
 	-- Sanitising also deep-copies, so the write can't alias live state.
 	return PlayerDataSchema.sanitize({
@@ -201,6 +203,8 @@ local function snapshot(player: Player): PlayerDataSchema.PlayerData
 		equipped = { weapon = weaponId },
 		upgradeLevels = upgradeLevels,
 		inventory = InventoryService.snapshot(player),
+		xp = xp,
+		skills = skills,
 	})
 end
 
@@ -296,12 +300,14 @@ end
 local function hydrate(player: Player, data: PlayerDataSchema.PlayerData)
 	EquipService.hydrate(player, data.equipped.weapon, data.upgradeLevels)
 	CurrencyService.hydrate(player, data.coins, data.crystals)
+	ProgressionService.hydrate(player, data.xp, data.skills)
 	InventoryService.hydrate(player, data.inventory)
 end
 
 local function releaseServices(player: Player)
 	EquipService.release(player)
 	CurrencyService.release(player)
+	ProgressionService.release(player)
 	InventoryService.release(player)
 end
 

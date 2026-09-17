@@ -75,7 +75,7 @@ function Loadout.swingTiming(attack: WeaponDefs.AttackProfile, step: number): Sw
 	local finisher = step == #attack.combo
 	return {
 		windup = combo.windup,
-		readyAfter = combo.windup + (if finisher then attack.finisherRecovery else attack.cooldown),
+		readyAfter = combo.windup + (if finisher then attack.finisherRecovery else attack.recovery),
 		comboExpiresAfter = combo.windup + attack.comboWindow,
 		damageMultiplier = combo.damageMultiplier,
 		finisher = finisher,

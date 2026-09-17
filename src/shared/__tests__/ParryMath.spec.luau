@@ -224,3 +224,35 @@ describe("ParryMath.validateTimestamp", function()
 		expect(ParryMath.validateTimestamp(101, 100, 0)).toBe("rejected_future")
 	end)
 end)
+
+describe("ParryMath.widen", function()
+	local profile = WeaponDefs.SwordAndShield.parry
+
+	it("hands back the same profile when there's nothing to add", function()
+		expect(ParryMath.widen(profile, 0)).toBe(profile)
+	end)
+
+	it("splits the bonus evenly across both halves", function()
+		local widened = ParryMath.widen(profile, 0.06)
+		expect(widened.earlyTolerance).toBeCloseTo(profile.earlyTolerance + 0.03)
+		expect(widened.lateTolerance).toBeCloseTo(profile.lateTolerance + 0.03)
+	end)
+
+	it("leaves the weapon's own profile alone", function()
+		ParryMath.widen(profile, 0.06)
+		expect(WeaponDefs.SwordAndShield.parry.earlyTolerance).toBe(profile.earlyTolerance)
+	end)
+
+	it("catches a press that the unwidened window would have missed", function()
+		local impact = 100
+		local justLate = impact + profile.lateTolerance + 0.02
+		expect(ParryMath.catches(justLate, profile, impact)).toBe(false)
+		expect(ParryMath.catches(justLate, ParryMath.widen(profile, 0.06), impact)).toBe(true)
+	end)
+
+	it("never makes a tolerance negative", function()
+		local narrowed = ParryMath.widen(profile, -10)
+		expect(narrowed.earlyTolerance).toBe(0)
+		expect(narrowed.lateTolerance).toBe(0)
+	end)
+end)

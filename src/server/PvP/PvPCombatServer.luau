@@ -25,6 +25,7 @@ local Remotes = require(Shared.Remotes)
 local Characters = require(script.Parent.Parent.Combat.Characters)
 local PlayerCombatState = require(script.Parent.Parent.Combat.PlayerCombatState)
 local EquipService = require(script.Parent.Parent.EquipService)
+local ProgressionService = require(script.Parent.Parent.Progression.ProgressionService)
 local ArenaService = require(script.Parent.ArenaService)
 local Duelist = require(script.Parent.Duelist)
 
@@ -76,7 +77,7 @@ local function resolveSwing(attacker: Player, attackerDuelist: Duelist.Duelist, 
 		arcDegrees = weapon.attack.arcDegrees,
 	})
 
-	Duelist.holdState(attackerDuelist, "recover", weapon.attack.cooldown)
+	Duelist.holdState(attackerDuelist, "recover", weapon.attack.recovery)
 
 	if not inVolume then
 		attackResult(attacker, { hit = false, reason = "missed", damage = 0, riposte = false })
@@ -93,7 +94,9 @@ local function resolveSwing(attacker: Player, attackerDuelist: Duelist.Duelist, 
 	)
 
 	-- Dodged.
-	if ParryMath.withinWindow(defender.dodgeStartedAt, CombatConstants.DODGE_IFRAMES, swing.impactTime) then
+	local defenderMods = ProgressionService.modifiers(opponent)
+	local iframes = CombatConstants.DODGE_IFRAMES + defenderMods.dodgeIframes
+	if ParryMath.withinWindow(defender.dodgeStartedAt, iframes, swing.impactTime) then
 		Remotes.get("PlayerHit"):FireClient(opponent, { amount = 0, sourceId = attacker.Name, attackId = swing.weaponId, dodged = true })
 		attackResult(attacker, { hit = false, reason = "dodged", damage = 0, riposte = false })
 		return
@@ -109,11 +112,16 @@ local function resolveSwing(attacker: Player, attackerDuelist: Duelist.Duelist, 
 		and defender.parryFramesOpen
 		and pressAt
 		and not PlayerCombatState.isStunned(defender, swing.impactTime)
-		and ParryMath.catches(pressAt, Loadout.getDef(defenderWeaponId).parry, swing.impactTime)
+		and ParryMath.catches(
+			pressAt,
+			ParryMath.widen(Loadout.getDef(defenderWeaponId).parry, defenderMods.parryWindow),
+			swing.impactTime
+		)
 	then
 		local defenderWeapon = Loadout.getDef(defenderWeaponId)
 		defender.parryCaught = true
-		PlayerCombatState.setPosture(defender, PostureMath.afterParry(defender.posture), now, false)
+		local restore = PlayerCombatState.limits(opponent).parryRestore
+		PlayerCombatState.setPosture(defender, PostureMath.afterParry(defender.posture, restore), now, false)
 
 		local staggerFor = DamageMath.staggerDuration(CombatConstants.STAGGER_DURATION, defenderWeapon.payoff.staggerMultiplier)
 		Duelist.holdState(attackerDuelist, "staggered", staggerFor)
@@ -143,15 +151,18 @@ local function resolveSwing(attacker: Player, attackerDuelist: Duelist.Duelist, 
 	end
 
 	local riposteActive = now < attackerState.riposteUntil
-	local fullDamage = DamageMath.resolveOutgoing(EquipService.getDamage(attacker, swing.weaponId), {
+	local attackerMods = ProgressionService.modifiers(attacker)
+	local base = EquipService.getDamage(attacker, swing.weaponId) * (1 + attackerMods.damage)
+	local fullDamage = DamageMath.resolveOutgoing(base, {
 		targetStaggered = opponentDuelist.state == "staggered",
 		riposteActive = riposteActive,
-		riposteMultiplier = weapon.payoff.riposteMultiplier,
+		riposteMultiplier = weapon.payoff.riposteMultiplier + attackerMods.riposte,
 	})
 
 	-- The defender's guard works exactly as it does against an enemy.
 	local guarding = defender.guarding and not defender.swinging and not PlayerCombatState.isStunned(defender, now)
-	local block = DamageMath.resolveBlock(fullDamage, guarding, true, facing, defender.posture)
+	local block =
+		DamageMath.resolveBlock(fullDamage, guarding, true, facing, defender.posture, PlayerCombatState.limits(opponent).max)
 	PlayerCombatState.setPosture(defender, block.posture, now, block.outcome ~= "unguarded")
 
 	if block.outcome == "broken" then

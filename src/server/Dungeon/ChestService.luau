@@ -1,6 +1,6 @@
 --!strict
 -- Chests: locked behind a barrier until every guard in their room is dead,
--- then opened once, by whoever gets there first.
+-- then opened, and emptied a piece at a time through a loot menu.
 --
 -- A chest with no guards is open from the start. Guards in a dungeon don't
 -- respawn, so "every guard dead" is also a one-time latch: once unlocked, a
@@ -8,6 +8,16 @@
 --
 -- What's inside is decided when the chest is made, not when it's opened, so a
 -- missing loot row fails at dungeon generation instead of in a player's hands.
+--
+-- Opening shows what's inside rather than pushing it into your bags. You take
+-- what you want, one row at a time, and anything you leave stays in the chest
+-- for whoever comes next. That matters for three reasons: a full inventory no
+-- longer means a chest you daren't open, a party can split a chest without
+-- racing for the prompt, and seeing what you found is worth more than a line
+-- of text telling you afterwards.
+--
+-- The chest, not the player, owns its contents, and every take is checked
+-- here: the client names a slot, never an item.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -32,6 +42,155 @@ local LID_OPEN_ANGLE = math.rad(105)
 
 local ChestService = {}
 
+-- How far from a chest a take is still honoured. Generous compared with the
+-- prompt's own 8 studs, because a player nudged by an enemy mid-menu should
+-- not silently stop being able to take what they are looking at.
+local REACH = 16
+
+type Slot = {
+	descriptor: LootTables.LootDescriptor,
+	taken: boolean,
+}
+
+type Record = {
+	id: string,
+	chest: Part,
+	slots: { Slot },
+	coins: number,
+	coinsTaken: boolean,
+	-- Set once the chest unlocks. Switched off when nothing is left, so an
+	-- emptied chest stops offering to be searched.
+	prompt: ProximityPrompt?,
+}
+
+local chests: { [string]: Record } = {}
+
+local function rowsLeft(record: Record): number
+	local count = if record.coinsTaken or record.coins <= 0 then 0 else 1
+	for _, slot in record.slots do
+		if not slot.taken then
+			count += 1
+		end
+	end
+	return count
+end
+
+-- What the menu draws. Taken rows are sent too, greyed out rather than
+-- vanishing, so a row never moves out from under the pointer mid-click.
+local function contentsOf(record: Record): { [string]: any }
+	local rows = {}
+	for index, slot in record.slots do
+		table.insert(rows, {
+			slot = index,
+			itemId = slot.descriptor.itemId,
+			name = slot.descriptor.name,
+			flavor = slot.descriptor.flavor,
+			rarity = slot.descriptor.rarity,
+			taken = slot.taken,
+		})
+	end
+
+	return {
+		chestId = record.id,
+		coins = record.coins,
+		coinsTaken = record.coinsTaken,
+		rows = rows,
+	}
+end
+
+-- An emptied chest stops inviting you over.
+local function refreshPrompt(record: Record)
+	local prompt = record.prompt
+	if not prompt then
+		return
+	end
+
+	local left = rowsLeft(record)
+	prompt.Enabled = left > 0
+	prompt.ActionText = if left > 0 then "Search" else "Empty"
+end
+
+local function publish(record: Record, player: Player?)
+	local payload = contentsOf(record)
+	if player then
+		Remotes.get("ChestOpened"):FireClient(player, payload)
+	else
+		-- Everyone with the menu open sees a row go as someone else takes it.
+		Remotes.get("ChestContentsChanged"):FireAllClients(payload)
+	end
+end
+
+local function withinReach(player: Player, record: Record): boolean
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root or not record.chest.Parent then
+		return false
+	end
+	return (root.Position - record.chest.Position).Magnitude <= REACH
+end
+
+-- One row, taken. The client names a slot and nothing else: it can't invent
+-- an item, take a row twice, or take one from across the dungeon.
+local function onTake(player: Player, payload: unknown)
+	if type(payload) ~= "table" then
+		return
+	end
+
+	local request = payload :: { [string]: any }
+	local record = if type(request.chestId) == "string" then chests[request.chestId] else nil
+	if not record or not withinReach(player, record) then
+		return
+	end
+
+	if request.coins == true then
+		if record.coinsTaken or record.coins <= 0 then
+			return
+		end
+		record.coinsTaken = true
+		CurrencyService.grant(player, record.coins, 0)
+		publish(record, nil)
+		refreshPrompt(record)
+		return
+	end
+
+	local index = request.slot
+	if type(index) ~= "number" then
+		return
+	end
+
+	local slot = record.slots[index]
+	if not slot or slot.taken then
+		return
+	end
+
+	-- Checked at the moment of taking, not when the chest opened: a full bag
+	-- leaves the row where it is rather than eating it.
+	if not InventoryService.hasRoom(player) then
+		Remotes.get("ChestOpened"):FireClient(player, {
+			chestId = record.id,
+			inventoryFull = true,
+			coins = record.coins,
+			coinsTaken = record.coinsTaken,
+			rows = contentsOf(record).rows,
+		})
+		return
+	end
+
+	slot.taken = true
+	InventoryService.addItem(player, {
+		itemId = slot.descriptor.itemId,
+		rarity = slot.descriptor.rarity,
+		upgradeLevel = 0,
+		classTag = slot.descriptor.classTag,
+	})
+	publish(record, nil)
+	refreshPrompt(record)
+end
+
+function ChestService.start()
+	Remotes.get("ChestTakeItem").OnServerEvent:Connect(onTake)
+end
+
 export type ChestSpec = {
 	-- Where the chest stands on the floor. Its front (the lock) faces this
 	-- CFrame's look direction.
@@ -42,7 +201,9 @@ export type ChestSpec = {
 	-- Locked until the unlock function createChest returns is called, for a
 	-- room whose guards don't exist yet (an ambush).
 	startsLocked: boolean?,
-	loot: LootTables.LootDescriptor,
+	-- Every row the chest holds. A list rather than one item so a vault can
+	-- be worth walking to.
+	loot: { LootTables.LootDescriptor },
 	-- Extra coins for whoever opens it.
 	coins: number,
 	name: string,
@@ -146,7 +307,7 @@ end
 
 -- Returns the chest, and a function that unlocks it (safe to call twice).
 function ChestService.createChest(spec: ChestSpec): (Part, () -> ())
-	local loot = spec.loot
+	assert(#spec.loot > 0, `Chest "{spec.name}" was built with nothing in it`)
 
 	-- The body is the chest: it collides, and carries the prompt once unlocked.
 	local chest = Instance.new("Part")
@@ -162,6 +323,22 @@ function ChestService.createChest(spec: ChestSpec): (Part, () -> ())
 	for _, x in { -1.1, 1.1 } do
 		decor(chest, "Band", Vector3.new(0.35, BODY_SIZE.Y + 0.05, BODY_SIZE.Z + 0.05), chest.CFrame * CFrame.new(x, 0, 0), IRON_COLOR, Enum.Material.Metal)
 	end
+
+	local slots: { Slot } = {}
+	for _, descriptor in spec.loot do
+		table.insert(slots, { descriptor = descriptor, taken = false })
+	end
+
+	local record: Record = {
+		id = spec.name,
+		chest = chest,
+		slots = slots,
+		coins = spec.coins,
+		coinsTaken = spec.coins <= 0,
+		prompt = nil,
+	}
+	assert(chests[record.id] == nil, `Two chests named "{record.id}"`)
+	chests[record.id] = record
 
 	local lid, hinge = buildLid(chest)
 	local locked = #spec.guards > 0 or spec.startsLocked == true
@@ -196,44 +373,21 @@ function ChestService.createChest(spec: ChestSpec): (Part, () -> ())
 		prompt.HoldDuration = 0
 		prompt.MaxActivationDistance = 8
 		prompt.Parent = chest
+		record.prompt = prompt
 
+		-- Opening is not the same as emptying any more, so the prompt stays:
+		-- a second player can look inside, and the first can come back for
+		-- what they left. It reads "Open" until something has been taken.
 		prompt.Triggered:Connect(function(player)
-			if opened then
-				return
+			if not opened then
+				opened = true
+				openLid(lid, hinge)
+				goldBurst(chest)
+				glow.Brightness = 0.8
 			end
 
-			-- A full inventory leaves the chest shut for later, rather than
-			-- consuming it and losing the item.
-			if not InventoryService.hasRoom(player) then
-				Remotes.get("ChestOpened"):FireClient(player, {
-					chestId = spec.name,
-					loot = {},
-					inventoryFull = true,
-				})
-				return
-			end
-
-			opened = true
-			prompt.Enabled = false
-			openLid(lid, hinge)
-			goldBurst(chest)
-			glow.Brightness = 0.8
-
-			InventoryService.addItem(player, {
-				itemId = loot.itemId,
-				rarity = loot.rarity,
-				upgradeLevel = 0,
-				classTag = loot.classTag,
-			})
-
-			if spec.coins > 0 then
-				CurrencyService.grant(player, spec.coins, 0)
-			end
-
-			Remotes.get("ChestOpened"):FireClient(player, {
-				chestId = spec.name,
-				loot = { loot },
-			})
+			prompt.ActionText = "Search"
+			publish(record, player)
 		end)
 	end
 

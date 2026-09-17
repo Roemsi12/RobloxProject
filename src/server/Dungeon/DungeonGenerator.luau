@@ -22,6 +22,7 @@ local RigDefs = require(Shared.RigDefs)
 local CombatServer = require(script.Parent.Parent.Combat.CombatServer)
 local EnemyAI = require(script.Parent.Parent.Combat.EnemyAI)
 local CurrencyService = require(script.Parent.Parent.Economy.CurrencyService)
+local ProgressionService = require(script.Parent.Parent.Progression.ProgressionService)
 local AmbushService = require(script.Parent.AmbushService)
 local ChestService = require(script.Parent.ChestService)
 local RoomTemplates = require(script.Parent.RoomTemplates)
@@ -139,6 +140,7 @@ local function spawnEnemies(built: BuiltRoom, folder: Folder)
 
 		local enemy = CombatServer.spawnEnemy(defId, position, door.Position, bounds, folder, { respawns = false })
 		CurrencyService.trackEnemy(enemy)
+		ProgressionService.trackEnemy(enemy)
 		table.insert(built.enemies, enemy)
 	end
 end
@@ -159,12 +161,20 @@ local function addChest(built: BuiltRoom, folder: Folder): () -> ()
 	local loot = if leaderId then LootTables[leaderId] else DungeonDefs.TREASURE_LOOT
 	assert(loot, `No LootTables entry for "{leaderId}"`)
 
+	-- A vault holds a relic *and* a trophy from whatever guards the room it
+	-- branches off, so a chest menu has something to choose between rather
+	-- than one row to click.
+	local contents = { loot }
+	if purpose == DungeonDefs.PURPOSES.Treasure and leaderId then
+		table.insert(contents, DungeonDefs.TREASURE_LOOT)
+	end
+
 	local _, unlock = ChestService.createChest({
 		floorCFrame = floorCFrame,
 		-- An ambush's attackers don't exist yet; the ambush unlocks it.
 		guards = if isAmbush then {} else built.enemies,
 		startsLocked = isAmbush,
-		loot = loot,
+		loot = contents,
 		coins = purpose.chestCoins,
 		name = `Room{node.id}_Chest`,
 		parent = folder,

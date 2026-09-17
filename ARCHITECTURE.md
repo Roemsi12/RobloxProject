@@ -29,7 +29,15 @@ src/shared/            -> ReplicatedStorage.Shared
                          -- stagger + punish bonus, strike grace, respawn, PvP
   ParryMath.luau         -- timestamp authority, parry frames and their
                          -- cooldown, dodge windows (pure)
-  PostureMath.luau       -- posture: filling on a block, draining, breaking (pure)
+  PostureMath.luau       -- posture: filling on a block, draining, breaking (pure).
+                         -- Every limit is overridable, because the skill tree
+                         -- raises them
+  LocomotionMath.luau    -- hip/shoulder separation and walk-cycle reversal for
+                         -- a locked camera, so strafing doesn't moonwalk (pure)
+  AbilityDefs.luau       -- the abilities: kind, cooldown, wind-up, power, and
+                         -- what the skill tree does to them (pure). Unlocked
+                         -- by a tree capstone, never by carrying a weapon.
+                         -- Four kinds, each implemented once in CombatServer
   DamageMath.luau        -- damage resolution, blocking, hit-reg geometry (pure)
   AttackSelector.luau    -- enemy attack choice, movement intent, room leash (pure)
   Loadout.luau           -- equip validation + class-from-weapon derivation (pure)
@@ -39,6 +47,14 @@ src/shared/            -> ReplicatedStorage.Shared
   EconomyDefs.luau       -- upgrade cost curve, tiers, upgraded damage (pure).
                          -- Shared so the client can show a price; the server
                          -- always recomputes before charging
+  ProgressionDefs.luau   -- the XP curve, the level cap, and the skill points a
+                         -- level pays out (pure)
+  SkillTreeDefs.luau     -- one skill tree per weapon: nodes, prerequisites,
+                         -- ranks, grid positions, and what an allocation adds
+                         -- up to (pure). One root, three branches, each
+                         -- forking to a capstone that unlocks an ability.
+                         -- Shared so the panel draws from the same rules the
+                         -- server enforces
   PlayerDataSchema.luau  -- saved-progress shape: defaults, migration,
                          -- sanitising, session-lock rules (pure). Shared only
                          -- so it's testable; the client never uses it
@@ -103,11 +119,19 @@ src/server/            -> ServerScriptService.Server
                          -- ProximityPrompt, a countdown, and the portcullis
                          -- that makes the gate the way in
     ChestService.luau    -- chests locked until every guard in the room is
-                         -- dead (open at once if none); lid opens on loot
+                         -- dead (open at once if none). Owns its contents and
+                         -- every take: opening shows a menu, and what you
+                         -- leave stays for whoever comes next
     AmbushService.luau   -- ambush rooms: gates seal on entry, enemies arrive in
                          -- waves, gates and chest open when the last falls
     ShrineService.luau   -- the pre-boss fountain: full heal, once per player
                          -- per dungeon
+  Progression/
+    ProgressionService.luau -- the only owner of XP, levels and spent skill
+                         -- points. Pays every armed player on a kill, validates
+                         -- every spend, and hands combat a plain table of
+                         -- modifiers. Pushes max health and walk speed onto
+                         -- the humanoid; everything else is read at use
   Economy/
     CurrencyService.luau -- the only owner of coins + class-keyed crystals; pays
                          -- the killer via each enemy's death hook, and
@@ -125,7 +149,9 @@ src/client/            -> StarterPlayer.StarterPlayerScripts.Client
   CombatClient.luau      -- combat input (attack, critical, feint, block, dodge),
                          -- local prediction, the dash and lunge, movement
                          -- slowdowns, and Studio-only 1/2/3 weapon swaps
-  CameraLock.luau        -- toggleable shift-lock camera (Left Shift)
+  CameraLock.luau        -- toggleable shift-lock camera (Left Shift): eased
+                         -- shoulder offset that pulls in at walls, a reticle,
+                         -- and lending the pointer to a panel that needs it
   RigAnimation.luau      -- plays AnimationDefs on one rig via joint Transforms
                          -- (Motor6D or AnimationConstraint), or a published
                          -- version via Animator; stances layer over avatars
@@ -144,7 +170,8 @@ src/client/            -> StarterPlayer.StarterPlayerScripts.Client
   SoundFX.luau           -- plays SoundDefs sounds, positional or flat
   GameUI.luau            -- player-facing UI: posture bar, dodge/critical
                          -- cooldowns, weapon, currency, loot, upgrades,
-                         -- inventory (I), dungeon status, duel status
+                         -- inventory (I), the XP bar and skill tree (K),
+                         -- dungeon status, duel status
   DebugHUD.luau          -- Studio-only combat tuning readout, hidden until F2
 
 tests/                 -> mounted only by test.project.json, never shipped
@@ -203,7 +230,7 @@ All payloads are a single table.
 | `CriticalRequest` | Client → Server | *(none)* | Heavy attack. The server checks the cooldown |
 | `FeintRequest` | Client → Server | *(none)* | Cancel the swing in progress, if still early enough |
 | `DodgeRequest` | Client → Server | `{ timestamp }` | Dash. Invulnerability counts from `timestamp`, checked like a parry's |
-| `CombatStateChanged` | Server → Client | `{ posture, postureUpdatedAt, postureDamagedAt, stunnedUntil, dodgeReadyAt, criticalReadyAt, riposteUntil }` | The player's own posture, stun and cooldowns, in server time, for the HUD and local prediction. The client drains posture forward with `PostureMath` between sends |
+| `CombatStateChanged` | Server → Client | `{ posture, postureUpdatedAt, postureDamagedAt, maxPosture, postureRegen, stunnedUntil, dodgeReadyAt, abilityReadyAt, criticalReadyAt, riposteUntil }` | The player's own posture, stun and cooldowns, in server time, for the HUD and local prediction. The client drains posture forward with `PostureMath` between sends. `maxPosture` and `postureRegen` are sent rather than read from `CombatConstants`, because the skill tree can raise both |
 | `AttackRequest` | Client → Server | *(none)* | Player swings. Carries no timestamp — a swing isn't reactive, so the server resolves it on its own clock |
 | `EquipWeapon` | Client → Server | `{ weaponId }` | **Studio only** — the 1/2/3 debug swap. Ignored by a live server; weapon stands are the real equip path |
 | `EnemyTelegraphStart` | Server → Client | `{ enemyId, attackId, duration, impactTime, parryable }` | Attack is winding up. `impactTime` is absolute so a delayed packet doesn't shift the cue |
@@ -216,7 +243,7 @@ All payloads are a single table.
 | `PlayerCombatAction` | Server → Client (all) | `{ userId, action, weaponId, windup?, step? }` | A player's move, so every client can animate it. `action` is `swing` \| `critical` \| `parry` (block key down) \| `guard_end` \| `feint` \| `dodge`; `windup` is how long a swing or critical takes to land and `step` which combo swing it is. Clients ignore their own, already animated on input |
 | `ProfileLoaded` | Server → Client | `{ persistent }` | The player's progress is ready. `persistent` is false only in a Studio session running without DataStore access |
 | `WeaponEquipped` | Server → Client | `{ weaponId, classTag, upgradeLevel }` | Fired on equip, on load, and whenever the equipped weapon's upgrade level changes |
-| `ChestOpened` | Server → Client | `{ chestId, loot, inventoryFull? }` | `loot` is a list holding one `LootTables` descriptor (display info, not the stored `ItemInstance`). With `inventoryFull`, `loot` is empty and the chest stays shut |
+| `ChestOpened` | Server → Client | `{ chestId, coins, coinsTaken, rows, inventoryFull? }` | Sent to whoever opened a chest: everything in it, as display info from `LootTables` rather than stored `ItemInstance`s. Each row carries its `slot`, which is what a take names. `inventoryFull` means the last take was refused |
 | `InventoryUpdated` | Server → Client | `{ items }` | The player's full `ItemInstance` list whenever it changes |
 | `CurrencyUpdated` | Server → Client | `{ coins, crystals }` | Whenever a balance changes; `crystals` is keyed by class |
 | `UpgradeResult` | Server → Client | `{ success, reason?, newLevel? }` | Blacksmith outcome; `reason` is player-facing refusal text |
@@ -228,6 +255,13 @@ All payloads are a single table.
 | `DungeonNotice` | Server → Client | `{ text, tone }` | A message to show: room cleared, boss awakens, shrine used. `tone` is `good` \| `bad` \| `info` \| `danger` \| `victory` |
 | `BossEncounter` | Server → Client (all) | `{ enemyId, name, active, defeated }` | The boss fight starting (a player entered the boss room), ending (everyone left for a while), or won (`defeated`) |
 | `DungeonQueueChanged` | Server → Client | `{ queued, count, entersAt? }` | The dungeon ready-check. `queued` is whether *this* player is in it, `count` how many are waiting, `entersAt` (server time) when the countdown fires. Sent to everyone queued whenever anyone joins or leaves, and once with `queued = false` when they go in |
+| `AbilityRequest` | Client → Server | `{ slot }` | Casts the ability on that key (1–3, one per skill-tree branch). The server checks the slot is unlocked, off cooldown, and that you are not stunned |
+| `ChestTakeItem` | Client → Server | `{ chestId, slot?, coins? }` | Takes one row out of a chest. The client names a slot, never an item, and the server checks you are within reach and that the row is still there |
+| `ChestContentsChanged` | Server → Client (all) | `{ chestId, coins, coinsTaken, rows }` | A chest's contents after someone took something, so an open menu updates |
+| `ProjectileLaunched` | Server → Client (all) | `{ enemyId, attackId, kind, origin, landing, flight, radius }` | Something thrown has left an enemy, where it will land and when. Picture only — the hit is the server's, resolved on arrival |
+| `SpendSkillPoint` | Client → Server | `{ weaponId, nodeId }` | Asks to buy one rank. Every rule is re-checked server-side; a refusal is silent, and the panel stays as it was |
+| `ProgressionChanged` | Server → Client | `{ xp, level, into, toNext, points, weaponId, spent, skills }` | Level and tree state. `into`/`toNext` are XP within the current level, `points` what the level has earned, `spent` and `skills` cover the held weapon's tree only. Sent on every XP gain, every spend, every weapon change, and once on load |
+| `LevelGained` | Server → Client | `{ level, points }` | A level just went up, and how many points came with it. Separate from `ProgressionChanged` because it is a moment, not a state |
 | *(add new rows here as they're built)* | | | |
 
 ### Retired remote names
@@ -535,6 +569,10 @@ is torn down.
 | `coins` | Common currency, paid by every kill (`EnemyDefs.coinReward`) |
 | `crystals` | Keyed by **class** — `crystals.Tank`, `crystals.Assassin`, `crystals.Healer`. You earn the class you had equipped when the kill landed, so crystals don't carry across a respec. Only tougher enemies pay them (`EnemyDefs.crystalReward`) |
 
+`xp` is not a currency and is not listed here: it is never spent, only
+earned. What it buys — a skill point per level — is spent in
+`SkillTreeDefs`, whose node ids are that module's own namespace.
+
 There is no separate crystal-type namespace: a crystal type *is* a Classes
 entry. Adding a class adds its crystal type for free — don't invent a parallel
 `TankCrystal`-style id.
@@ -567,6 +605,11 @@ entry. Adding a class adds its crystal type for free — don't invent a parallel
                                     -- hold several copies of one item, each
                                     -- with its own upgradeLevel. Capped at
                                     -- PlayerDataSchema.MAX_INVENTORY
+  xp: number,              -- total ever earned. The level is derived from it
+                           -- (ProgressionDefs), never stored, so re-tuning
+                           -- the curve re-levels everyone
+  skills: { [weaponId]: { [nodeId]: number } },  -- ranks bought. Per weapon,
+                           -- like upgradeLevels: your weapon is your class
 }
 -- Unknown class, weapon and item ids are preserved, never dropped: they may
 -- belong to newer content, and a rollback must not delete that progress.
@@ -590,6 +633,10 @@ entry. Adding a class adds its crystal type for free — don't invent a parallel
   aggroRange: number,
   coinReward: number,      -- paid to whoever lands the killing blow
   crystalReward: number,   -- 0 for trash mobs; gates the higher upgrade tiers
+  xpReward: number,        -- paid to every armed player, not just the killer
+  projectile: {            -- optional; a thrown attack that takes time to
+    speed, radius, kind,   -- arrive and lands where it was aimed, not on
+  }?,                      -- whoever is standing there when it lands
   attacks: {
     [attackId]: {
       telegraphDuration: number,
