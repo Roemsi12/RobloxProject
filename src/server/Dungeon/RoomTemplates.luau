@@ -27,6 +27,9 @@ local Palette = require(ReplicatedStorage.Shared.Palette)
 local RoomTemplates = {}
 
 RoomTemplates.DOOR_WIDTH = DungeonDefs.CORRIDOR_WIDTH
+-- The clear height of a doorway, up to where its arch springs. Anything meant
+-- to fill a doorway — a portcullis, a gate — sizes itself from this.
+RoomTemplates.DOOR_HEIGHT = 9
 
 -- How tall the stonework reads, and how much of it is actually solid.
 --
@@ -73,7 +76,7 @@ local STATUE_COLOR = rgb(Palette.mix(Palette.PILLAR, Palette.BONE, 0.22))
 
 local TORCH_HEIGHT = 8
 -- Where the doorway arch springs from, and how wide its ring is.
-local ARCH_SPRING = 9
+local ARCH_SPRING = RoomTemplates.DOOR_HEIGHT
 local ARCH_RADIUS = 4.6
 local VOUSSOIRS = 9
 -- Height of the carved bays between buttresses.

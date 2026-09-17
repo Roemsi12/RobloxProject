@@ -17,10 +17,12 @@ grand: 22-stud walls, buttressed bays, stone sentinels and inlaid floors. Every
 colour comes from [`src/shared/Palette.luau`](src/shared/Palette.luau). Nothing
 has had a numeric tuning pass yet. See [`DESIGN.md`](DESIGN.md).
 
-Next up, already decided and written down under *"Agreed, not yet built"* in
-[`DESIGN.md`](DESIGN.md): one weapon at a time swapped only in camp, the equipped
-weapon shown in the inventory panel, a ready-check queue into the dungeon, and a
-camp with the blacksmith in a real forge building.
+The start area is a camp: weapon stands, a blacksmith's forge, the duel stand,
+and a gate into the dungeon. You carry **one** weapon — taking one from a stand
+leaves the last one behind, and only in camp. The dungeon is entered through the
+gate's ready-check queue: a ten-second countdown anyone else in camp can join,
+which a solo player still passes through alone. The dungeon itself is generated
+in this same server, north of the camp.
 
 ## Controls
 
@@ -34,7 +36,7 @@ camp with the blacksmith in a real forge building.
 | **F2** | Combat debug readout — **Studio only** |
 | **Left Shift** | Toggle camera lock |
 | **I** | Inventory |
-| **E** at a stand, anvil or chest | Equip a weapon, upgrade it, open a chest |
+| **E** at a stand, anvil, gate or chest | Take a weapon, upgrade it, queue for the dungeon, open a chest |
 | **1 / 2 / 3** | Swap weapon instantly — **Studio only**, for tuning |
 
 You start unequipped in the start room: pick a weapon from one of the three stands

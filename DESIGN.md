@@ -904,34 +904,52 @@ weapons held **down** at rest rather than up.
 - **Only the resting stance lowered.** Every guard and every swing still
   raises the weapon; the point was a relaxed idle, not a weaker block.
 
-### Agreed, not yet built
+### The camp, the queue and the one-weapon rule
 
-Decided with the repo owner in the same pass, for whoever picks this up next:
-
-- **One weapon at a time, swapped only in camp.** Picking a weapon from a
-  stand replaces the one you carry rather than adding to it, and the swap is
-  only possible in the start area — never mid-run. Upgrade levels stay per
-  weapon (`EquipService` already stores them that way), so returning to a
-  weapon you previously upgraded keeps its level. This **reverses** the
-  earlier locked-in decision that respeccing is free and unrestricted; the
-  cost is now the walk back to camp as well as the crystals.
+- **One weapon at a time, swapped only in camp** *(chosen by the repo owner)*.
+  Picking a weapon from a stand replaces the one you carry rather than adding
+  to it, and the swap is only possible in the start area — never mid-run.
+  Upgrade levels stay per weapon (`EquipService` already stored them that
+  way), so returning to a weapon you previously upgraded keeps its level.
+  This **reverses** the earlier locked-in decision that respeccing is free and
+  unrestricted; the cost is now the walk back to camp as well as the crystals.
+- **The camp rule is checked, not assumed.** The stands only stand in camp, so
+  reaching one already means being in camp — but `WeaponPickups` asks
+  `DungeonService.isInCamp` anyway, so the rule survives anyone later putting
+  a stand somewhere else. The Studio-only 1/2/3 debug swap deliberately
+  bypasses it: it exists to compare weapons back to back while tuning.
 - **The equipped weapon shows in the inventory panel**, as its own section
   above the loot list rather than as a fake `ItemInstance`. Weapons are not
-  loot: putting them in the item list would mean inventing itemIds for them,
+  loot: listing one as an item would mean inventing itemIds for every weapon,
   paying the `MAX_INVENTORY` cap for something that is always exactly one, and
-  teaching the save format about a second kind of thing.
+  teaching the save format about a second kind of thing. It carries no rarity
+  colour either, for the same reason.
 - **The dungeon is entered through a ready-check queue.** Interacting with the
-  gate starts a short countdown; anyone else who queues before it ends goes in
-  together, and a solo player still gets in when it expires. The start room's
-  north doorway gets a portcullis so the queue is the way in rather than a
-  suggestion.
-- **The start area becomes a camp**, with the blacksmith in a proper forge
-  building rather than an anvil standing in the open, and the queue gate
-  opposite it.
-- **The dungeon stays in this server.** It already does — the start room is at
-  the origin and each dungeon is generated north of it in the same `Workspace`,
-  with no `TeleportService` anywhere. Worth writing down because "queue" often
-  implies a reserved server, and here it deliberately does not.
+  gate starts a ten-second countdown; anyone who queues before it ends goes in
+  with them, and a solo player still gets in when it expires. A queue that
+  waits for N players would strand the only person online, which is most
+  servers most of the time.
+- **The gate burns while a ready check is running.** Anyone in camp can see a
+  run is about to leave without reading any UI, which is the whole point of
+  putting the queue on a physical gate rather than in a menu.
+- **The countdown shows on the dungeon status line**, replacing room progress
+  while you are queued. You are standing in camp at that moment; how many
+  rooms are cleared in a dungeon you are not in is not the useful thing.
+- **If the dungeon is mid-reset when the countdown fires, the queue holds**
+  rather than sending anyone into a torn-down run. `DungeonService.entryCFrame`
+  returns nil in that window, which is the signal to wait and retry.
+- **The camp's north doorway is closed by a portcullis**, so the queue is the
+  way in rather than a suggestion. Nothing blocks the corridor from the far
+  side: a finished run still walks home.
+- **The blacksmith got a building.** An anvil standing in the open read as a
+  prop; a timber-framed forge with a hearth, chimney, blade rack, quench
+  trough and a hanging sign reads as a shop. Its forge fire is deliberately
+  the warmest light in the game — it is what the camp is read by, against all
+  that cold stone.
+- **The dungeon stays in this server.** It already did — the start room is at
+  the origin and each dungeon is generated north of it in the same
+  `Workspace`, with no `TeleportService` anywhere. Worth writing down because
+  "queue" usually implies a reserved server, and here it deliberately does not.
 
 ## Open / not yet decided
 

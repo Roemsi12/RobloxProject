@@ -72,8 +72,9 @@ src/server/            -> ServerScriptService.Server
   EquipService.luau      -- the only owner of equipped weapon + upgrade levels;
                          -- onChanged tells listeners when either changes
   InventoryService.luau  -- the only owner of inventory
-  WeaponPickups.luau     -- weapon stands in the start room (ProximityPrompt),
-                         -- each showing its weapon
+  WeaponPickups.luau     -- weapon stands in the camp (ProximityPrompt), each
+                         -- showing its weapon. One weapon at a time: taking
+                         -- one replaces the one you carry, and only in camp
   WeaponVisuals.luau     -- builds WeaponModelDefs models: welded into players'
                          -- hands on equip/respawn, and on the stands
   Combat/
@@ -95,8 +96,12 @@ src/server/            -> ServerScriptService.Server
                          -- traps — all in one folder, torn down whole
     RoomTemplates.luau   -- room geometry: any size, doors on any side,
                          -- variants (Empty/Pillars/Ruins/Hall), corridors,
+                         -- arched doorways, buttressed bays, statues,
                          -- torches; owns the dungeon's look. One module, not
                          -- a folder — see DESIGN.md
+    QueueService.luau    -- the gate into the dungeon: a ready-check queue on a
+                         -- ProximityPrompt, a countdown, and the portcullis
+                         -- that makes the gate the way in
     ChestService.luau    -- chests locked until every guard in the room is
                          -- dead (open at once if none); lid opens on loot
     AmbushService.luau   -- ambush rooms: gates seal on entry, enemies arrive in
@@ -222,6 +227,7 @@ All payloads are a single table.
 | `DungeonUpdated` | Server → Client (all) | `{ run, phase, roomsCleared, roomsTotal, resetAt? }` | Where the dungeon run stands. `phase` is `running` \| `cleared` \| `resetting`; `resetAt` (server time) is set while `cleared`. Also sent to each joining player |
 | `DungeonNotice` | Server → Client | `{ text, tone }` | A message to show: room cleared, boss awakens, shrine used. `tone` is `good` \| `bad` \| `info` \| `danger` \| `victory` |
 | `BossEncounter` | Server → Client (all) | `{ enemyId, name, active, defeated }` | The boss fight starting (a player entered the boss room), ending (everyone left for a while), or won (`defeated`) |
+| `DungeonQueueChanged` | Server → Client | `{ queued, count, entersAt? }` | The dungeon ready-check. `queued` is whether *this* player is in it, `count` how many are waiting, `entersAt` (server time) when the countdown fires. Sent to everyone queued whenever anyone joins or leaves, and once with `queued = false` when they go in |
 | *(add new rows here as they're built)* | | | |
 
 ### Retired remote names

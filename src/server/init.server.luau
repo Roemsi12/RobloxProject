@@ -5,11 +5,14 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local Shared = ReplicatedStorage.Shared
+local DungeonDefs = require(Shared.DungeonDefs)
+local Remotes = require(Shared.Remotes)
 
 local CombatServer = require(script.Combat.CombatServer)
 local DataService = require(script.DataService)
 local DungeonService = require(script.Dungeon.DungeonService)
+local QueueService = require(script.Dungeon.QueueService)
 local BlacksmithService = require(script.Economy.BlacksmithService)
 local ArenaService = require(script.PvP.ArenaService)
 local SpawnService = require(script.SpawnService)
@@ -31,6 +34,10 @@ local startCFrame = DungeonService.start(CFrame.new())
 WeaponPickups.start(startCFrame)
 BlacksmithService.start(startCFrame)
 ArenaService.start(startCFrame)
+
+-- The gate into the dungeon, and the portcullis that makes it the way in.
+-- After the stations, so it can sit past them on the walk toward the door.
+QueueService.start(startCFrame, DungeonDefs.SIZES[DungeonDefs.PURPOSES.Start.sizes[1]])
 
 -- Players start in the safe start room, facing the door to the dungeon, with
 -- the weapon stands in front of them. There's no SpawnLocation; SpawnService

@@ -12,8 +12,11 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
-local Loadout = require(ReplicatedStorage.Shared.Loadout)
+local Shared = ReplicatedStorage.Shared
+local Loadout = require(Shared.Loadout)
+local Remotes = require(Shared.Remotes)
 
+local DungeonService = require(script.Parent.Dungeon.DungeonService)
 local EquipService = require(script.Parent.EquipService)
 local WeaponVisuals = require(script.Parent.WeaponVisuals)
 
@@ -92,7 +95,34 @@ function WeaponPickups.start(originCFrame: CFrame)
 
 		local weaponId = stand.weaponId
 		prompt.Triggered:Connect(function(player)
-			EquipService.setWeapon(player, weaponId)
+			-- You carry one weapon, and you change it in camp or not at all.
+			-- The stands only stand here, so reaching one already means being
+			-- in camp — but the rule is checked rather than assumed, so it
+			-- survives anyone later putting a stand somewhere else.
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if not root or not root:IsA("BasePart") or not DungeonService.isInCamp(root.Position) then
+				Remotes.get("DungeonNotice"):FireClient(player, {
+					text = "You can only change weapons in camp",
+					tone = "bad",
+				})
+				return
+			end
+
+			local previous = EquipService.getWeaponId(player)
+			if previous == weaponId then
+				return
+			end
+
+			if EquipService.setWeapon(player, weaponId) then
+				local taken = Loadout.getDef(weaponId).displayName
+				-- Swapping returns the old weapon to its stand rather than
+				-- adding to a collection: one weapon, always.
+				local text = if previous
+					then `You leave the {Loadout.getDef(previous).displayName} and take the {taken}`
+					else `You take the {taken}`
+				Remotes.get("DungeonNotice"):FireClient(player, { text = text, tone = "good" })
+			end
 		end)
 	end
 end

@@ -134,10 +134,30 @@ local function makeFlashLabel(parent: Instance, position: UDim2): (string, Color
 	end
 end
 
-local function buildInventory(parent: Instance): (Frame, Frame)
+-- A small heading inside the inventory panel.
+local function buildSectionLabel(parent: Instance, text: string, y: number)
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, -16, 0, 18)
+	label.Position = UDim2.fromOffset(8, y)
+	label.BackgroundTransparency = 1
+	label.TextColor3 = Color3.fromRGB(150, 140, 125)
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 13
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Text = text
+	label.Parent = parent
+end
+
+-- The inventory panel. The equipped weapon gets its own section above the
+-- loot list rather than a row inside it: you carry exactly one, it never
+-- stacks, it has no rarity, and it is the most important thing on the panel.
+-- Listing it as an item would also mean inventing an itemId for every weapon
+-- and paying the save format's inventory cap for something that is always
+-- exactly one.
+local function buildInventory(parent: Instance): (Frame, Frame, TextLabel)
 	local panel = Instance.new("Frame")
-	panel.Size = UDim2.fromOffset(260, 300)
-	panel.Position = UDim2.new(1, -276, 0, 16)
+	panel.Size = UDim2.fromOffset(268, 348)
+	panel.Position = UDim2.new(1, -284, 0, 16)
 	panel.BackgroundColor3 = PANEL_COLOR
 	panel.BackgroundTransparency = 0.15
 	panel.Visible = false
@@ -153,16 +173,39 @@ local function buildInventory(parent: Instance): (Frame, Frame)
 	title.Text = "Inventory (I)"
 	title.Parent = panel
 
+	buildSectionLabel(panel, "WEAPON", 34)
+
+	local weaponRow = Instance.new("TextLabel")
+	weaponRow.Size = UDim2.new(1, -16, 0, 26)
+	weaponRow.Position = UDim2.fromOffset(8, 52)
+	weaponRow.BackgroundTransparency = 1
+	weaponRow.TextColor3 = Color3.fromRGB(150, 150, 150)
+	weaponRow.Font = Enum.Font.Gotham
+	weaponRow.TextSize = 16
+	weaponRow.TextXAlignment = Enum.TextXAlignment.Left
+	weaponRow.Text = "None — take one from a stand"
+	weaponRow.Parent = panel
+
+	local divider = Instance.new("Frame")
+	divider.Size = UDim2.new(1, -16, 0, 1)
+	divider.Position = UDim2.fromOffset(8, 84)
+	divider.BorderSizePixel = 0
+	divider.BackgroundColor3 = PANEL_EDGE
+	divider.BackgroundTransparency = 0.5
+	divider.Parent = panel
+
+	buildSectionLabel(panel, "ITEMS", 92)
+
 	local list = Instance.new("Frame")
-	list.Size = UDim2.new(1, -16, 1, -34)
-	list.Position = UDim2.fromOffset(8, 30)
+	list.Size = UDim2.new(1, -16, 1, -122)
+	list.Position = UDim2.fromOffset(8, 114)
 	list.BackgroundTransparency = 1
 	list.Parent = panel
 
 	local layout = Instance.new("UIListLayout")
 	layout.Parent = list
 
-	return panel, list
+	return panel, list, weaponRow
 end
 
 -- The dungeon run on screen: progress at the top, the boss bar during the boss
@@ -246,7 +289,20 @@ local function buildDungeonHUD(gui: ScreenGui)
 	local run: { [string]: any } = { run = 0, phase = "running", roomsCleared = 0, roomsTotal = 0 }
 	local bossId: string? = nil
 
+	-- The dungeon ready-check. While you are queued you are standing in camp,
+	-- so the countdown is more use on this line than room progress is.
+	local queued: { [string]: any } = { active = false, count = 0 }
+
 	local function renderStatus()
+		if queued.active then
+			local seconds = math.max(math.ceil((queued.entersAt or 0) - Workspace:GetServerTimeNow()), 0)
+			status.Text = if queued.count > 1
+				then `Entering the dungeon in {seconds}s  ·  {queued.count} waiting`
+				else `Entering the dungeon in {seconds}s`
+			status.TextColor3 = NOTICE_COLORS.danger
+			return
+		end
+
 		if run.phase == "cleared" and typeof(run.resetAt) == "number" then
 			local seconds = math.max(math.ceil(run.resetAt - Workspace:GetServerTimeNow()), 0)
 			status.Text = `Dungeon cleared! A new one forms in {seconds}s`
@@ -303,11 +359,19 @@ local function buildDungeonHUD(gui: ScreenGui)
 		}):Play()
 	end)
 
-	-- The countdown ticks on its own; the server only sends when it ends.
+	Remotes.get("DungeonQueueChanged").OnClientEvent:Connect(function(payload)
+		queued.active = payload.queued == true
+		queued.count = payload.count or 0
+		queued.entersAt = payload.entersAt
+		renderStatus()
+	end)
+
+	-- Both countdowns tick on their own; the server only sends when they change.
 	local lastTick = 0
 	RunService.Heartbeat:Connect(function()
 		local now = os.clock()
-		if run.phase == "cleared" and now - lastTick >= 0.25 then
+		local counting = queued.active or run.phase == "cleared"
+		if counting and now - lastTick >= 0.25 then
 			lastTick = now
 			renderStatus()
 		end
@@ -461,7 +525,7 @@ function GameUI.start()
 	buildDungeonHUD(gui)
 	buildCombatHUD(gui)
 
-	local inventoryPanel, inventoryList = buildInventory(gui)
+	local inventoryPanel, inventoryList, inventoryWeapon = buildInventory(gui)
 
 	-- Only ever false in Studio: a live server kicks rather than run a session
 	-- it can't save. Said plainly, so a tester doesn't mistake it for a bug in
@@ -484,6 +548,12 @@ function GameUI.start()
 		end
 		weaponLabel.Text = text
 		bump(weaponLabel)
+
+		-- The same weapon, in the inventory panel's own section.
+		inventoryWeapon.Text = if payload.upgradeLevel > 0
+			then `{def.displayName}  +{payload.upgradeLevel}  ({payload.classTag})`
+			else `{def.displayName}  ({payload.classTag})`
+		inventoryWeapon.TextColor3 = Color3.fromRGB(255, 215, 140)
 	end)
 
 	-- Only crystal types the player actually holds are listed, so an untouched

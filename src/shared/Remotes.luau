@@ -49,6 +49,7 @@ local REMOTE_EVENTS = {
 	"DungeonUpdated",
 	"DungeonNotice",
 	"BossEncounter",
+	"DungeonQueueChanged",
 
 	-- Server -> Client: PvP
 	"PvPStatusChanged",

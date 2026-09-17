@@ -31,6 +31,7 @@ local InventoryService = require(script.Parent.Parent.InventoryService)
 local PvPCombatServer = require(script.Parent.Parent.PvP.PvPCombatServer)
 local SpawnService = require(script.Parent.Parent.SpawnService)
 local DungeonGenerator = require(script.Parent.DungeonGenerator)
+local RoomTemplates = require(script.Parent.RoomTemplates)
 
 local DungeonService = {}
 
@@ -42,6 +43,7 @@ local ENCOUNTER_POLL = 0.3
 local RESET_SETTLE = 0.5
 
 local origin = CFrame.new()
+local startRoom: RoomTemplates.Room? = nil
 local current: DungeonGenerator.BuiltDungeon? = nil
 local phase: Phase = "running"
 local runNumber = 0
@@ -249,7 +251,7 @@ function DungeonService.start(originCFrame: CFrame): CFrame
 	local startFolder = Instance.new("Folder")
 	startFolder.Name = "Camp"
 	startFolder.Parent = Workspace
-	local startRoom = DungeonGenerator.buildStart(startLayout, origin, startFolder)
+	startRoom = DungeonGenerator.buildStart(startLayout, origin, startFolder)
 
 	generateRun()
 
@@ -285,7 +287,43 @@ function DungeonService.start(originCFrame: CFrame): CFrame
 		end
 	end)
 
-	return startRoom.centre
+	return (startRoom :: RoomTemplates.Room).centre
+end
+
+-- Where the queue drops players: just inside the first room of the run,
+-- facing deeper in. `frame` looks in from a room's entrance, so +Z on it is
+-- back toward the door the players came through.
+--
+-- Returns nil while a dungeon is being torn down and rebuilt, which is the
+-- signal for the queue to hold rather than send anyone into nothing.
+function DungeonService.entryCFrame(): CFrame?
+	local dungeon = current
+	if not dungeon or phase ~= "running" then
+		return nil
+	end
+
+	for _, built in dungeon.rooms do
+		if built.node.parentId == dungeon.layout.startId then
+			return built.frame * CFrame.new(0, 3, built.node.size / 2 - 6)
+		end
+	end
+
+	return nil
+end
+
+-- Whether `position` is inside the camp. The weapon stands use this: a weapon
+-- is swapped in camp or not at all.
+function DungeonService.isInCamp(position: Vector3): boolean
+	local room = startRoom
+	if not room then
+		return false
+	end
+
+	local bounds = room.floorBounds
+	return position.X >= bounds.minX
+		and position.X <= bounds.maxX
+		and position.Z >= bounds.minZ
+		and position.Z <= bounds.maxZ
 end
 
 return DungeonService
