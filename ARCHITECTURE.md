@@ -389,21 +389,35 @@ chest, so a new enemy also needs a `LootTables` row. Enemies hold still through
 a windup, so every attack's `maxRange` must be at most its `range` — a test
 enforces it.
 
-| Enemy id | Role | Rewards | Attack id | Parryable | Notes |
-|---|---|---|---|---|---|
-| `TrainingDummy` | stationary; in no dungeon pool | 10 coins | `Overhead` | yes | Baseline parryable attack |
-| | | | `GroundSlam` | **no** | Must-dodge; exists so combat isn't "parry everything" |
-| `SkeletonWarrior` | melee, tough | 25 coins, 1 crystal | `Slash` | yes | Quick parryable swing |
-| | | | `GroundSlam` | **no** | Hit volume (14) wider than its use range (10); leaves a bleed |
-| `Shambler` | melee, closes | 15 coins | `Claw` | yes | Fast pressure at touching range |
-| | | | `Lunge` | yes | Long reach, `minRange` 9 so it reads as a lunge, not a swing |
-| `Spitter` | ranged, kites | 15 coins | `Spit` | yes | Narrow 25° cone at range |
-| | | | `Spray` | **no** | Point-blank panic option, so closing the gap isn't a free win |
-| `HollowKing` | boss, 1.6× size | 250 coins, 4 crystals | `Cleave` | yes | Fast wide sweep |
-| | | | `Overhead` | yes | Slow, hardest-hitting; the big parry opportunity |
-| | | | `Shockwave` | **no** | Radius 20 from 14; leaves a bleed |
-| | | | `BoneSpear` | yes | Long narrow throw, so backing off isn't safe |
-| *(add new rows here as they're built)* | | | | | |
+Every attack also names one of `AttackChoreography`'s four **tells**
+(`WindBack`, `Raise`, `Coil`, `Plant`), which decides the windup silhouette and
+must agree with `parryable` — a pose means one answer. `Plant` is the
+unparryable one. Each enemy carries an **accent**: a postural bias applied only
+to joints no archetype identifies itself by, so two enemies throwing the same
+tell look like different fighters without either becoming harder to read. Tests
+enforce that no two enemies share a rhythm band or a carriage.
+
+| Enemy id | Role | Rewards | Attack id | Tell | Parryable | Notes |
+|---|---|---|---|---|---|---|
+| `TrainingDummy` | stationary; in no dungeon pool | 10 coins | `Overhead` | Raise | yes | Baseline parryable attack |
+| | slowest tells in the game | | `Swipe` | WindBack | yes | Second parryable one, so it can demonstrate a chain |
+| | | | `GroundSlam` | Plant | **no** | Must-dodge; exists so combat isn't "parry everything" |
+| `SkeletonWarrior` | melee, tough, disciplined | 25 coins, 1 crystal | `Thrust` | Coil | yes | Its opener — a squared-up drive, not a swing |
+| | compact, upright carriage | | `Slash` | WindBack | yes | Quick parryable swing |
+| | | | `Overhead` | Raise | yes | The heavy one in its rotation |
+| | | | `GroundSlam` | Plant | **no** | Hit volume (14) wider than its use range (10); leaves a bleed |
+| `Shambler` | melee, closes, relentless | 15 coins | `Claw` | WindBack | yes | Fast pressure at touching range |
+| | lopsided, dragging carriage | | `Backhand` | Raise | yes | The other half of the flurry; shares Claw's band |
+| | | | `Lunge` | Coil | yes | Long reach, `minRange` 9 so it reads as a lunge, not a swing |
+| | | | `Maul` | Plant | **no** | In the melee band, so a flurry can end on something to dodge |
+| `Spitter` | ranged, kites | 15 coins | `Lob` | Raise | yes | Its opener — arcing, slower, wider radius |
+| | deeply squat carriage | | `Spit` | Coil | yes | Narrow 25° cone at range |
+| | | | `Spray` | Plant | **no** | Point-blank panic option, so closing the gap isn't a free win |
+| `HollowKing` | boss, 1.6× size | 250 coins, 4 crystals | `Cleave` | WindBack | yes | Fast wide sweep |
+| | broad, weight-back carriage | | `Overhead` | Raise | yes | Slow, hardest-hitting; the big parry opportunity |
+| | exempt from the rhythm and floor rules | | `Shockwave` | Plant | **no** | Radius 20 from 14; leaves a bleed |
+| | | | `BoneSpear` | Coil | yes | Long narrow throw, so backing off isn't safe |
+| *(add new rows here as they're built)* | | | | | | |
 
 Enemy models carry the attributes `EnemyId` and `EnemyDefId`.
 

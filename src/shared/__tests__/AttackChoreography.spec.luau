@@ -301,6 +301,124 @@ describe("AttackChoreography determinism", function()
 	end)
 end)
 
+-- The four tells are a shared grammar on purpose: it is what lets a player
+-- read an enemy they have never fought. It is also what made every enemy look
+-- alike — "zombies and skeletons both just have a general hit animation, the
+-- timing feels mostly the same, so they don't really look at the animation".
+--
+-- That is the failure state for a parry game. If reading the body doesn't pay,
+-- players fall back to button-timing and the whole system becomes decoration.
+-- These are the tests that keep enemies apart.
+describe("Enemy identity", function()
+	local function parryableBand(def: any): (number, number)
+		local lo, hi = math.huge, 0
+		for _, attack in def.attacks do
+			if attack.parryable then
+				lo = math.min(lo, attack.leadTime)
+				hi = math.max(hi, attack.leadTime)
+			end
+		end
+		return lo, hi
+	end
+
+	it("gives every common enemy its own rhythm, distinct from the others", function()
+		-- The existing per-enemy rule keeps each one internally consistent. It
+		-- does not stop them all being consistent at the *same* tempo, which is
+		-- exactly the complaint.
+		local bands = {}
+		for enemyId, def in EnemyDefs do
+			if enemyId == DungeonDefs.BOSS then
+				continue
+			end
+			local lo, hi = parryableBand(def)
+			if hi > 0 then
+				table.insert(bands, { id = enemyId, lo = lo, hi = hi })
+			end
+		end
+
+		for i, a in bands do
+			for j, b in bands do
+				if j <= i then
+					continue
+				end
+				local overlap = math.min(a.hi, b.hi) - math.max(a.lo, b.lo)
+				check(
+					`{a.id} ({a.lo}-{a.hi}) and {b.id} ({b.lo}-{b.hi}) share a tempo`,
+					overlap < 0
+				)
+			end
+		end
+	end)
+
+	it("never lets an accent touch a joint that identifies a tell", function()
+		-- The whole reason an accent is safe: it cannot move the silhouette a
+		-- player reads, however strong it is.
+		for enemyId, def in EnemyDefs do
+			local accent = def.accent
+			if not accent then
+				continue
+			end
+			for _, archetype in ARCHETYPES do
+				local plain = AttackChoreography.tellPose(archetype, 1)
+				local accented = AttackChoreography.tellPose(archetype, 1, accent :: any)
+				for _, part in AttackChoreography.get(archetype).diagnostic do
+					check(
+						`{enemyId} accent leaves {archetype}.{part} alone`,
+						AttackChoreography.divergence({ [part] = plain[part] }, { [part] = accented[part] }) < 1e-9
+					)
+				end
+			end
+		end
+	end)
+
+	it("keeps every archetype pair readable under every accent", function()
+		for enemyId, def in EnemyDefs do
+			local accent = def.accent
+			if not accent then
+				continue
+			end
+			for indexA, a in ARCHETYPES do
+				for indexB, b in ARCHETYPES do
+					if indexB <= indexA then
+						continue
+					end
+					local apart = AttackChoreography.divergence(
+						AttackChoreography.tellPose(a, 1, accent :: any),
+						AttackChoreography.tellPose(b, 1, accent :: any)
+					)
+					check(`{enemyId}: {a} vs {b} under its accent`, apart >= MIN_DIVERGENCE)
+				end
+			end
+		end
+	end)
+
+	it("gives no two enemies the same carriage", function()
+		-- Measured on the accents themselves rather than on a posed tell. An
+		-- accent touches six joints; a tell touches eleven and is shared by
+		-- definition, so averaging over the whole pose buries exactly the
+		-- signal being tested. Comparing what actually differs is both the
+		-- truer question and the stricter one.
+		local accented = {}
+		for enemyId, def in EnemyDefs do
+			if def.accent then
+				table.insert(accented, { id = enemyId, accent = def.accent :: any })
+			end
+		end
+
+		check("more than one enemy has an accent", #accented > 1)
+
+		for i, a in accented do
+			for j, b in accented do
+				if j <= i then
+					continue
+				end
+				local apart = AttackChoreography.divergence(a.accent, b.accent)
+				check(`{a.id} and {b.id} carry themselves alike ({math.floor(apart)})`, apart >= 4)
+			end
+		end
+	end)
+end)
+
 describe("Enemy tell budgets", function()
 	-- The boss is exempt from both the floor and the rhythm, deliberately. The
 	-- dungeon's common enemies teach the four tells at a speed they can be

@@ -69,8 +69,28 @@ type ArchetypeDef = {
 	-- Which archetypes flow naturally out of this one, because the body ends
 	-- up already loaded for them. This is what makes a low sweep run into a
 	-- rising cut without a trip back through neutral.
+	--
+	-- Plant is a destination from all three swings, which it did not used to
+	-- be. Measuring carry-pose-to-tell distance across the four says Plant is
+	-- the *closest* follow from every one of them — a swing's follow-through
+	-- genuinely leaves the body low and spread, which is what a Plant tell is.
+	-- Forbidding it was excluding the one transition the body most wants to
+	-- make, and it is what lets a chain end on something that has to be dodged.
 	follows: { Archetype },
 }
+
+-- A per-enemy postural bias, added to whatever the archetype poses.
+--
+-- The four tells are a shared *grammar* — which answer a player has to give.
+-- Shared grammar is what makes reading transfer to an enemy you have never
+-- fought, and it is also what made every enemy look the same. An accent is the
+-- difference: a Shambler hunches and leads with its head, a skeleton stands
+-- square and economical, and they wear the identical WindBack differently.
+--
+-- Applied only to joints the archetype does not identify itself by, so it
+-- cannot make two tells converge however strong it is. Readability is
+-- preserved by construction, not by taste.
+export type Accent = { [string]: KeyframeMath.PoseSpec }
 
 --[[ The four ]]
 
@@ -97,7 +117,7 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 		},
 		diagnostic = { "UpperTorso", "RightUpperArm" },
 		parryable = true,
-		follows = { "Raise", "Coil" },
+		follows = { "Raise", "Coil", "Plant" },
 	},
 
 	-- Both arms up, weight rising, everything above the waist stacked over the
@@ -128,7 +148,7 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 		},
 		diagnostic = { "RightUpperArm", "LeftUpperArm" },
 		parryable = true,
-		follows = { "WindBack", "Coil" },
+		follows = { "WindBack", "Coil", "Plant" },
 	},
 
 	-- Weight dropped back, elbow folded hard at the hip, shoulders squared to
@@ -163,7 +183,7 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 		},
 		diagnostic = { "UpperTorso", "RightUpperArm", "RightLowerArm" },
 		parryable = true,
-		follows = { "WindBack", "Raise" },
+		follows = { "WindBack", "Raise", "Plant" },
 	},
 
 	-- Feet set wide, hips sunk, both arms spread straight out to the sides.
@@ -219,6 +239,8 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 --
 -- Every intermediate stays under 2^48, so it is exact in a double and the two
 -- sides cannot drift.
+local COMPONENTS = { "rx", "ry", "rz", "px", "py", "pz" }
+
 local HASH_MOD = 2147483647
 local HASH_MULTIPLIER = 48271
 
@@ -269,7 +291,7 @@ end
 -- untouched, which is the whole contract: a WindBack's torso and sword arm are
 -- the same numbers on every seed, so the tell is learnable even though the
 -- attack is not repeatable.
-local function varied(def: ArchetypeDef, poses: Poses, seed: number, isHit: boolean): Poses
+local function varied(def: ArchetypeDef, poses: Poses, seed: number, isHit: boolean, accent: Accent?): Poses
 	local out = copyPoses(poses)
 
 	local amplitude = 1 + signedVary(seed, CHANNEL_AMPLITUDE) * AMPLITUDE_RANGE
@@ -317,6 +339,25 @@ local function varied(def: ArchetypeDef, poses: Poses, seed: number, isHit: bool
 		out[leg] = pose
 	end
 
+	-- The enemy's own carriage, added last and skipped on every diagnostic
+	-- joint. Last so it is not scaled by the seed's amplitude: an accent is who
+	-- this fighter is, not something that varies swing to swing.
+	if accent then
+		for part, bias in accent do
+			if isDiagnostic(def, part) then
+				continue
+			end
+			local pose = out[part] or {}
+			for _, axis in COMPONENTS do
+				local add = (bias :: any)[axis]
+				if add then
+					(pose :: any)[axis] = ((pose :: any)[axis] or 0) + add
+				end
+			end
+			out[part] = pose
+		end
+	end
+
 	return out
 end
 
@@ -331,6 +372,9 @@ export type AttackSpec = {
 	recovery: number,
 	-- Picks this attack out of every attack this archetype could have been.
 	seed: number,
+	-- The carriage of the enemy throwing it. Never touches diagnostic joints,
+	-- so it cannot change which answer the tell asks for.
+	accent: Accent?,
 }
 
 -- How long the rig takes to snap into the tell from rest. The tell is only
@@ -374,16 +418,16 @@ function AttackChoreography.generate(spec: AttackSpec): KeyframeMath.AnimationDe
 		length,
 		impact,
 		windupAt,
-		varied(def, def.tell, spec.seed, false),
-		varied(def, def.hit, spec.seed, true)
+		varied(def, def.tell, spec.seed, false, spec.accent),
+		varied(def, def.hit, spec.seed, true, spec.accent)
 	)
 end
 
 -- The tell on its own, for anything that needs to compare silhouettes rather
 -- than play them — the readability tests, and the workbench's read strips.
-function AttackChoreography.tellPose(archetype: Archetype, seed: number): Poses
+function AttackChoreography.tellPose(archetype: Archetype, seed: number, accent: Accent?): Poses
 	local def = AttackChoreography.get(archetype)
-	return varied(def, def.tell, seed, false)
+	return varied(def, def.tell, seed, false, accent)
 end
 
 -- How far apart two poses are, as the mean absolute difference in degrees

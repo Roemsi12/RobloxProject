@@ -17,6 +17,52 @@ local DUMMY = EnemyDefs.TrainingDummy
 local SHAMBLER = EnemyDefs.Shambler
 local SPITTER = EnemyDefs.Spitter
 
+-- The band and weight tests run against a made-up enemy rather than a real
+-- one. They are testing the selector, not the content, and asserting on real
+-- attack names made every moveset change break four unrelated specs — which is
+-- how a test stops being a guardrail and becomes a toll booth.
+--
+-- The movement tests above keep using real enemies on purpose: "the Spitter
+-- kites" is a claim about the Spitter, and it should break if that stops
+-- being true.
+local function fixtureAttack(fields: { [string]: any }): any
+	local base = {
+		archetype = "WindBack",
+		leadTime = 0.5,
+		telegraphDuration = 0.62,
+		parryable = true,
+		damage = 10,
+		range = 10,
+		arcDegrees = 90,
+		minRange = 0,
+		maxRange = 10,
+		weight = 1,
+		cooldown = 0,
+	}
+	for key, value in fields do
+		base[key] = value
+	end
+	return base
+end
+
+-- Near = point blank only; Far = from range only; Wide = legal at both.
+local FIXTURE: any = {
+	displayName = "Fixture",
+	maxHealth = 100,
+	attackInterval = 1,
+	preferredRange = 6,
+	moveSpeed = 8,
+	aggroRange = 50,
+	coinReward = 0,
+	crystalReward = 0,
+	xpReward = 0,
+	attacks = {
+		Near = fixtureAttack({ minRange = 0, maxRange = 8, weight = 3 }),
+		Far = fixtureAttack({ minRange = 9, maxRange = 20, range = 20, weight = 2 }),
+		Wide = fixtureAttack({ minRange = 0, maxRange = 20, range = 20, weight = 1 }),
+	},
+}
+
 describe("AttackSelector.movementIntent", function()
 	it("ignores a player beyond aggro range", function()
 		expect(AttackSelector.movementIntent(SHAMBLER, SHAMBLER.aggroRange + 1)).toBe("idle")
@@ -47,31 +93,31 @@ end)
 
 describe("AttackSelector.legalAttacks", function()
 	it("excludes attacks out of band", function()
-		-- Point blank: Claw is legal, Lunge (minRange 9) is not.
-		local legal = AttackSelector.legalAttacks(SHAMBLER, 2, {}, NOW)
-		expect(legal).toEqual({ "Claw" })
+		-- Point blank: Far (minRange 9) is not available.
+		local legal = AttackSelector.legalAttacks(FIXTURE, 2, {}, NOW)
+		expect(legal).toEqual({ "Near", "Wide" })
 	end)
 
 	it("includes a gap-closer only from range", function()
-		local legal = AttackSelector.legalAttacks(SHAMBLER, 15, {}, NOW)
-		expect(legal).toEqual({ "Lunge" })
+		local legal = AttackSelector.legalAttacks(FIXTURE, 15, {}, NOW)
+		expect(legal).toEqual({ "Far", "Wide" })
 	end)
 
 	it("excludes attacks still on cooldown", function()
-		local legal = AttackSelector.legalAttacks(SHAMBLER, 15, { Lunge = NOW + 1 }, NOW)
+		local legal = AttackSelector.legalAttacks(FIXTURE, 15, { Far = NOW + 1, Wide = NOW + 1 }, NOW)
 		expect(legal).toEqual({})
 	end)
 
 	it("includes an attack whose cooldown has just expired", function()
-		local legal = AttackSelector.legalAttacks(SHAMBLER, 15, { Lunge = NOW }, NOW)
-		expect(legal).toEqual({ "Lunge" })
+		local legal = AttackSelector.legalAttacks(FIXTURE, 15, { Far = NOW, Wide = NOW + 1 }, NOW)
+		expect(legal).toEqual({ "Far" })
 	end)
 
 	it("returns a stable sorted order", function()
 		-- Reproducibility matters: tuning sessions compare runs against each
 		-- other, and table iteration order would make that meaningless.
-		local legal = AttackSelector.legalAttacks(DUMMY, 5, {}, NOW)
-		expect(legal).toEqual({ "GroundSlam", "Overhead" })
+		local legal = AttackSelector.legalAttacks(FIXTURE, 5, {}, NOW)
+		expect(legal).toEqual({ "Near", "Wide" })
 	end)
 end)
 
@@ -82,35 +128,39 @@ describe("AttackSelector.chooseAttack", function()
 	end)
 
 	it("returns the only legal attack regardless of roll", function()
-		expect(AttackSelector.chooseAttack(SHAMBLER, 2, {}, NOW, function()
+		-- Point blank with Wide on cooldown leaves exactly Near.
+		local onlyNear = { Wide = NOW + 1 }
+		expect(AttackSelector.chooseAttack(FIXTURE, 2, onlyNear, NOW, function()
 			return 0
-		end)).toBe("Claw")
+		end)).toBe("Near")
 
-		expect(AttackSelector.chooseAttack(SHAMBLER, 2, {}, NOW, function()
+		expect(AttackSelector.chooseAttack(FIXTURE, 2, onlyNear, NOW, function()
 			return 0.999
-		end)).toBe("Claw")
+		end)).toBe("Near")
 	end)
 
-	-- Dummy at range 5: GroundSlam weight 1, Overhead weight 3, sorted
-	-- ["GroundSlam", "Overhead"], total weight 4.
+	-- Fixture at range 15: Far weight 2, Wide weight 1, sorted ["Far", "Wide"],
+	-- total weight 3.
 	it("respects weights when picking between legal attacks", function()
-		local lowRoll = AttackSelector.chooseAttack(DUMMY, 5, {}, NOW, function()
-			return 0.1 -- 0.4 of 4 -> inside GroundSlam's weight of 1
+		local lowRoll = AttackSelector.chooseAttack(FIXTURE, 15, {}, NOW, function()
+			return 0.5 -- 1.5 of 3 -> inside Far's weight of 2
 		end)
-		expect(lowRoll).toBe("GroundSlam")
+		expect(lowRoll).toBe("Far")
 
-		local highRoll = AttackSelector.chooseAttack(DUMMY, 5, {}, NOW, function()
-			return 0.9 -- 3.6 of 4 -> past GroundSlam, inside Overhead
+		local highRoll = AttackSelector.chooseAttack(FIXTURE, 15, {}, NOW, function()
+			return 0.9 -- 2.7 of 3 -> past Far, inside Wide
 		end)
-		expect(highRoll).toBe("Overhead")
+		expect(highRoll).toBe("Wide")
 	end)
 
 	it("never returns an out-of-band attack even at roll extremes", function()
 		for _, roll in { 0, 0.25, 0.5, 0.75, 0.999999 } do
-			local chosen = AttackSelector.chooseAttack(SHAMBLER, 15, {}, NOW, function()
+			local chosen = AttackSelector.chooseAttack(FIXTURE, 15, {}, NOW, function()
 				return roll
 			end)
-			expect(chosen).toBe("Lunge")
+			-- Near's band stops at 8, so it must never come out of a roll at 15
+			-- however the weights fall.
+			expect({ roll, chosen ~= "Near" }).toEqual({ roll, true })
 		end
 	end)
 end)

@@ -178,6 +178,7 @@ function EnemyAnimation.start()
 				leadTime = attackDef.leadTime,
 				recovery = CombatConstants.RECOVER_DURATION,
 				seed = payload.seed,
+				accent = EnemyDefs[entry.defId].accent :: AttackChoreography.Accent?,
 			})
 			else nil
 
