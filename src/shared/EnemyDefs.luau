@@ -24,7 +24,28 @@ export type DotDef = {
 export type AttackDef = {
 	-- Seconds from the start of the windup to impact. The parry window is
 	-- positioned relative to impact by ParryMath.
+	--
+	-- Derived, not chosen: it is `leadTime` plus the beat the rig takes to
+	-- snap into its tell (AttackChoreography.SETTLE). Setting it by hand would
+	-- let the telegraph and the tell drift apart, and the player reads the
+	-- tell. A spec keeps the two in step.
 	telegraphDuration: number,
+	-- Which of AttackChoreography's four tells this attack wears. Decides the
+	-- windup silhouette, and has to agree with `parryable` — the whole point
+	-- of a fixed vocabulary is that a pose means one answer.
+	--
+	-- A string rather than the exported type so this module keeps requiring
+	-- nothing, the way the projectile `kind` does. The spec checks the name.
+	archetype: string,
+	-- Seconds the tell is held on screen before the hit lands. This is the
+	-- budget the player reads in, and it is the number to change when an
+	-- attack feels unreadable — never the telegraph.
+	--
+	-- Every parryable attack on a common enemy clears
+	-- AttackChoreography.REACTION_FLOOR, so it can be answered by reacting.
+	-- The Hollow King is exempt: the dungeon teaches the language, and the
+	-- boss is where you find out whether you learned it.
+	leadTime: number,
 	-- DESIGN.md requires some attacks to be unparryable, so the answer to
 	-- every enemy is never just "parry everything".
 	parryable: boolean,
@@ -103,7 +124,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		xpReward = 12,
 		attacks = {
 			Overhead = {
-				telegraphDuration = 1.2,
+				archetype = "Raise",
+				leadTime = 1.08,
+				telegraphDuration = 1.20,
 				parryable = true,
 				damage = 15,
 				range = 10,
@@ -116,7 +139,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- Deliberately unparryable: the player has to move out of it.
 			GroundSlam = {
 				hyperArmor = true,
-				telegraphDuration = 1.8,
+				archetype = "Plant",
+				leadTime = 1.68,
+				telegraphDuration = 1.80,
 				parryable = false,
 				damage = 20,
 				range = 14,
@@ -145,7 +170,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		xpReward = 45,
 		attacks = {
 			Slash = {
-				telegraphDuration = 0.5,
+				archetype = "WindBack",
+				leadTime = 0.42,
+				telegraphDuration = 0.54,
 				parryable = true,
 				damage = 12,
 				range = 8,
@@ -157,7 +184,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			},
 			GroundSlam = {
 				hyperArmor = true,
-				telegraphDuration = 0.9,
+				archetype = "Plant",
+				leadTime = 0.78,
+				telegraphDuration = 0.90,
 				parryable = false,
 				damage = 25,
 				range = 14,
@@ -185,7 +214,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		xpReward = 20,
 		attacks = {
 			Claw = {
-				telegraphDuration = 0.8,
+				archetype = "WindBack",
+				leadTime = 0.68,
+				telegraphDuration = 0.80,
 				parryable = true,
 				damage = 10,
 				range = 9,
@@ -201,7 +232,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- beyond its reach could only ever miss.
 			Lunge = {
 				hyperArmor = true,
-				telegraphDuration = 1.1,
+				archetype = "Coil",
+				leadTime = 0.86,
+				telegraphDuration = 0.98,
 				parryable = true,
 				damage = 16,
 				range = 18,
@@ -228,7 +261,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		xpReward = 22,
 		attacks = {
 			Spit = {
-				telegraphDuration = 1.4,
+				archetype = "Coil",
+				leadTime = 1.28,
+				telegraphDuration = 1.40,
 				parryable = true,
 				damage = 12,
 				range = 28,
@@ -245,7 +280,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- closing the gap isn't a free win.
 			Spray = {
 				hyperArmor = true,
-				telegraphDuration = 1.0,
+				archetype = "Plant",
+				leadTime = 0.88,
+				telegraphDuration = 1.00,
 				parryable = false,
 				damage = 8,
 				range = 12,
@@ -278,6 +315,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		xpReward = 600,
 		attacks = {
 			Cleave = {
+				archetype = "WindBack",
+				leadTime = 0.53,
 				telegraphDuration = 0.65,
 				parryable = true,
 				damage = 18,
@@ -290,7 +329,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			},
 			Overhead = {
 				hyperArmor = true,
-				telegraphDuration = 1.1,
+				archetype = "Raise",
+				leadTime = 0.98,
+				telegraphDuration = 1.10,
 				parryable = true,
 				damage = 30,
 				range = 12,
@@ -302,7 +343,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			},
 			Shockwave = {
 				hyperArmor = true,
-				telegraphDuration = 1.4,
+				archetype = "Plant",
+				leadTime = 1.28,
+				telegraphDuration = 1.40,
 				parryable = false,
 				damage = 26,
 				range = 20,
@@ -314,7 +357,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 				dot = { tickDamage = 5, tickInterval = 1, ticks = 4 },
 			},
 			BoneSpear = {
-				telegraphDuration = 1.2,
+				archetype = "Coil",
+				leadTime = 1.08,
+				telegraphDuration = 1.20,
 				parryable = true,
 				damage = 18,
 				range = 34,

@@ -54,6 +54,10 @@ export type ActionOptions = {
 	duration: number?,
 	-- Stay on the last frame when finished (death), until stopped.
 	hold: boolean?,
+	-- A generated attack (AttackChoreography), played instead of looking `name`
+	-- up. Generated attacks are keyframe-played only: there is no published
+	-- version of an animation that did not exist until this swing.
+	def: AnimationDef?,
 }
 
 type Layer = {
@@ -281,12 +285,11 @@ function RigAnimation.currentBase(controller: Controller): string?
 end
 
 function RigAnimation.playAction(controller: Controller, name: string, options: ActionOptions?)
-	local anim = AnimationDefs.get(controller.rigId, name)
+	local opts: ActionOptions = options or {}
+	local anim = opts.def or AnimationDefs.get(controller.rigId, name)
 	if not anim then
 		return
 	end
-
-	local opts: ActionOptions = options or {}
 	local previous = controller.action
 	if previous and previous.track then
 		previous.track:Stop(CROSSFADE)
@@ -305,7 +308,7 @@ function RigAnimation.playAction(controller: Controller, name: string, options: 
 		track = nil,
 	}
 
-	local track = publishedTrack(controller, name)
+	local track = if opts.def then nil else publishedTrack(controller, name)
 	if track then
 		track.Looped = false
 		track.Priority = Enum.AnimationPriority.Action

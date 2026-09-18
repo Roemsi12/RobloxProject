@@ -460,6 +460,13 @@ local function strike(length: number, impact: number, windupAt: number, windup: 
 	}
 end
 
+-- Exposed so AttackChoreography can build generated attacks on the same
+-- timing skeleton the authored ones use. The anticipation beat, the coil and
+-- the follow-through are what make a strike read; a generator that invented
+-- its own version of them would drift from the hand-authored attacks, and the
+-- player would be reading two different languages.
+AnimationDefs.strike = strike
+
 -- The same idle, re-labelled for walking: for a rig that never moves, so
 -- every enemy still has the full basic set.
 local function standIn(anim: AnimationDef): AnimationDef

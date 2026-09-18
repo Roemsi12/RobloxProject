@@ -12,6 +12,8 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage.Shared
 local AnimationDefs = require(Shared.AnimationDefs)
+local AttackChoreography = require(Shared.AttackChoreography)
+local CombatConstants = require(Shared.CombatConstants)
 local EnemyDefs = require(Shared.EnemyDefs)
 local Remotes = require(Shared.Remotes)
 
@@ -163,9 +165,26 @@ function EnemyAnimation.start()
 		-- Stretched so the strike lands on the server's impact time, and
 		-- started part-way in if the message arrived late.
 		local windupStarted = payload.impactTime - payload.duration
+
+		-- Built here rather than looked up: the server sent a seed, and the
+		-- same seed makes the same swing on every client and on the server's
+		-- own reckoning of it. The tell inside it is fixed by the archetype,
+		-- so the player reads something they already know however the rest of
+		-- the arc happens to fall this time.
+		local attackDef = EnemyDefs[entry.defId] and EnemyDefs[entry.defId].attacks[payload.attackId]
+		local generated = if attackDef and typeof(payload.seed) == "number"
+			then AttackChoreography.generate({
+				archetype = attackDef.archetype :: AttackChoreography.Archetype,
+				leadTime = attackDef.leadTime,
+				recovery = CombatConstants.RECOVER_DURATION,
+				seed = payload.seed,
+			})
+			else nil
+
 		RigAnimation.playAction(entry.controller, AnimationDefs.attack(payload.attackId), {
 			windup = payload.duration,
 			elapsed = Workspace:GetServerTimeNow() - windupStarted,
+			def = generated,
 		})
 	end)
 

@@ -459,12 +459,20 @@ local function runAttack(enemy: EnemyAI.Enemy, attackId: string)
 
 	-- The client needs impactTime, not just the duration, so its animation
 	-- stays in step even if this message is delayed in transit.
+	--
+	-- `seed` is the whole of the attack's shape. Every client builds the same
+	-- swing from it (AttackChoreography is pure and its variation is a hash,
+	-- not a sequence), so an attack that is different every time costs one
+	-- number on the wire rather than a keyframe timeline. The tell it wears
+	-- and how long that tell is held come from EnemyDefs, which every client
+	-- already has.
 	Remotes.get("EnemyTelegraphStart"):FireAllClients({
 		enemyId = enemy.id,
 		attackId = attackId,
 		duration = attackDef.telegraphDuration,
 		impactTime = attack.impactTime,
 		parryable = attackDef.parryable,
+		seed = math.random(0, 65535),
 	})
 
 	-- Held open past impact so a block press made just before the hit, or a
