@@ -1347,6 +1347,234 @@ together out of the parts that do exist, in `AtmosphereFX` and `Stonework`:
   player stands still, and a hall with nothing moving in it reads as a
   photograph of a hall.
 
+## Decisions made in the movement and tell pass (Sept 2026)
+
+### The dodge became four rolls
+
+The dash was one animation — a crouch, a lean, arms trailing — played whichever
+way the player went, which meant it only looked right going backwards. It is now
+a real roll, and there are four of them: forward, back, and a shoulder roll to
+each side, picked from the direction of travel measured against the character's
+facing (`LocomotionMath.rollDirection`).
+
+- **Four, not one, for the same reason the hips turn when strafing.** A roll is
+  the one move in the game that turns the whole body. Played in the wrong
+  direction it does not merely look off — it points the tumble across the way
+  the character is sliding, which is the moonwalk again in a single burst.
+- **Direction is the client's to choose and the server only passes it on.**
+  Nothing is decided by it, so it is checked against the four that exist and
+  otherwise ignored, rather than trusted or validated against movement the
+  server would have to reconstruct.
+- **Sideways is a shoulder roll on the diagonal, not a flat barrel roll.** At a
+  full 90 degrees the body reads as falling over; at 58 it reads as dropping a
+  shoulder and going over it.
+- **The travel now lasts as long as the tumble.** `DODGE_SPEED` and
+  `DODGE_DURATION` went from 46 for 0.2s to 31 for 0.3s. The distance is
+  unchanged (9.2 studs against 9.3) and `DODGE_IFRAMES` is untouched, so what
+  the dodge is *worth* has not changed — but a character that stopped dead
+  halfway through going over read as an animation being played at them.
+
+### The tuck folds further than a spine does, because the geometry says so
+
+The neck sits 1.5 studs from the hips, so a merely rounded back still swings the
+head a full 3 studs below them halfway over — through the floor, at any hip
+height low enough to look like a roll rather than a pirouette. Folding the chest
+down onto the thighs brings the head inside 1.7 and the whole tumble fits. It is
+on screen for about a fifth of a second and reads as a tuck.
+
+The hip heights through the tumble were measured against the floor rather than
+chosen: the hips ride up as the shoulders go down, sit lowest when the body is
+inverted, and come back down as the feet swing under. Forward and backward rolls
+need *different* curves, because the head passes the bottom of its arc early in
+one and late in the other.
+
+### The workbench samples finely now
+
+Raised from 24 samples per animation to 96. A roll that unwound its turn over
+the last three frames put a head a stud through the floor and passed at 24 — the
+grid stepped over it. Every animation in the project clears the floor at 96, so
+the check no longer depends on where the samples happen to land.
+
+Worth remembering that the sampler interpolates a pose as six plain numbers, not
+as a rotation: any future animation that turns past 180 has to carry the turn
+through every keyframe after it, or it unwinds the way it came. A test now
+samples each roll to catch that.
+
+### The stance breathes at the pace you're going
+
+The fighting stance is a slow loop laid over Roblox's walk and run, and it ran
+at one tempo whether the player was standing still or sprinting — legs at a
+sprint under a chest breathing as though leaning on a wall, which reads as the
+top and bottom halves belonging to different people. It now scales with actual
+speed, between 1x and 2.1x.
+
+Measured against a fixed full pace rather than the character's current
+`WalkSpeed`: combat slows walking to 40% while attacking and 25% while stunned,
+and dividing by a speed that moves with the slowdown would have a stunned
+character crawling along and breathing like a sprinter, because they are still
+at "full speed" for what they are allowed.
+
+Enemies have scaled their walk cycle by real speed since they were built. This
+is players catching up to them.
+
+### Parryable attacks get a weapon glint
+
+**This softens "No timing visuals for parryable attacks"** from the second
+playtest, which removed the closing ring and the white wind-up glow on the
+grounds that attacks are read from their animations and timed by eye. Asked for
+by the same person who asked for that removal, and with the same objection
+carried over in the request: *not an actual GUI thing*. That is the whole
+distinction. The ring was an instrument on the screen telling you when to press;
+this is the weapon catching the light.
+
+The original concern — that a cue does the reading for the player — stands, and
+is why the glint is shaped the way it is:
+
+- **It says *when*, never *what*.** It carries no information the pose doesn't
+  already carry. The archetype still tells you whether to parry or move; the
+  glint only marks the beat.
+- **It starts when the tell lands, not when the windup does.** An attack still
+  snapping into its pose is not yet readable, and a cue that began before the
+  silhouette would be telling the player to parry something they cannot see yet.
+- **It is on the weapon, not on the screen.** A brightening of the weapon's own
+  colour, multiplied rather than blended toward a colour of its own, so a steel
+  edge flares, a leather grip barely moves, and claws come up dull. Two speeds
+  that never line up, so it reads as light catching an unsteady edge rather than
+  something pulsing on a timer.
+- **It looks nothing like the red flash**, which is the cue that changes the
+  answer. Glint on the blade means the usual answer, now; red over the whole rig
+  means dodge instead.
+
+If it turns out players parry off the glint rather than the pose — the thing the
+original decision was protecting — the dial to turn is `GLINT_GAIN` in
+`TelegraphVFX`, and turning it to zero restores the old behaviour exactly. Worth
+watching for specifically at the next playtest, since it is the one change here
+that touches what the combat is testing rather than how it looks.
+
+**"The weapon" is derived, not declared.** A rig has no weapon field and should
+not get one: it is a silhouette built from decorations, and the sword is the
+decorations hanging off the hand. `RigDefs.weaponParts` reads it back out that
+way, so a rig that gets a new weapon gets the right parts for free, and one that
+fights with claws or bare hands still answers with something.
+
+## Decisions made in the character and class pass (Sept 2026)
+
+### Everyone wears the same body, and it stays R15
+
+Asked for as "a base character, R6, because my Roblox character is a penguin
+and it is a bit weird if everyone has non-fitting Roblox skins". The goal was
+taken; the R6 was not, and here is why.
+
+Every animation in the game — 100 of them — is authored against R15's fifteen
+joints, and `PlayerAnimation` skips an R6 avatar outright. R6 has no elbows, no
+knees and no waist, so going there would not merely cost work: the four
+archetype tells, the guards and the combo silhouettes are all read off joints
+R6 does not have. The parry game is the game.
+
+So the body is the **default blocky R15 build** — `BodyTypeScale` and
+`ProportionScale` at zero, which is what makes a default R15 blocky rather than
+Rthro-proportioned — applied as a `HumanoidDescription` with no bundle, no
+clothing and no accessories. It reads as the classic blocky character that was
+being asked for, and every animation keeps working.
+
+- **Built fresh, never edited from the character's own description.** Editing
+  theirs means every field we forget to clear is a piece of catalogue avatar
+  that survives, and the list of things Roblox can put on an avatar only grows.
+- **The look is welded on top, server-side**, like `WeaponVisuals` and for the
+  same reason: everyone has to see the same character, not just its owner.
+- **This is a readability decision as much as an art one.** A bundle that moves
+  the shoulders makes a tell harder to read through no fault of the player
+  trying to read it.
+
+**One thing Rojo cannot do**: rig type is a universe setting, not a place
+property. Studio → Game Settings → Avatar → Rig Type → R15, by hand, once. It
+is in the README.
+
+### The look is data, and unknown choices fall back field by field
+
+Nine categories, generated from one table. The editor has no hardcoded
+hairstyle in it, so adding one is a row.
+
+Saved looks break the rule the rest of `PlayerDataSchema` follows. Everywhere
+else, an id this server does not recognise is **kept** — it may be newer than
+this server, and a rollback must not delete progress. A look is the opposite: an
+unrecognised hairstyle is not progress, it is a character with no hair. So a
+look is sanitised *down* to ids this server knows — but **field by field**, so a
+newer server's choice of hair does not also cost the player their face.
+
+### The dodge got an idle to match
+
+Stances could never pose the hips or legs, because Roblox's walk cycle plays
+underneath them — which means a standing fighter's feet were never where a
+fighter would put them. Standing still there is no walk cycle worth protecting,
+so there is now a second held animation per weapon, `idle_<weaponId>`, that owns
+the whole body: weight back, feet apart, weapon up.
+
+- **Two thresholds, not one** (`LocomotionMath.planted`). At a single boundary a
+  character drifting at exactly that speed swaps between the two every frame.
+- **The lower threshold is not zero**, because a character on a moving platform
+  or still settling out of a roll never quite reaches it.
+- **`RigAnimation` learned to cross-fade an overlay rig's base**, which it never
+  had to before. Without it, walking out of a planted idle snapped the legs from
+  the stance to the walk in one frame. Weapon swaps used to pop for the same
+  reason and no longer do.
+
+### Four classes, and two of them are honest compromises
+
+Berserker, Duelist, Ranger and Mage. Each is a `WeaponDefs` row, a weapon model,
+eight animations, a three-branch tree, three abilities and an altar — and
+**nothing else**, because the "class is a row, not a branch" rule held: a grep
+for the class names outside `WeaponDefs` finds nothing. The three new ability
+kinds needed were zero; all twelve reuse the four that already exist.
+
+The test suite turned out to be the specification. Adding the rows failed seven
+tests that between them named every remaining piece of work, and two of those
+were real balance rules worth keeping:
+
+- **A riposte must beat the universal stagger bonus.** The two take the larger
+  rather than stacking, so the 1.6–1.9 multipliers first written for the new
+  classes would have been worth literally nothing against the enemy just
+  parried. All are above 2 now.
+- **An ability must out-reach the weapon that casts it**, which the Ranger's
+  Volley and Disengage failed against a 52-stud bow.
+
+Two compromises, stated plainly:
+
+- **The Ranger is hitscan.** A "swing" is the existing melee resolution at four
+  times the range through a sliver of an arc. It has no travel time, so there is
+  no leading a moving target and no arrow to dodge. Players have no projectile
+  system — only enemies do — and building one is its own piece of work. The draw
+  is where the feel is for now: the longest windups in the game, and no lunge.
+- **The Mage is not the exception DESIGN.md describes.** That one — magic
+  *replacing* basic combat — still needs its own combat model. The Focus is the
+  "magic enhances combat" version: the same five inputs, the weakest combo in
+  the game, a critical that hits all round, and the only tree that buys ability
+  power where every other buys weapon damage. The real exception stays open.
+
+**The hall lays out however many altars it is given.** Rather than write seven
+positions into `LobbyBuilder`, it takes a count and spaces that many down the
+west aisle, squeezing rather than overrunning if a future roster outgrows it.
+The number of classes is not the hall's business.
+
+### The weapon models got ornament, not a rewrite
+
+Asked to make them "more impressive and cool". The three that existed were
+already carefully built — the arming sword has a fuller, a langet and a ricasso
+— so redoing them from scratch would have thrown away good work to arrive
+somewhere similar. What they got instead is a shared ornament vocabulary:
+`jewel` and `inlay`, used on all seven, so "impressive" means the same thing
+across the rack rather than whatever each weapon felt like on the day.
+
+A hero weapon here reads by three things: a stone that catches the light, a line
+of engraving down a flat, and a silhouette that is not symmetrical. The greataxe
+is the clearest case — its head is bearded, hanging below the eye on one side
+only, because a symmetrical head reads as a prop.
+
+**A weapon may now hang pieces off the torso.** The Ranger's quiver goes on the
+back, where a quiver goes. Previously weapon pieces could only attach to hands
+and forearms; the R6 fallback for that is the whole Torso, and the half-a-part
+drop that positions an R6 hand is now correctly applied to hands only.
+
 ## Open / not yet decided
 
 - ~~Is solo play fully supported, or is this group-first content? This changes

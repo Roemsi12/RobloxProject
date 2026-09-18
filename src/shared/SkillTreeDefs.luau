@@ -284,10 +284,229 @@ local STAFF: Tree = {
 	},
 }
 
+-- The Berserker spends everything on the swing. Its tree is the only one with
+-- no parry-window node anywhere in it: a Berserker that wants to survive buys
+-- health and hide, not better defence, because the class is meant to be the
+-- one that trades.
+local GREATAXE: Tree = {
+	weaponId = "Greataxe",
+	branches = { "Fury", "Hide", "Ruin" },
+	root = "unspent_rage",
+	nodes = {
+		node("unspent_rage", "Unspent Rage", "It has to go somewhere.", "Fury", 1, ROOT_COLUMN, 2, nil, {
+			damage = 0.04,
+		}),
+
+		node("momentum", "Momentum", "The axe wants to keep going.", "Fury", 2, HEADS[1], 3, "unspent_rage", {
+			damage = 0.05,
+		}),
+		node("swing_through", "Swing Through", "Not at them. Past them.", "Fury", 3, LEFT[1], 3, "momentum", {
+			damage = 0.05,
+		}),
+		node("red_mist", "Red Mist", "Stop counting them.", "Fury", 3, RIGHT[1], 2, "momentum", {
+			abilityPower = 0.12,
+		}),
+		node("bloodlust", "Bloodlust", "Nothing left to decide.", "Fury", 4, HEADS[1], 1, "swing_through", {
+			damage = 0.12,
+		}, "Bloodlust"),
+
+		node("thick_skin", "Thick Skin", "Most of it does not reach.", "Hide", 2, HEADS[2], 3, "unspent_rage", {
+			maxHealth = 14,
+		}),
+		node("stubborn", "Stubborn", "Falling over is a decision.", "Hide", 3, LEFT[2], 3, "thick_skin", {
+			maxHealth = 16,
+		}),
+		node("second_breath", "Second Breath", "There is always one more.", "Hide", 3, RIGHT[2], 2, "thick_skin", {
+			postureRegen = 5,
+		}),
+		node("ironhide", "Ironhide", "Feel it later.", "Hide", 4, HEADS[2], 1, "stubborn", {
+			maxHealth = 36,
+		}, "Ironhide"),
+
+		node("cleave", "Cleave", "One swing, several answers.", "Ruin", 2, HEADS[3], 3, "unspent_rage", {
+			criticalDamage = 0.08,
+		}),
+		node("follow_through", "Follow Through", "The second one is free.", "Ruin", 3, LEFT[3], 2, "cleave", {
+			riposte = 0.3,
+		}),
+		node("shorter_wind", "Shorter Wind", "Less winding, more up.", "Ruin", 3, RIGHT[3], 2, "cleave", {
+			criticalCooldown = 0.12,
+		}),
+		node("earthsplitter", "Earthsplitter", "Take the floor from them.", "Ruin", 4, HEADS[3], 1, "follow_through", {
+			criticalDamage = 0.3,
+		}, "Earthsplitter"),
+	},
+}
+
+-- The Duelist's tree is the parry game written out. Two of its three branches
+-- buy parry window or what a parry is worth, and the third buys the reach to
+-- use what they bought. A Duelist who never parries has spent their whole tree
+-- on nothing, which is the intended shape of the class.
+local RAPIER: Tree = {
+	weaponId = "Rapier",
+	branches = { "Form", "Riposte", "Point" },
+	root = "en_garde",
+	nodes = {
+		node("en_garde", "En Garde", "Everything begins from here.", "Form", 1, ROOT_COLUMN, 2, nil, {
+			parryWindow = 0.015,
+		}),
+
+		node("footwork", "Footwork", "The feet decide it, not the blade.", "Form", 2, HEADS[1], 3, "en_garde", {
+			moveSpeed = 0.03,
+		}),
+		node("measure", "Measure", "Know the distance to a finger's width.", "Form", 3, LEFT[1], 3, "footwork", {
+			parryWindow = 0.02,
+		}),
+		node("recover", "Recover", "Back on guard before they know.", "Form", 3, RIGHT[1], 2, "footwork", {
+			parryRestore = 7,
+		}),
+		node("perfect_form", "Perfect Form", "Nothing wasted, nothing hurried.", "Form", 4, HEADS[1], 1, "measure", {
+			parryWindow = 0.03,
+		}, "PerfectForm"),
+
+		node("parry_riposte", "Parry-Riposte", "One motion, not two.", "Riposte", 2, HEADS[2], 3, "en_garde", {
+			riposte = 0.2,
+		}),
+		node("in_time", "In Time", "Answer inside their swing.", "Riposte", 3, LEFT[2], 3, "parry_riposte", {
+			riposte = 0.22,
+		}),
+		node("counter_time", "Counter-Time", "Answer the answer.", "Riposte", 3, RIGHT[2], 2, "parry_riposte", {
+			abilityPower = 0.12,
+		}),
+		node("lunge", "Lunge", "The whole body, behind the point.", "Riposte", 4, HEADS[2], 1, "in_time", {
+			riposte = 0.35,
+		}, "Lunge"),
+
+		node("point_control", "Point Control", "It goes where you looked.", "Point", 2, HEADS[3], 3, "en_garde", {
+			damage = 0.05,
+		}),
+		node("thrust", "Thrust", "Straight is shortest.", "Point", 3, LEFT[3], 2, "point_control", {
+			criticalDamage = 0.2,
+		}),
+		node("quick_hand", "Quick Hand", "Faster than it looks.", "Point", 3, RIGHT[3], 2, "point_control", {
+			criticalCooldown = 0.12,
+		}),
+		node("pierce", "Pierce", "Through, and out the other side.", "Point", 4, HEADS[3], 1, "thrust", {
+			damage = 0.14,
+		}, "Pierce"),
+	},
+}
+
+-- The Ranger's tree is about staying at range, and every branch is a different
+-- answer to the same question: what happens when something reaches you. Hunt
+-- kills it first, Quiver kills several, Flight leaves.
+local BOW: Tree = {
+	weaponId = "Bow",
+	branches = { "Hunt", "Quiver", "Flight" },
+	root = "steady_hand",
+	nodes = {
+		node("steady_hand", "Steady Hand", "The draw does not shake.", "Hunt", 1, ROOT_COLUMN, 2, nil, {
+			damage = 0.04,
+		}),
+
+		node("sight", "Sight", "See it before it sees you.", "Hunt", 2, HEADS[1], 3, "steady_hand", {
+			damage = 0.05,
+		}),
+		node("heavy_draw", "Heavy Draw", "Further back, further through.", "Hunt", 3, LEFT[1], 3, "sight", {
+			damage = 0.06,
+		}),
+		node("patience", "Patience", "The shot arrives when it arrives.", "Hunt", 3, RIGHT[1], 2, "sight", {
+			criticalDamage = 0.18,
+		}),
+		node("hunters_mark", "Hunter's Mark", "Chosen, and told so.", "Hunt", 4, HEADS[1], 1, "heavy_draw", {
+			criticalDamage = 0.25,
+		}, "HuntersMark"),
+
+		node("full_quiver", "Full Quiver", "Bring more than you need.", "Quiver", 2, HEADS[2], 3, "steady_hand", {
+			abilityCooldown = 0.1,
+		}),
+		node("loose_fast", "Loose Fast", "Nocked before the last one lands.", "Quiver", 3, LEFT[2], 3, "full_quiver", {
+			abilityPower = 0.12,
+		}),
+		node("broadheads", "Broadheads", "Wider, and it stays in.", "Quiver", 3, RIGHT[2], 2, "full_quiver", {
+			damage = 0.06,
+		}),
+		node("volley", "Volley", "All of it, at once.", "Quiver", 4, HEADS[2], 1, "loose_fast", {
+			abilityPower = 0.22,
+		}, "Volley"),
+
+		node("light_step", "Light Step", "Never quite where they swing.", "Flight", 2, HEADS[3], 3, "steady_hand", {
+			moveSpeed = 0.04,
+		}),
+		node("give_ground", "Give Ground", "Backwards is a direction.", "Flight", 3, LEFT[3], 2, "light_step", {
+			dodgeCooldown = 0.12,
+		}),
+		node("unencumbered", "Unencumbered", "Carry nothing you will not loose.", "Flight", 3, RIGHT[3], 2, "light_step", {
+			dodgeIframes = 0.04,
+		}),
+		node("disengage", "Disengage", "The fight was never here.", "Flight", 4, HEADS[3], 1, "give_ground", {
+			moveSpeed = 0.06,
+		}, "Disengage"),
+	},
+}
+
+-- The Mage's tree buys ability power where every other tree buys weapon
+-- damage. That is the class: the Focus's own swings stay the weakest in the
+-- game however far the tree is filled in, and everything a Mage is worth comes
+-- out of the three things at the ends of it.
+local FOCUS: Tree = {
+	weaponId = "Focus",
+	branches = { "Flame", "Veil", "Weave" },
+	root = "kindling",
+	nodes = {
+		node("kindling", "Kindling", "Something to start from.", "Flame", 1, ROOT_COLUMN, 2, nil, {
+			abilityPower = 0.06,
+		}),
+
+		node("draw_heat", "Draw Heat", "Take it out of the air.", "Flame", 2, HEADS[1], 3, "kindling", {
+			abilityPower = 0.08,
+		}),
+		node("bank_it", "Bank It", "Hold it until it is worth spending.", "Flame", 3, LEFT[1], 3, "draw_heat", {
+			abilityPower = 0.09,
+		}),
+		node("quick_light", "Quick Light", "Sooner, if smaller.", "Flame", 3, RIGHT[1], 2, "draw_heat", {
+			abilityCooldown = 0.12,
+		}),
+		node("cinderburst", "Cinderburst", "All of it, outward.", "Flame", 4, HEADS[1], 1, "bank_it", {
+			abilityPower = 0.2,
+		}, "Cinderburst"),
+
+		node("thin_veil", "Thin Veil", "Not much between you and it.", "Veil", 2, HEADS[2], 3, "kindling", {
+			maxPosture = 8,
+		}),
+		node("turn_aside", "Turn Aside", "It was going to miss anyway.", "Veil", 3, LEFT[2], 3, "thin_veil", {
+			parryWindow = 0.02,
+		}),
+		node("borrowed_time", "Borrowed Time", "Pay it back later.", "Veil", 3, RIGHT[2], 2, "thin_veil", {
+			maxHealth = 14,
+		}),
+		node("mirror_ward", "Mirror Ward", "Let it hit the other one.", "Veil", 4, HEADS[2], 1, "turn_aside", {
+			abilityPower = 0.18,
+		}, "MirrorWard"),
+
+		node("first_thread", "First Thread", "Find where it gives.", "Weave", 2, HEADS[3], 3, "kindling", {
+			healPower = 0.08,
+		}),
+		node("steady_weave", "Steady Weave", "Slow, and it holds.", "Weave", 3, LEFT[3], 2, "first_thread", {
+			healPower = 0.1,
+		}),
+		node("wide_weave", "Wide Weave", "Far enough to reach them.", "Weave", 3, RIGHT[3], 2, "first_thread", {
+			abilityCooldown = 0.1,
+		}),
+		node("wellspring", "Wellspring", "It was under there the whole time.", "Weave", 4, HEADS[3], 1, "steady_weave", {
+			healPower = 0.18,
+		}, "Wellspring"),
+	},
+}
+
 local trees: { [string]: Tree } = {
 	[SWORD.weaponId] = SWORD,
 	[DAGGERS.weaponId] = DAGGERS,
 	[STAFF.weaponId] = STAFF,
+	[GREATAXE.weaponId] = GREATAXE,
+	[RAPIER.weaponId] = RAPIER,
+	[BOW.weaponId] = BOW,
+	[FOCUS.weaponId] = FOCUS,
 }
 
 --[[ Reading a tree ]]

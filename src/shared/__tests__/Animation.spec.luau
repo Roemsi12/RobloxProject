@@ -125,6 +125,46 @@ describe("RigDefs styles", function()
 		end
 	end)
 
+	-- The parry glint plays on these. A rig that answers with nothing would
+	-- telegraph a parryable attack with no glint at all, and silently: there is
+	-- no error to raise at the point a weapon turns out not to exist.
+	it("finds something to glint on every rig that attacks", function()
+		for enemyId, def in EnemyDefs do
+			local parryable = false
+			for _, attack in def.attacks do
+				parryable = parryable or attack.parryable
+			end
+			if not parryable then
+				continue
+			end
+
+			local parts = RigDefs.weaponParts(enemyId)
+			check(`{enemyId} has weapon parts`, #parts > 0)
+			for _, name in parts do
+				check(`{enemyId}.{name} is a real part`, isPart(name) or name ~= "")
+			end
+		end
+	end)
+
+	-- Claws and bare hands count: they are what those rigs hit with.
+	it("falls back to the hands when a rig holds nothing", function()
+		for rigId, style in RigDefs.STYLES do
+			local held = 0
+			for _, decoration in style.decorations do
+				if table.find(RigDefs.HANDS, decoration.attachTo) then
+					held += 1
+				end
+			end
+
+			local parts = RigDefs.weaponParts(rigId)
+			if held > 0 then
+				check(`{rigId} uses what it holds`, #parts == held)
+			else
+				check(`{rigId} falls back to hands`, #parts == #RigDefs.HANDS)
+			end
+		end
+	end)
+
 	it("gives every colour three channels in range", function()
 		local function validColor(rgb: { number }): boolean
 			if #rgb ~= 3 then
@@ -169,7 +209,7 @@ describe("Animation coverage", function()
 		end
 	end)
 
-	it("animates every weapon's combo, critical, guard and stance, and the dodge", function()
+	it("animates every weapon's combo, critical, guard and stance, and every roll", function()
 		local function has(name: string)
 			check(name, AnimationDefs.get(RigDefs.PLAYER_RIG, name) ~= nil)
 		end
@@ -181,8 +221,15 @@ describe("Animation coverage", function()
 			has(AnimationDefs.critical(weaponId))
 			has(AnimationDefs.guard(weaponId))
 			has(AnimationDefs.stance(weaponId))
+			-- Without one, standing still falls back to Roblox's own idle and
+			-- the character stops looking like they are holding anything.
+			has(AnimationDefs.idle(weaponId))
 		end
-		has(AnimationDefs.DODGE)
+		-- All four: a dodge with no roll for the way the body is going would
+		-- fall back to rolling backwards into whatever it was dodging.
+		for _, direction in AnimationDefs.ROLL_DIRECTIONS do
+			has(AnimationDefs.roll(direction))
+		end
 		has(AnimationDefs.GUARD_BREAK)
 		has(AnimationDefs.HURT)
 	end)
@@ -287,8 +334,10 @@ describe("Animation shape", function()
 	end)
 
 	-- Walking keeps working underneath a stance or a held guard only if they
-	-- leave the hips and legs alone. (Strikes and dodges may pose them: those
-	-- are short, and slow the player right down while they play.)
+	-- leave the hips and legs alone. (Strikes and rolls may pose them: those
+	-- are short, and slow the player right down while they play. A planted
+	-- idle may too, and must — it only plays when there is no walk cycle
+	-- underneath to protect.)
 	it("never poses a player's hips or legs in a stance or guard", function()
 		local lower = { "LowerTorso", "RightUpperLeg", "RightLowerLeg", "RightFoot", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot" }
 		for name, anim in AnimationDefs.BY_RIG[RigDefs.PLAYER_RIG] do
@@ -299,6 +348,77 @@ describe("Animation shape", function()
 			end
 			for _, part in KeyframeMath.partsOf(anim) do
 				check(`R15Player/{name} leaves {part} alone`, table.find(lower, part) == nil)
+			end
+		end
+	end)
+
+	-- The rolls are the only animations that turn the whole body, and the
+	-- sampler interpolates a pose as plain numbers rather than as a rotation.
+	-- So a roll that reaches 285 degrees and then lands on a keyframe holding
+	-- 0 does not finish its turn: it unwinds, spinning backwards through every
+	-- degree it had just covered, in the few frames it had left to stand up
+	-- in. Every keyframe from the tumble onward has to carry the turn.
+	it("turns each roll one way, all the way round", function()
+		for _, direction in AnimationDefs.ROLL_DIRECTIONS do
+			local name = AnimationDefs.roll(direction)
+			local anim = AnimationDefs.get(RigDefs.PLAYER_RIG, name) :: any
+			check(`{name} exists`, anim ~= nil)
+
+			-- Sampled rather than read off the keyframes, because what matters
+			-- is what plays: the turn never reverses between one frame and the
+			-- next, and it ends a whole number of turns from where it started.
+			local samples = 80
+			local previous = 0
+			local peak = 0
+			local sign = 0
+			for index = 0, samples do
+				local turn = (KeyframeMath.sample(anim, anim.length * index / samples).LowerTorso or {}).rx or 0
+				if sign == 0 and math.abs(turn) > 1e-6 then
+					sign = if turn > 0 then 1 else -1
+				end
+				check(`{name} never unwinds at {index}`, turn * sign >= previous * sign - 1e-6)
+				previous = turn
+				peak = math.max(peak, math.abs(turn))
+			end
+
+			check(`{name} completes a turn (reached {peak})`, math.abs(peak - 360) < 1e-6)
+			check(`{name} ends on the turn (at {previous})`, math.abs(math.abs(previous) - 360) < 1e-6)
+		end
+	end)
+
+	-- A roll is the one player animation that may pose the hips and legs, and
+	-- the one that moves the body off the spot it stands on. Both are what the
+	-- workbench's floor solve checks; this only guards the offsets staying
+	-- inside what a body can reach, since a stray one there is a rig
+	-- teleporting rather than rolling.
+	it("keeps every roll's hips within reach of the body", function()
+		for _, direction in AnimationDefs.ROLL_DIRECTIONS do
+			local name = AnimationDefs.roll(direction)
+			local anim = AnimationDefs.get(RigDefs.PLAYER_RIG, name) :: any
+			for _, keyframe in anim.keyframes do
+				local hips = keyframe.poses.LowerTorso
+				if hips then
+					check(`{name} hip drop`, math.abs(hips.py or 0) <= 2)
+					check(`{name} hip slide`, math.abs(hips.px or 0) <= 1 and math.abs(hips.pz or 0) <= 1)
+				end
+			end
+		end
+	end)
+
+	-- The other half of the overlay rule. A planted idle that left the legs
+	-- alone would be a stance with a longer loop and no reason to exist.
+	it("plants the feet in every player idle", function()
+		for weaponId in WeaponDefs do
+			local name = AnimationDefs.idle(weaponId)
+			local anim = AnimationDefs.get(RigDefs.PLAYER_RIG, name)
+			if not anim then
+				continue
+			end
+
+			local parts = KeyframeMath.partsOf(anim)
+			check(`{name} poses the hips`, table.find(parts, "LowerTorso") ~= nil)
+			for _, leg in { "RightUpperLeg", "LeftUpperLeg", "RightFoot", "LeftFoot" } do
+				check(`{name} poses {leg}`, table.find(parts, leg) ~= nil)
 			end
 		end
 	end)

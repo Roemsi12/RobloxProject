@@ -40,13 +40,13 @@ is generated in this same server, well north of the hub.
 | **R** / R1 | Critical: a heavy attack on a cooldown |
 | **Right click** / X | Feint: cancel a swing early in its windup |
 | **F** / L1 | Press just before a hit lands to parry; hold to block |
-| **Q** / B | Dodge: a quick dash you can't be hit during |
+| **Q** / B | Dodge: a roll the way you're moving, that you can't be hit during |
 | **Z** / **X** / **C** | The abilities you unlocked in the skill tree |
 | **F2** | Combat debug readout — **Studio only** |
 | **Left Shift** | Toggle camera lock (on by default) |
 | **I** | Inventory |
 | **K** | Skills: your weapon's tree, and the points to spend in it |
-| **E** at an altar, anvil, gate or chest | Take up a class, upgrade your weapon, queue for the dungeon, open a chest |
+| **E** at an altar, anvil, gate, chest or mirror | Take up a class, upgrade your weapon, queue for the dungeon, open a chest, change how you look |
 | **1 / 2 / 3** | Swap weapon instantly — **Studio only**, for tuning |
 
 You start unequipped on the dais at the south end of the hub: walk up the hall
@@ -120,10 +120,57 @@ ships in the game), connect from Studio and press Play:
 rojo serve test.project.json
 ```
 
+## Your character
+
+Everyone wears the same body. A player's own Roblox avatar is replaced on spawn
+with the default blocky R15 build — no bundle, no clothing, no accessories, at
+fixed proportions — and what they choose is what goes *on* it: build, skin,
+face, hair and its colour, markings, garb and two garb colours. Nine rows,
+every one of them a list in
+[`src/shared/AppearanceDefs.luau`](src/shared/AppearanceDefs.luau).
+
+Change it at the **looking glass** in the hub's east aisle, opposite the class
+altars. Changes save as they are made.
+
+This is not only a look. Every stance, guard and attack tell in the game is
+authored against R15's proportions, and a catalogue bundle that puts the
+shoulders somewhere else makes a parry tell harder to read through no fault of
+the player trying to read it.
+
+> **One manual step.** The rig type is a *universe* setting, not something the
+> place file can carry, so Rojo cannot set it. In Studio: **File → Game
+> Settings → Avatar → Rig Type → R15**. Without it, players spawn as R6, and
+> `PlayerAnimation` skips R6 avatars entirely — no stances, no swings, no
+> rolls.
+
+Adding a hairstyle is a row in `AppearanceDefs.HAIR`. The editor is generated
+from `AppearanceDefs.CATEGORIES` and has no hardcoded choice in it, so nothing
+else has to change — and a test checks every category names a field the saved
+look actually has.
+
+## Classes
+
+A class *is* the weapon you carry ([`WeaponDefs`](src/shared/WeaponDefs.luau)),
+so there are seven of each:
+
+| Class | Weapon | Plays like |
+|---|---|---|
+| Tank | Sword & Shield | Wide parry frames; a parry buys the whole group a long punish window |
+| Assassin | Daggers | The tightest frames and the biggest riposte |
+| Healer | Staff | A parry heals you and everyone near you |
+| Berserker | Greataxe | The slowest, heaviest swings in the game, and a short sharp riposte |
+| Duelist | Rapier | The widest frames and the lowest melee damage to pay for them |
+| Ranger | Longbow | Shoots at 52 studs; the worst parry frames, on purpose |
+| Mage | Arcane Focus | The weakest combo, the widest critical, and a tree that buys ability power |
+
+Each has a full four-hit combo, a critical, a guard, a walking stance, a
+planted idle, a three-branch skill tree, and three abilities at the ends of
+those branches. Take one up at its altar in the hub's west aisle.
+
 ## Animations
 
 Every enemy (idle, walk, each attack, stagger, death) and every player combat move
-(a swing per weapon, the parry) is animated from keyframe data in
+(a swing per weapon, the parry, the planted idle, the four dodge rolls) is animated from keyframe data in
 [`src/shared/AnimationDefs.luau`](src/shared/AnimationDefs.luau). The game plays them
 as-is; nothing needs uploading.
 

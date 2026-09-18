@@ -16,8 +16,10 @@ local expect = JestGlobals.expect
 local it = JestGlobals.it
 
 -- Every body part a weapon piece may hang from: the R15 parts WeaponVisuals
--- knows how to find (with an R6 fallback).
-local ATTACHABLE_PARTS = { "RightHand", "LeftHand", "RightLowerArm", "LeftLowerArm" }
+-- knows how to find (with an R6 fallback). The torso is on the list for the
+-- things a weapon carries rather than holds — a quiver, a sheath — which do
+-- not belong on an arm.
+local ATTACHABLE_PARTS = { "RightHand", "LeftHand", "RightLowerArm", "LeftLowerArm", "UpperTorso", "LowerTorso" }
 
 -- Enum.Material and Enum.PartType names the models use. Pure modules can't
 -- read Enum, so the valid names are listed here; add to this list only after

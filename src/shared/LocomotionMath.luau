@@ -111,6 +111,87 @@ function LocomotionMath.twist(motion: Motion): Twist
 	return { hip = hip, shoulder = -hip * LocomotionMath.SHOULDER_RECOVERY }
 end
 
+--[[ Carriage ]]
+
+-- How fast a player's fighting stance breathes, given how fast they're moving.
+--
+-- The stance is a slow loop — breath, the arms lagging behind it, a sway — laid
+-- over Roblox's own walk and run. At a standstill that is exactly right. At a
+-- run it is not: the legs are going at a sprint and the chest above them is
+-- breathing as though the character were leaning on a wall, which reads as the
+-- top and bottom halves belonging to different people.
+--
+-- Enemies have done this since they were built (EnemyAnimation scales the walk
+-- cycle by real speed against the rig's own); this is players catching up.
+LocomotionMath.MIN_TEMPO = 1
+LocomotionMath.MAX_TEMPO = 2.1
+
+-- Measured against a fixed speed, not against the character's current
+-- `WalkSpeed`. Combat slows walking a long way — to 40% while attacking, 25%
+-- while stunned — and dividing by a speed that moves with the slowdown would
+-- have a stunned character crawling along and breathing as hard as a sprint,
+-- because they are still going "full speed" for what they are allowed. Full
+-- pace is full pace. Roblox's default walk speed, which is what a player has
+-- when nothing is slowing them.
+LocomotionMath.FULL_PACE = 16
+
+-- Standing still enough to plant the feet, and moving enough to pick them up
+-- again. Two thresholds rather than one, for the same reason the walk cycle's
+-- reversal has two: at a single boundary, a character drifting at exactly that
+-- speed swaps between a planted idle and a walking stance every frame.
+--
+-- The lower one is not zero. A character standing on a moving platform, or
+-- settling after a roll, has a speed that never quite reaches it.
+LocomotionMath.PLANT_BELOW = 0.6
+LocomotionMath.UNPLANT_ABOVE = 2.2
+
+function LocomotionMath.planted(speed: number, wasPlanted: boolean): boolean
+	if wasPlanted then
+		return speed < LocomotionMath.UNPLANT_ABOVE
+	end
+	return speed < LocomotionMath.PLANT_BELOW
+end
+
+-- `speed` is studs per second, horizontally. Clamped at both ends: a stance
+-- slower than its authored tempo reads as slow motion, and one much faster
+-- reads as panic.
+function LocomotionMath.stanceTempo(speed: number): number
+	local pace = math.max(speed, 0) / LocomotionMath.FULL_PACE
+	return math.clamp(
+		LocomotionMath.MIN_TEMPO + pace * (LocomotionMath.MAX_TEMPO - LocomotionMath.MIN_TEMPO),
+		LocomotionMath.MIN_TEMPO,
+		LocomotionMath.MAX_TEMPO
+	)
+end
+
+--[[ Rolling ]]
+
+-- Which of the four rolls a dodge press calls for. The roll that plays has to
+-- be the one the body is actually travelling along: a forward roll while
+-- backing away is the moonwalk again, in a single burst.
+export type RollDirection = "forward" | "back" | "left" | "right"
+
+-- The four quadrants, each centred on its axis: anything within 45 degrees of
+-- straight ahead rolls forward, and so on round. Sideways is decided before
+-- forward and back, because a roll that is mostly lateral reads far worse as a
+-- forward roll than the other way about — the body would tumble across the
+-- direction it is sliding.
+--
+-- Standing still rolls backwards, which is what the dodge already does when
+-- there is no movement to take a direction from: a step away from whatever is
+-- in front of you.
+function LocomotionMath.rollDirection(forward: number, right: number): RollDirection
+	if math.abs(forward) < LocomotionMath.MOVE_EPSILON and math.abs(right) < LocomotionMath.MOVE_EPSILON then
+		return "back"
+	end
+
+	if math.abs(right) > math.abs(forward) then
+		return if right > 0 then "right" else "left"
+	end
+
+	return if forward >= 0 then "forward" else "back"
+end
+
 -- Move `current` toward `goal` at TURN_RATE, so nothing snaps between frames.
 function LocomotionMath.approach(current: number, goal: number, deltaTime: number): number
 	local step = LocomotionMath.TURN_RATE * math.max(deltaTime, 0)

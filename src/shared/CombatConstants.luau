@@ -81,9 +81,17 @@ CombatConstants.ENEMY_FLINCH_IMMUNITY = 1.6
 -- Seconds of invulnerability from the dodge press.
 CombatConstants.DODGE_IFRAMES = 0.3
 CombatConstants.DODGE_COOLDOWN = 1.8
--- The dash itself, applied by the client to its own character.
-CombatConstants.DODGE_SPEED = 46
-CombatConstants.DODGE_DURATION = 0.2
+-- The travel itself, applied by the client to its own character.
+--
+-- Speed and duration are set against the roll animation rather than chosen
+-- for feel: the tumble runs from just after the press to a little past here,
+-- and a character that stops dead halfway through going over reads as the
+-- animation being played at it rather than as the character moving. The
+-- distance is what it always was — 46 for 0.2 seconds covered 9.2 studs, and
+-- so does this — and the invulnerability window is untouched, so what the
+-- dodge is worth has not changed.
+CombatConstants.DODGE_SPEED = 31
+CombatConstants.DODGE_DURATION = 0.3
 
 -- Extra recovery on a swing that hit nothing, and the combo dropping back to
 -- its first step.

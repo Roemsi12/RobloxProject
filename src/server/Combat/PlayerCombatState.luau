@@ -35,20 +35,49 @@ end
 
 -- "parry" is the block key going down (a parry attempt and a raised guard);
 -- "guard_end" is it coming up. "critical" is the heavy attack; "feint" cancels
--- a swing; "dodge" is the dash.
+-- a swing; "dodge" is the roll.
 export type CombatAction = "swing" | "critical" | "parry" | "guard_end" | "feint" | "dodge" | "ability"
+
+-- Which way a dodge rolls. Cosmetic: the client picks it, the server passes it
+-- on, and nothing is decided by it — so it is checked for being one of the
+-- four rather than trusted, and a press that claims anything else simply rolls
+-- backwards.
+export type RollDirection = "forward" | "back" | "left" | "right"
+
+local ROLL_DIRECTIONS: { [string]: boolean } = {
+	forward = true,
+	back = true,
+	left = true,
+	right = true,
+}
+
+function PlayerCombatState.rollDirection(claimed: unknown): RollDirection
+	if typeof(claimed) == "string" and ROLL_DIRECTIONS[claimed] then
+		return claimed :: RollDirection
+	end
+	return "back"
+end
 
 -- Tells every client a player has done something, so everyone can animate
 -- it — not just the player doing it. Called once the server has accepted the
 -- action, never on a rejected press. `windup` is how long a swing or critical
--- takes to land, and `step` which swing of the combo it is.
-function PlayerCombatState.announce(player: Player, action: CombatAction, weaponId: string, windup: number?, step: number?)
+-- takes to land, `step` which swing of the combo it is, and `direction` which
+-- way a dodge rolls.
+function PlayerCombatState.announce(
+	player: Player,
+	action: CombatAction,
+	weaponId: string,
+	windup: number?,
+	step: number?,
+	direction: RollDirection?
+)
 	Remotes.get("PlayerCombatAction"):FireAllClients({
 		userId = player.UserId,
 		action = action,
 		weaponId = weaponId,
 		windup = windup,
 		step = step,
+		direction = direction,
 	})
 end
 

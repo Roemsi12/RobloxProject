@@ -62,7 +62,44 @@ local ALTARS: { Altar } = {
 		tilt = 0,
 		height = 3.2,
 	},
+	{
+		weaponId = "Greataxe",
+		accent = Color3.fromRGB(255, 96, 32),
+		creed = "Meet it head on",
+		-- Upright rather than level: the haft is five studs and laid flat it
+		-- would reach past its own plinth into the aisle.
+		tilt = 0,
+		height = 3.4,
+	},
+	{
+		weaponId = "Rapier",
+		accent = Color3.fromRGB(230, 80, 90),
+		creed = "Wait for it",
+		tilt = 90,
+		height = 1.7,
+	},
+	{
+		weaponId = "Bow",
+		accent = Color3.fromRGB(150, 200, 110),
+		creed = "End it from here",
+		tilt = 0,
+		height = 3.0,
+	},
+	{
+		weaponId = "Focus",
+		accent = Color3.fromRGB(110, 255, 170),
+		creed = "Decide where it happens",
+		tilt = 90,
+		height = 2.2,
+	},
 }
+
+-- How many altars the hall has to make room for. The aisle is laid out from
+-- this rather than from a number written into LobbyBuilder, so adding a class
+-- is still only a row — here and in WeaponDefs.
+function ClassAltars.count(): number
+	return #ALTARS
+end
 
 local RUNE_SEGMENTS = 10
 local RUNE_RADIUS = 4.2

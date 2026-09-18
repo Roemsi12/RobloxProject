@@ -898,8 +898,8 @@ local function onGuardReleased(player: Player)
 	PlayerCombatState.announce(player, "guard_end", EquipService.getWeaponId(player) or "")
 end
 
--- The dash. Invulnerable from the press for DODGE_IFRAMES; cancels a swing
--- still early in its windup, and drops the guard.
+-- The dodge roll. Invulnerable from the press for DODGE_IFRAMES; cancels a
+-- swing still early in its windup, and drops the guard.
 local function onDodgeRequest(player: Player, payload: unknown)
 	local now = Workspace:GetServerTimeNow()
 	local attemptTime = validatedTimestamp(player, payload, now)
@@ -925,7 +925,10 @@ local function onDodgeRequest(player: Player, payload: unknown)
 	local dodgeCooldown = CombatConstants.DODGE_COOLDOWN * (1 - ProgressionService.modifiers(player).dodgeCooldown)
 	state.dodgeReadyAt = now + dodgeCooldown
 
-	PlayerCombatState.announce(player, "dodge", EquipService.getWeaponId(player) or "")
+	-- The direction is the client's to choose and nothing turns on it, so it
+	-- is passed on once it has been checked against the four that exist.
+	local direction = PlayerCombatState.rollDirection((payload :: any).direction)
+	PlayerCombatState.announce(player, "dodge", EquipService.getWeaponId(player) or "", nil, nil, direction)
 	PlayerCombatState.publish(player)
 end
 

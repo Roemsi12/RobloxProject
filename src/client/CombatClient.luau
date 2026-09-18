@@ -25,6 +25,7 @@ local Shared = ReplicatedStorage.Shared
 local AbilityDefs = require(Shared.AbilityDefs)
 local CombatConstants = require(Shared.CombatConstants)
 local Loadout = require(Shared.Loadout)
+local LocomotionMath = require(Shared.LocomotionMath)
 local SkillTreeDefs = require(Shared.SkillTreeDefs)
 local Remotes = require(Shared.Remotes)
 
@@ -279,8 +280,19 @@ local function dodge()
 		push(root, direction, CombatConstants.DODGE_SPEED, CombatConstants.DODGE_DURATION)
 	end
 
-	Remotes.get("DodgeRequest"):FireServer({ timestamp = t })
-	PlayerAnimation.playLocal("dodge", weaponId :: string)
+	-- Which roll to play: the same direction, measured against where the
+	-- character is facing rather than where the camera is, so a roll to the
+	-- left is a roll over the left shoulder whichever way the camera is
+	-- pointing. Read from the movement input, not from the push, because with
+	-- the camera locked the two are the same vector but only one of them is
+	-- known before the physics runs.
+	local facing = root.CFrame
+	local rollDirection = if direction
+		then LocomotionMath.rollDirection(facing.LookVector:Dot(direction), facing.RightVector:Dot(direction))
+		else "back"
+
+	Remotes.get("DodgeRequest"):FireServer({ timestamp = t, direction = rollDirection })
+	PlayerAnimation.playLocal("dodge", weaponId :: string, nil, nil, rollDirection)
 end
 
 -- An ability, on the key its branch of the skill tree landed on. Predicted

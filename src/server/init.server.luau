@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 
+local AppearanceService = require(script.AppearanceService)
 local CombatServer = require(script.Combat.CombatServer)
 local DataService = require(script.DataService)
 local DungeonService = require(script.Dungeon.DungeonService)
@@ -15,6 +16,7 @@ local ChestService = require(script.Dungeon.ChestService)
 local BlacksmithService = require(script.Economy.BlacksmithService)
 local ClassAltars = require(script.Lobby.ClassAltars)
 local LobbyService = require(script.Lobby.LobbyService)
+local LookingGlass = require(script.Lobby.LookingGlass)
 local ArenaService = require(script.PvP.ArenaService)
 local ProgressionService = require(script.Progression.ProgressionService)
 local SpawnService = require(script.SpawnService)
@@ -32,6 +34,10 @@ Remotes.init()
 -- Before any profile loads, so a saved weapon is drawn in hand from the start.
 WeaponVisuals.start()
 
+-- Likewise: a character that appears before this is wearing whatever avatar
+-- its player arrived in, which is the whole thing this replaces.
+AppearanceService.start()
+
 -- Combat has to be running before the dungeon spawns enemies into it.
 CombatServer.start()
 
@@ -45,9 +51,10 @@ ChestService.start()
 -- frame it stands on from it: the hall owns where things are, the stations own
 -- what they do. The gates' colours come from QueueService so the portal in the
 -- wall and the prompt in front of it agree on which gate is which.
-local lobby = LobbyService.start(CFrame.new(), QueueService.gateColors())
+local lobby = LobbyService.start(CFrame.new(), QueueService.gateColors(), ClassAltars.count())
 
 ClassAltars.start(lobby.altarAnchors)
+LookingGlass.start(lobby.mirrorAnchor)
 BlacksmithService.start(lobby.forgeAnchor)
 ArenaService.start(lobby.centre, lobby.duelAnchor)
 

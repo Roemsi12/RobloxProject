@@ -93,6 +93,10 @@ src/server/            -> ServerScriptService.Server
                          -- final save on leave and on shutdown
   SpawnService.luau      -- when characters exist: first spawn only once a
                          -- profile has loaded, hub-dais placement, respawn
+  AppearanceService.luau -- the one body everyone wears: applies a
+                         -- HumanoidDescription that strips bundles, clothing
+                         -- and accessories, then welds the player's chosen
+                         -- hair, face, markings and garb over it
   EquipService.luau      -- the only owner of equipped weapon + upgrade levels;
                          -- onChanged tells listeners when either changes
   InventoryService.luau  -- the only owner of inventory
@@ -115,7 +119,9 @@ src/server/            -> ServerScriptService.Server
                          -- Returns the anchors each station stands on
     LobbyService.luau    -- owns the hub: builds it once, answers isInside,
                          -- publishes its bounds as model attributes
-    ClassAltars.luau     -- the three class altars (ProximityPrompt), each
+    LookingGlass.luau    -- the mirror in the east aisle; its prompt opens
+                         -- the character editor on that player's client
+    ClassAltars.luau     -- the seven class altars (ProximityPrompt), each
                          -- showing its class's weapon. One weapon at a time:
                          -- taking one replaces the one you carry, in the hub
                          -- or not at all
@@ -174,7 +180,7 @@ src/server/            -> ServerScriptService.Server
 src/client/            -> StarterPlayer.StarterPlayerScripts.Client
   init.client.luau       -- bootstrap
   CombatClient.luau      -- combat input (attack, critical, feint, block, dodge),
-                         -- local prediction, the dash and lunge, movement
+                         -- local prediction, the roll and lunge, movement
                          -- slowdowns, and Studio-only 1/2/3 weapon swaps
   CameraLock.luau        -- toggleable shift-lock camera (Left Shift): eased
                          -- shoulder offset that pulls in at walls, a reticle,
@@ -184,9 +190,10 @@ src/client/            -> StarterPlayer.StarterPlayerScripts.Client
                          -- version via Animator; stances layer over avatars
   EnemyAnimation.luau    -- picks each enemy's animation from server events
   PlayerAnimation.luau   -- player stances, combo swings, criticals, guard,
-                         -- feint, dodge, flinch and guard break
+                         -- feint, dodge roll, flinch and guard break
   TelegraphVFX.luau      -- red flash and danger zone for unparryable attacks,
-                         -- stagger and death tints. Nothing for parryable ones
+                         -- a weapon glint for parryable ones, stagger and
+                         -- death tints
   WorldFeedback.luau     -- enemy health bars, damage numbers, hit and
                          -- parry sparks, shockwaves, death bursts, heal motes
   CombatFeel.luau        -- the one place deciding how hard each moment hits:
@@ -274,7 +281,10 @@ All payloads are a single table.
 | `GuardReleased` | Client → Server | *(none)* | Parry key released: the guard comes down |
 | `CriticalRequest` | Client → Server | *(none)* | Heavy attack. The server checks the cooldown |
 | `FeintRequest` | Client → Server | *(none)* | Cancel the swing in progress, if still early enough |
-| `DodgeRequest` | Client → Server | `{ timestamp }` | Dash. Invulnerability counts from `timestamp`, checked like a parry's |
+| `DodgeRequest` | Client → Server | `{ timestamp, direction? }` | Dodge roll. Invulnerability counts from `timestamp`, checked like a parry's. `direction` is cosmetic — which of the four rolls to show — so it is checked against the four that exist and otherwise ignored |
+| `SetAppearance` | Client → Server | `{ appearance }` | A look chosen in the character editor. Every field is sanitised against `AppearanceDefs` before it is stored, so the worst a lying client achieves is a look already in the menu |
+| `AppearanceChanged` | Server → Client | `{ appearance }` | The player's look as the server holds it, on profile load and after every edit |
+| `OpenAppearanceEditor` | Server → Client | `{ appearance }` | Sent by the looking glass's prompt. The client is *told* to open the editor and never asks, so the one screen that writes to a saved profile cannot be opened from inside a dungeon |
 | `CombatStateChanged` | Server → Client | `{ posture, postureUpdatedAt, postureDamagedAt, maxPosture, postureRegen, stunnedUntil, dodgeReadyAt, abilityReadyAt, criticalReadyAt, riposteUntil }` | The player's own posture, stun and cooldowns, in server time, for the HUD and local prediction. The client drains posture forward with `PostureMath` between sends. `maxPosture` and `postureRegen` are sent rather than read from `CombatConstants`, because the skill tree can raise both |
 | `AttackRequest` | Client → Server | *(none)* | Player swings. Carries no timestamp — a swing isn't reactive, so the server resolves it on its own clock |
 | `EquipWeapon` | Client → Server | `{ weaponId }` | **Studio only** — the 1/2/3 debug swap. Ignored by a live server; weapon stands are the real equip path |
@@ -285,7 +295,7 @@ All payloads are a single table.
 | `ParryResult` | Server → Client | `{ verdict, success, deltaMs, riposteUntil, enemyId? }` | Sent only for a successful parry, when the hit it caught lands. `deltaMs` is the press's signed distance from impact. `enemyId` is what was parried (the attacker's name in a duel) |
 | `AttackResult` | Server → Client | `{ hit, reason, damage, riposte, enemyId? }` | Swing outcome. `reason` is from the attack-result registry below |
 | `HealBurst` | Server → Client | `{ amount, healerName }` | Fired to each player actually healed by a parry-triggered burst heal, or by the shrine (`healerName` `Shrine`) |
-| `PlayerCombatAction` | Server → Client (all) | `{ userId, action, weaponId, windup?, step? }` | A player's move, so every client can animate it. `action` is `swing` \| `critical` \| `parry` (block key down) \| `guard_end` \| `feint` \| `dodge`; `windup` is how long a swing or critical takes to land and `step` which combo swing it is. Clients ignore their own, already animated on input |
+| `PlayerCombatAction` | Server → Client (all) | `{ userId, action, weaponId, windup?, step?, direction? }` | A player's move, so every client can animate it. `action` is `swing` \| `critical` \| `parry` (block key down) \| `guard_end` \| `feint` \| `dodge`; `windup` is how long a swing or critical takes to land, `step` which combo swing it is, and `direction` which way a dodge rolls. Clients ignore their own, already animated on input |
 | `ProfileLoaded` | Server → Client | `{ persistent }` | The player's progress is ready. `persistent` is false only in a Studio session running without DataStore access |
 | `WeaponEquipped` | Server → Client | `{ weaponId, classTag, upgradeLevel }` | Fired on equip, on load, and whenever the equipped weapon's upgrade level changes |
 | `ChestOpened` | Server → Client | `{ chestId, coins, coinsTaken, rows, inventoryFull? }` | Sent to whoever opened a chest: everything in it, as display info from `LootTables` rather than stored `ItemInstance`s. Each row carries its `slot`, which is what a take names. `inventoryFull` means the last take was refused |
@@ -328,7 +338,10 @@ them for something different.
 | `Tank` | Sword + Shield | built | Widest parry window; its payoff is the longest stagger, i.e. the longest double-damage window for the group. A distinct shield-bash counter isn't built |
 | `Assassin` | Daggers | built | Tightest window, highest payoff — currently the riposte. Backstab is unblocked (enemies now have a facing) but not built |
 | `Healer` | Staff / Mace | built | Parries trigger a burst heal that reaches allies |
-| `Mage` | Staff / Wand | not built | Exception — magic replaces basic combat, not just enhances it. Needs its own combat model, deliberately not a `WeaponDefs` row yet |
+| `Mage` | Arcane Focus | built | **Partly.** The Focus is the "magic enhances combat" version: the same five inputs, the weakest combo in the game, a critical that hits all round, and a tree that buys ability power where every other tree buys weapon damage. The exception DESIGN.md describes — magic *replacing* basic combat — is still not built |
+| `Berserker` | Greataxe | built | The slowest and heaviest weapon; a short, sharp riposte rather than the Tank's control. The only tree with no parry-window node in it |
+| `Duelist` | Rapier | built | The widest parry frames in the game and the lowest melee damage to pay for them. Almost everything it is worth comes out of the riposte |
+| `Ranger` | Longbow | built | Ranged: a "swing" is a shot resolved at 52 studs through a 22-degree arc. The worst parry frames in the game, on purpose. **Hitscan** — the shot resolves where it is taken rather than travelling; see DESIGN.md |
 | *(add new rows here as they're built)* | | | |
 
 ## Naming registry — Weapons
@@ -368,7 +381,9 @@ it immune to flinching for `ENEMY_FLINCH_IMMUNITY`.
 **Dodging and feinting.** A dodge makes the player invulnerable for
 `DODGE_IFRAMES` from its (timestamped) press, on `DODGE_COOLDOWN`. A swing can be
 feinted, or dodge-cancelled, only in the first `CANCEL_WINDOW_FRACTION` of its
-windup.
+windup. The dodge shows as a roll in the direction of travel; `DODGE_SPEED` and
+`DODGE_DURATION` are set so the travel lasts as long as the tumble rather than
+stopping the character dead halfway over, at the same total distance.
 | *(add new rows here as they're built)* | | | | |
 
 **Class-derivation rule.** A player's class is never stored. It is always read
@@ -483,15 +498,27 @@ joints under it, welded decorations, and an `AnimationController` with an
 | `attack_<attackId>` | the enemy that owns the attack | `EnemyTelegraphStart`, strike timed to `impactTime` |
 | `swing_<weaponId>_<step>` | `R15Player` | the player's combo swing `step` with that weapon; full body, with footwork |
 | `critical_<weaponId>` | `R15Player` | that weapon's heavy attack; full body |
-| `stance_<weaponId>` | `R15Player` | looping base while that weapon is carried; upper body, over Roblox's walk and run |
+| `stance_<weaponId>` | `R15Player` | looping base while that weapon is carried and **moving**; upper body, over Roblox's walk and run. Its tempo follows how fast the character is actually moving (`LocomotionMath.stanceTempo`), measured against a fixed full pace rather than the current `WalkSpeed`, which combat slows |
+| `idle_<weaponId>` | `R15Player` | looping base while that weapon is carried and **standing still**. Full body: it is the one held player animation allowed the hips and legs, because there is no walk cycle underneath it to protect. `LocomotionMath.planted` picks between this and the stance, with two thresholds so it cannot flicker at the boundary; `RigAnimation` cross-fades the two |
 | `guard_<weaponId>` | `R15Player` | the block key goes down: a snap into that weapon's guard, held until release; upper body |
-| `dodge` | `R15Player` | the dash |
+| `roll_<direction>` | `R15Player` | the dodge, as a roll the way the body is travelling: `forward`, `back`, `left` or `right` (`LocomotionMath.rollDirection`). The only player animation that turns the whole body |
 | `guard_break` | `R15Player` | posture filled and the guard broke |
 
 **Player overlay rule.** Stances and guards never pose `LowerTorso` or the
 legs, so Roblox's own walk keeps playing underneath (a test enforces it).
-Strikes, criticals and dodges may: they're short, and slow walking right down
+Strikes, criticals and rolls may: they're short, and slow walking right down
 while they play.
+
+**Rolls turn the whole body, and the sampler does not know that.** A pose is
+interpolated as six plain numbers, so a roll that reaches 285 degrees and then
+meets a keyframe holding 0 unwinds — it spins backwards through everything it
+just covered, in the frames it had left to stand up in. Every keyframe from the
+tumble onward carries the finished turn (360 is the identity rotation, so a rig
+holding it stands straight), and a test samples each roll to check the turn only
+ever goes one way. The hips are posed against the floor too: they ride up as the
+shoulders go down and drop as the body comes over, on a curve that differs
+between the forward and backward rolls because the head passes the bottom of its
+arc at opposite moments. The workbench solves all of it against the floor.
 
 **Player joints.** Player avatars now spawn with `AnimationConstraint` joints
 (Roblox's Avatar Joint Upgrade) rather than `Motor6D`; enemy rigs are still

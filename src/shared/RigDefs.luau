@@ -523,6 +523,40 @@ function RigDefs.partStyle(style: RigStyle, partName: string): PartStyle
 	return style.parts[partName] or style.default
 end
 
+-- The parts that do the hitting: everything hanging off a hand, or the hands
+-- themselves when a rig fights with nothing in them.
+--
+-- "The weapon" is not a field on a rig, and shouldn't be — a rig is a
+-- silhouette built out of decorations, and the sword is simply the decorations
+-- that hang off the hand. Reading it back out that way means a rig that gets a
+-- new weapon gets the right parts for free, and one that fights with its claws
+-- (Shambler) or its hands (Spitter) still answers with something to work with
+-- rather than nothing at all.
+--
+-- Ordered, so two clients showing the same enemy walk the same parts.
+RigDefs.HANDS = { "RightHand", "LeftHand" }
+
+function RigDefs.weaponParts(rigId: string): { string }
+	local style = RigDefs.STYLES[rigId]
+	if not style then
+		return {}
+	end
+
+	local held = {}
+	for _, decoration in style.decorations do
+		if table.find(RigDefs.HANDS, decoration.attachTo) then
+			table.insert(held, decoration.name)
+		end
+	end
+
+	if #held > 0 then
+		table.sort(held)
+		return held
+	end
+
+	return table.clone(RigDefs.HANDS)
+end
+
 -- The part names of the skeleton, in build order.
 function RigDefs.partNames(): { string }
 	local names = {}
