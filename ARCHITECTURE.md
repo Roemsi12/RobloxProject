@@ -216,6 +216,13 @@ lune/                  -> not mapped by Rojo; Lune scripts run from the repo roo
                          -- pure modules sandboxed away from the Roblox API
   animation-workbench.luau -- `lune run animation-workbench`: every rig with its
                          -- rough animations as KeyframeSequences, self-checked
+  tell-workbench.luau    -- `lune run tell-workbench`: the four tells on rigs,
+                         -- as animations to pose by hand in Studio.s
+                         -- Animation Editor. `--read` prints the snippet that
+                         -- reads your work back as Luau. The four tells are
+                         -- the whole readable surface of every enemy attack,
+                         -- and degrees in a text file is a bad way to pose a
+                         -- body
   read-strips.luau       -- `lune run read-strips`: the four tells side by side
                          -- at decision time, or one tell through its run-up.
                          -- Emits a paste-ready Studio script, because whether
