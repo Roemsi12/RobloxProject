@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AnimationDefs = require(Shared.AnimationDefs)
+local AttackChoreography = require(Shared.AttackChoreography)
 local AnimationIds = require(Shared.AnimationIds)
 local EnemyDefs = require(Shared.EnemyDefs)
 local KeyframeMath = require(Shared.KeyframeMath)
@@ -199,12 +200,19 @@ describe("Animation coverage", function()
 		end
 	end)
 
-	-- An attack with no animation would telegraph with a rig standing still.
-	it("animates every enemy attack", function()
+	-- Enemy attacks are no longer authored. Every one is built at the moment it
+	-- is thrown, from its archetype and a seed (AttackChoreography), and the
+	-- client passes the generated def straight to the rig — the authored clip
+	-- is looked up by name and then overridden, so it never plays.
+	--
+	-- What used to be checked here was that a dead clip existed. What matters
+	-- now is that the attack names an archetype the generator knows, which is
+	-- the thing that would actually break it.
+	it("gives every enemy attack an archetype the generator can build", function()
 		for enemyId, def in EnemyDefs do
-			for attackId in def.attacks do
-				local name = AnimationDefs.attack(attackId)
-				check(`{enemyId}/{name}`, AnimationDefs.get(enemyId, name) ~= nil)
+			for attackId, attack in def.attacks do
+				local known = table.find(AttackChoreography.ARCHETYPES, attack.archetype) ~= nil
+				check(`{enemyId}/{attackId} archetype "{attack.archetype}"`, known)
 			end
 		end
 	end)

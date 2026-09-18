@@ -59,14 +59,44 @@ local READ_SNIPPET = [[
 -- Reads the four tells back out of the workbench, as a Luau literal to paste
 -- into ARCHETYPE_DEFS in src/shared/AttackChoreography.luau.
 -- Paste this into Studio's command bar after saving your poses.
+local ServerStorage = game:GetService("ServerStorage")
+
 local bench = workspace:FindFirstChild("TellWorkbench")
 assert(bench, "drag TellWorkbench.rbxm into the place first")
 
+-- Studio's Animation Clip Editor moved saved clips from an AnimSaves object on
+-- the rig into ServerStorage, and offers to migrate the old ones when a rig
+-- carrying them is opened. Either answer is fine: this looks in both, and
+-- matches a migrated clip by the rig's name, since the folder layout over
+-- there has changed more than once.
+local function findClip(rig)
+	local saves = rig:FindFirstChild("AnimSaves")
+	local legacy = saves and saves:FindFirstChildOfClass("KeyframeSequence")
+	if legacy then
+		return legacy
+	end
+
+	for _, found in ServerStorage:GetDescendants() do
+		if found.Name == rig.Name and (found:IsA("KeyframeSequence") or found:IsA("CurveAnimation")) then
+			return found
+		end
+	end
+	return nil
+end
+
 local out = {}
 for _, rig in bench:GetChildren() do
-	local saves = rig:FindFirstChild("AnimSaves")
-	local sequence = saves and saves:FindFirstChildOfClass("KeyframeSequence")
+	local sequence = findClip(rig)
 	if not sequence then continue end
+
+	-- The newer editor can save a CurveAnimation, which stores channels rather
+	-- than a tree of poses and cannot be walked the way below. Say so instead
+	-- of quietly reading nothing out of it.
+	if sequence:IsA("CurveAnimation") then
+		warn(rig.Name .. ": saved as a CurveAnimation. In the Animation Editor's"
+			.. " ... menu, Export as a KeyframeSequence, then run this again.")
+		continue
+	end
 
 	-- The last keyframe is the tell; the first is rest.
 	local last
@@ -229,6 +259,9 @@ notes.Value = table.concat({
 	"  * Plant is the one that cannot be parried. It has to stay the most",
 	"    different of the four -- mistaking it for a parryable tell is the",
 	"    worst mistake the game can ask for.",
+	"",
+	"Studio may offer to migrate the saved clips into ServerStorage. Say yes;",
+	"the read-back looks in both places.",
 	"",
 	"When you are happy: `lune run tell-workbench --read` prints a snippet.",
 	"Paste it into the command bar and it gives you the poses back as Luau,",

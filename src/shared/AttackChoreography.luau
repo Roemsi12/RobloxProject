@@ -69,8 +69,28 @@ type ArchetypeDef = {
 	-- Which archetypes flow naturally out of this one, because the body ends
 	-- up already loaded for them. This is what makes a low sweep run into a
 	-- rising cut without a trip back through neutral.
+	--
+	-- Plant is a destination from all three swings, which it did not used to
+	-- be. Measuring carry-pose-to-tell distance across the four says Plant is
+	-- the *closest* follow from every one of them — a swing's follow-through
+	-- genuinely leaves the body low and spread, which is what a Plant tell is.
+	-- Forbidding it was excluding the one transition the body most wants to
+	-- make, and it is what lets a chain end on something that has to be dodged.
 	follows: { Archetype },
 }
+
+-- A per-enemy postural bias, added to whatever the archetype poses.
+--
+-- The four tells are a shared *grammar* — which answer a player has to give.
+-- Shared grammar is what makes reading transfer to an enemy you have never
+-- fought, and it is also what made every enemy look the same. An accent is the
+-- difference: a Shambler hunches and leads with its head, a skeleton stands
+-- square and economical, and they wear the identical WindBack differently.
+--
+-- Applied only to joints the archetype does not identify itself by, so it
+-- cannot make two tells converge however strong it is. Readability is
+-- preserved by construction, not by taste.
+export type Accent = { [string]: KeyframeMath.PoseSpec }
 
 --[[ The four ]]
 
@@ -79,12 +99,13 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 	-- flat, left to right. The bread-and-butter swing.
 	WindBack = {
 		tell = {
-			UpperTorso = { ry = 38, rx = 4 },
-			Head = { ry = -14 },
-			RightUpperArm = { rx = 44, ry = 30, rz = 36 },
-			RightLowerArm = { rx = 70 },
-			LeftUpperArm = { rz = -18 },
-			LeftLowerArm = { rx = 22 },
+			UpperTorso = { rx = 4.0, ry = 38.0 },
+			Head = { ry = -14.0 },
+			RightUpperArm = { rx = 52.6, ry = 34.9, rz = -1.6 },
+			RightLowerArm = { rx = 70.0, rz = -9.2 },
+			RightHand = { rx = -21.3, ry = 31.2, rz = -2.7 },
+			LeftUpperArm = { rx = 15.2, ry = -41.7, rz = -4.1 },
+			LeftLowerArm = { rx = 33.5 },
 		},
 		hit = {
 			UpperTorso = { ry = -44, rx = -8 },
@@ -96,7 +117,7 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 		},
 		diagnostic = { "UpperTorso", "RightUpperArm" },
 		parryable = true,
-		follows = { "Raise", "Coil" },
+		follows = { "Raise", "Coil", "Plant" },
 	},
 
 	-- Both arms up, weight rising, everything above the waist stacked over the
@@ -104,12 +125,17 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 	Raise = {
 		tell = {
 			LowerTorso = { py = 0.16 },
-			UpperTorso = { rx = 16 },
-			Head = { rx = 10 },
-			RightUpperArm = { rx = 168, rz = 12 },
-			LeftUpperArm = { rx = 168, rz = -12 },
-			RightLowerArm = { rx = 24 },
-			LeftLowerArm = { rx = 24 },
+			UpperTorso = { rx = 16.0 },
+			Head = { rx = 10.0 },
+			RightUpperArm = { rx = 159.4, ry = -1.8, rz = 11.9 },
+			LeftUpperArm = { rx = 157.3, ry = 5.2, rz = -25.8 },
+			RightLowerArm = { rx = 27.4, ry = 10.5, rz = -0.6 },
+			LeftLowerArm = { rx = 36.5 },
+			RightHand = { ry = 19.7 },
+			RightUpperLeg = { rx = 11.8, ry = -13.3, rz = 2.7 },
+			LeftUpperLeg = { rx = 8.9, ry = 18.4, rz = -3.4 },
+			RightLowerLeg = { rx = -13.6, ry = -0.4, rz = -0.1 },
+			LeftLowerLeg = { rx = -12.4, ry = 0.4 },
 		},
 		hit = {
 			LowerTorso = { py = -0.12 },
@@ -122,7 +148,7 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 		},
 		diagnostic = { "RightUpperArm", "LeftUpperArm" },
 		parryable = true,
-		follows = { "WindBack", "Coil" },
+		follows = { "WindBack", "Coil", "Plant" },
 	},
 
 	-- Weight dropped back, elbow folded hard at the hip, shoulders squared to
@@ -135,12 +161,17 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 	-- made structural rather than left to chance.
 	Coil = {
 		tell = {
-			LowerTorso = { py = -0.14, ry = -16 },
-			UpperTorso = { ry = -22, rx = 14 },
-			Head = { ry = 8 },
-			RightUpperArm = { rx = -58, rz = 8 },
-			RightLowerArm = { rx = 86 },
-			LeftUpperArm = { rz = -14, rx = 24 },
+			LowerTorso = { ry = -16.0, py = -0.14 },
+			UpperTorso = { rx = 14.0, ry = -22.0 },
+			Head = { rx = -9.7, ry = 7.9, rz = 1.3 },
+			RightUpperArm = { rx = -59.4, ry = -16.0, rz = 50.7 },
+			RightLowerArm = { rx = 86.0, ry = -0.1, rz = 0.6 },
+			RightHand = { rx = 50.2, ry = -73.2, rz = 64.2 },
+			LeftUpperArm = { rx = 18.4, ry = 2.2, rz = -10.1 },
+			LeftLowerArm = { rx = 35.5, ry = 15.9, rz = 25.7 },
+			LeftHand = { rx = 0.1, ry = 0.7, rz = 30.2 },
+			RightUpperLeg = { rx = -10.4, ry = -44.5, rz = -7.3 },
+			RightLowerLeg = { rx = 6.5, ry = 11.8 },
 		},
 		hit = {
 			LowerTorso = { ry = 10, pz = -0.34, py = -0.04 },
@@ -152,7 +183,7 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 		},
 		diagnostic = { "UpperTorso", "RightUpperArm", "RightLowerArm" },
 		parryable = true,
-		follows = { "WindBack", "Raise" },
+		follows = { "WindBack", "Raise", "Plant" },
 	},
 
 	-- Feet set wide, hips sunk, both arms spread straight out to the sides.
@@ -165,15 +196,20 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 	-- most expensive mistake the game can ask a player to make.
 	Plant = {
 		tell = {
-			LowerTorso = { py = -0.32, rx = 16 },
-			UpperTorso = { rx = -10 },
-			Head = { rx = -8 },
-			RightUpperArm = { rx = 4, rz = 86 },
-			LeftUpperArm = { rx = 4, rz = -86 },
-			RightLowerArm = { rx = 8 },
-			LeftLowerArm = { rx = 8 },
-			RightUpperLeg = { rz = 38, rx = -20 },
-			LeftUpperLeg = { rz = -38, rx = -20 },
+			LowerTorso = { rx = 16.0, py = -0.32 },
+			UpperTorso = { rx = -10.0 },
+			Head = { rx = -8.0 },
+			RightUpperArm = { rx = 43.4, ry = -18.8, rz = 78.6 },
+			LeftUpperArm = { rx = 57.3, ry = 33.2, rz = -77.1 },
+			RightLowerArm = { rx = 8.0, rz = -13.0 },
+			LeftLowerArm = { rx = 8.0, rz = 10.0 },
+			RightHand = { rx = -31.5, ry = -18.7, rz = -1.3 },
+			RightUpperLeg = { rx = -20.0, rz = 20.5 },
+			LeftUpperLeg = { rx = -20.0, rz = -23.1 },
+			RightLowerLeg = { rz = -8.1 },
+			LeftLowerLeg = { rz = 12.2 },
+			RightFoot = { rz = -10.8 },
+			LeftFoot = { rz = 9.8 },
 		},
 		hit = {
 			LowerTorso = { py = -0.52 },
@@ -203,6 +239,8 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 --
 -- Every intermediate stays under 2^48, so it is exact in a double and the two
 -- sides cannot drift.
+local COMPONENTS = { "rx", "ry", "rz", "px", "py", "pz" }
+
 local HASH_MOD = 2147483647
 local HASH_MULTIPLIER = 48271
 
@@ -253,7 +291,7 @@ end
 -- untouched, which is the whole contract: a WindBack's torso and sword arm are
 -- the same numbers on every seed, so the tell is learnable even though the
 -- attack is not repeatable.
-local function varied(def: ArchetypeDef, poses: Poses, seed: number, isHit: boolean): Poses
+local function varied(def: ArchetypeDef, poses: Poses, seed: number, isHit: boolean, accent: Accent?): Poses
 	local out = copyPoses(poses)
 
 	local amplitude = 1 + signedVary(seed, CHANNEL_AMPLITUDE) * AMPLITUDE_RANGE
@@ -301,6 +339,25 @@ local function varied(def: ArchetypeDef, poses: Poses, seed: number, isHit: bool
 		out[leg] = pose
 	end
 
+	-- The enemy's own carriage, added last and skipped on every diagnostic
+	-- joint. Last so it is not scaled by the seed's amplitude: an accent is who
+	-- this fighter is, not something that varies swing to swing.
+	if accent then
+		for part, bias in accent do
+			if isDiagnostic(def, part) then
+				continue
+			end
+			local pose = out[part] or {}
+			for _, axis in COMPONENTS do
+				local add = (bias :: any)[axis]
+				if add then
+					(pose :: any)[axis] = ((pose :: any)[axis] or 0) + add
+				end
+			end
+			out[part] = pose
+		end
+	end
+
 	return out
 end
 
@@ -315,6 +372,9 @@ export type AttackSpec = {
 	recovery: number,
 	-- Picks this attack out of every attack this archetype could have been.
 	seed: number,
+	-- The carriage of the enemy throwing it. Never touches diagnostic joints,
+	-- so it cannot change which answer the tell asks for.
+	accent: Accent?,
 }
 
 -- How long the rig takes to snap into the tell from rest. The tell is only
@@ -358,16 +418,16 @@ function AttackChoreography.generate(spec: AttackSpec): KeyframeMath.AnimationDe
 		length,
 		impact,
 		windupAt,
-		varied(def, def.tell, spec.seed, false),
-		varied(def, def.hit, spec.seed, true)
+		varied(def, def.tell, spec.seed, false, spec.accent),
+		varied(def, def.hit, spec.seed, true, spec.accent)
 	)
 end
 
 -- The tell on its own, for anything that needs to compare silhouettes rather
 -- than play them — the readability tests, and the workbench's read strips.
-function AttackChoreography.tellPose(archetype: Archetype, seed: number): Poses
+function AttackChoreography.tellPose(archetype: Archetype, seed: number, accent: Accent?): Poses
 	local def = AttackChoreography.get(archetype)
-	return varied(def, def.tell, seed, false)
+	return varied(def, def.tell, seed, false, accent)
 end
 
 -- How far apart two poses are, as the mean absolute difference in degrees

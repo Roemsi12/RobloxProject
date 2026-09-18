@@ -106,6 +106,18 @@ export type EnemyDef = {
 	-- that is yours rather than your weapon's, and a party shouldn't be
 	-- racing each other for last hits (ProgressionDefs).
 	xpReward: number,
+	-- How this enemy carries itself, added to every tell it throws
+	-- (AttackChoreography.Accent). Never touches the joints an archetype is
+	-- identified by, so it changes who is swinging without changing which
+	-- answer the swing asks for.
+	--
+	-- This is what stops a skeleton and a zombie reading as the same fighter
+	-- wearing different skins: the four tells are a shared grammar on purpose,
+	-- and without an accent a shared grammar is all there is.
+	--
+	-- A plain pose table rather than the exported type, so this module keeps
+	-- requiring nothing. The spec checks it.
+	accent: { [string]: { [string]: number } }?,
 	attacks: { [string]: AttackDef },
 }
 
@@ -131,6 +143,22 @@ local EnemyDefs: { [string]: EnemyDef } = {
 				damage = 15,
 				range = 10,
 				arcDegrees = 120,
+				minRange = 0,
+				maxRange = 10,
+				weight = 3,
+				cooldown = 0,
+			},
+			-- A second parryable one, so the dummy can demonstrate a chain as
+			-- well as a single swing. The slowest pair in the game: this is
+			-- where the language is meant to be learned.
+			Swipe = {
+				archetype = "WindBack",
+				leadTime = 1.14,
+				telegraphDuration = 1.26,
+				parryable = true,
+				damage = 12,
+				range = 10,
+				arcDegrees = 130,
 				minRange = 0,
 				maxRange = 10,
 				weight = 3,
@@ -168,7 +196,33 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		coinReward = 25,
 		crystalReward = 1,
 		xpReward = 45,
+		-- Upright, square, economical. A trained swordsman spends no motion it
+		-- does not need, so its accent is the smallest in the game -- and that
+		-- restraint is itself the read, against the Shambler next to it.
+		accent = {
+			Head = { rx = -6 },
+			LowerTorso = { rx = -4 },
+			RightUpperLeg = { rx = 4, rz = -3 },
+			LeftUpperLeg = { rx = 4, rz = 3 },
+		},
 		attacks = {
+			-- Leads with a thrust. A disciplined swordsman squaring up and
+			-- driving forward is a different silhouette from the Shambler's
+			-- wide swipe, which is the point: the opener alone should say
+			-- which enemy you are fighting.
+			Thrust = {
+				archetype = "Coil",
+				leadTime = 0.48,
+				telegraphDuration = 0.60,
+				parryable = true,
+				damage = 14,
+				range = 9,
+				arcDegrees = 60,
+				minRange = 0,
+				maxRange = 9,
+				weight = 4,
+				cooldown = 0,
+			},
 			Slash = {
 				archetype = "WindBack",
 				leadTime = 0.42,
@@ -181,6 +235,21 @@ local EnemyDefs: { [string]: EnemyDef } = {
 				maxRange = 8,
 				weight = 3,
 				cooldown = 0,
+			},
+			-- The heavy one in the rotation. Slowest of its parryable three,
+			-- and still inside the band that keeps this enemy on one rhythm.
+			Overhead = {
+				archetype = "Raise",
+				leadTime = 0.56,
+				telegraphDuration = 0.68,
+				parryable = true,
+				damage = 18,
+				range = 8,
+				arcDegrees = 90,
+				minRange = 0,
+				maxRange = 8,
+				weight = 2,
+				cooldown = 2.5,
 			},
 			GroundSlam = {
 				hyperArmor = true,
@@ -212,11 +281,26 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		coinReward = 15,
 		crystalReward = 0,
 		xpReward = 20,
+		-- Hunched, head thrown forward, knees never straight. Everything it does
+		-- arrives from lower down and further out than a skeleton doing the same
+		-- thing, which is the whole point of an accent.
+		accent = {
+			-- Lopsided on purpose. The Spitter also carries itself low, so a
+			-- symmetric hunch made the two read as the same animal at
+			-- different sizes; this one drags a side, and that asymmetry is
+			-- what tells them apart at a glance.
+			Head = { rx = 16, ry = -14 },
+			LowerTorso = { rx = 10, ry = 9, py = -0.12 },
+			RightUpperLeg = { rx = -16, rz = 11 },
+			LeftUpperLeg = { rx = -5, rz = -3 },
+			RightLowerLeg = { rx = 24 },
+			LeftLowerLeg = { rx = 8 },
+		},
 		attacks = {
 			Claw = {
 				archetype = "WindBack",
-				leadTime = 0.68,
-				telegraphDuration = 0.80,
+				leadTime = 0.66,
+				telegraphDuration = 0.78,
 				parryable = true,
 				damage = 10,
 				range = 9,
@@ -226,6 +310,39 @@ local EnemyDefs: { [string]: EnemyDef } = {
 				weight = 4,
 				cooldown = 0,
 			},
+			-- The other half of the flurry, and what makes this thing read as
+			-- relentless rather than as one swing on repeat. Shares Claw's
+			-- band so the two can run into each other.
+			Backhand = {
+				archetype = "Raise",
+				leadTime = 0.62,
+				telegraphDuration = 0.74,
+				parryable = true,
+				damage = 12,
+				range = 9,
+				arcDegrees = 110,
+				minRange = 0,
+				maxRange = 9,
+				weight = 3,
+				cooldown = 0,
+			},
+			-- Unparryable, and in the melee band, so a flurry can end on
+			-- something that has to be dodged rather than always resolving
+			-- into another parry.
+			Maul = {
+				hyperArmor = true,
+				archetype = "Plant",
+				leadTime = 0.80,
+				telegraphDuration = 0.92,
+				parryable = false,
+				damage = 18,
+				range = 11,
+				arcDegrees = 360,
+				minRange = 0,
+				maxRange = 11,
+				weight = 1,
+				cooldown = 6,
+			},
 			-- A long reach: only legal from range, so it reads as a lunge
 			-- rather than another melee swing. The Shambler doesn't move while
 			-- winding up, so maxRange must not exceed range — a lunge started
@@ -233,8 +350,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			Lunge = {
 				hyperArmor = true,
 				archetype = "Coil",
-				leadTime = 0.86,
-				telegraphDuration = 0.98,
+				leadTime = 0.82,
+				telegraphDuration = 0.94,
 				parryable = true,
 				damage = 16,
 				range = 18,
@@ -259,7 +376,40 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		coinReward = 15,
 		crystalReward = 0,
 		xpReward = 22,
+		-- Squat and coiled, head carried low. It reads as something that spits
+		-- rather than swings even when it is wearing the same tell as a
+		-- swordsman.
+		accent = {
+			-- Deeply squat and square, against the Shambler's lopsided hunch.
+			-- The hip drop is the one the leg bend actually implies
+			-- (AnimationDefs' crouch: -LEG_LENGTH * (1 - cos)), so it sits low
+			-- without its feet leaving the floor.
+			Head = { rx = 26 },
+			LowerTorso = { rx = 24, py = -0.34 },
+			RightUpperLeg = { rx = -34, rz = 20 },
+			LeftUpperLeg = { rx = -34, rz = -20 },
+			RightLowerLeg = { rx = 44 },
+			LeftLowerLeg = { rx = 44 },
+		},
 		attacks = {
+			-- Lobbed high rather than spat flat, and the thing it opens with.
+			-- Both are projectiles from the same band, so the pair can run
+			-- together — and an overhead wind-up at range reads as a different
+			-- animal from the melee enemies' swings.
+			Lob = {
+				archetype = "Raise",
+				leadTime = 1.22,
+				telegraphDuration = 1.34,
+				parryable = true,
+				damage = 14,
+				range = 28,
+				arcDegrees = 30,
+				minRange = 10,
+				maxRange = 26,
+				weight = 4,
+				cooldown = 2,
+				projectile = { speed = 42, radius = 8, kind = "acid" },
+			},
 			Spit = {
 				archetype = "Coil",
 				leadTime = 1.28,
@@ -313,6 +463,20 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		coinReward = 250,
 		crystalReward = 4,
 		xpReward = 600,
+		-- Chest up, chin down, weight back. Everything about him is held rather
+		-- than thrown.
+		accent = {
+			-- Chest thrown up, chin down, weight settled onto the back leg and
+			-- the stance wide. Where the skeleton is compact and forward, he
+			-- is broad and rooted — the same tell arrives looking like it
+			-- weighs three times as much.
+			Head = { rx = -18 },
+			LowerTorso = { rx = -12, py = 0.14 },
+			RightUpperLeg = { rx = 14, rz = -14 },
+			LeftUpperLeg = { rx = -8, rz = 14 },
+			RightLowerLeg = { rx = -10 },
+			LeftLowerLeg = { rx = 16 },
+		},
 		attacks = {
 			Cleave = {
 				archetype = "WindBack",
