@@ -269,7 +269,7 @@ All payloads are a single table.
 | `ProfileLoaded` | Server → Client | `{ persistent }` | The player's progress is ready. `persistent` is false only in a Studio session running without DataStore access |
 | `WeaponEquipped` | Server → Client | `{ weaponId, classTag, upgradeLevel }` | Fired on equip, on load, and whenever the equipped weapon's upgrade level changes |
 | `ChestOpened` | Server → Client | `{ chestId, coins, coinsTaken, rows, inventoryFull? }` | Sent to whoever opened a chest: everything in it, as display info from `LootTables` rather than stored `ItemInstance`s. Each row carries its `slot`, which is what a take names. `inventoryFull` means the last take was refused |
-| `InventoryUpdated` | Server → Client | `{ items }` | The player's full `ItemInstance` list whenever it changes |
+| `InventoryUpdated` | Server → Client | `{ items, capacity }` | The player's full `ItemInstance` list whenever it changes. `capacity` is `PlayerDataSchema.MAX_INVENTORY`, sent rather than read client-side because the client never requires that module |
 | `CurrencyUpdated` | Server → Client | `{ coins, crystals }` | Whenever a balance changes; `crystals` is keyed by class |
 | `UpgradeResult` | Server → Client | `{ success, reason?, newLevel? }` | Blacksmith outcome; `reason` is player-facing refusal text |
 | `PvPStatusChanged` | Server → Client | `{ status, opponentName?, message? }` | `status` is `idle` \| `queued` \| `dueling`; `message` is set when a duel ends |

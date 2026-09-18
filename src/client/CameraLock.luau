@@ -32,7 +32,14 @@ local RENDER_STEP_NAME = "CameraLockFacing"
 
 -- Nudges the character off-centre so the crosshair isn't buried in their head.
 -- Matches the direction Roblox's built-in shift lock offsets to.
-local SHOULDER_X = 1.75
+--
+-- Deliberately smaller than Roblox's own 1.75. That much offset reads as
+-- looking over someone's shoulder from a step to the left of them: the
+-- character sits well off-centre and the crosshair ends up a long way from
+-- where the body is pointing. One stud keeps the over-the-shoulder framing —
+-- the head is still clear of the reticle — without the camera feeling like it
+-- is standing somewhere the player isn't.
+local SHOULDER_X = 1.0
 
 -- How fast the shoulder offset eases in, out, and around walls, as a fraction
 -- of the remaining distance per second. Snapping it is what made toggling the

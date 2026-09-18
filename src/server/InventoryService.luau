@@ -18,8 +18,16 @@ export type ItemInstance = PlayerDataSchema.ItemInstance
 
 local inventories: { [Player]: { ItemInstance } } = {}
 
+-- The cap goes out with the list. The client draws "12 / 500" and colours it
+-- when the bag is full, and it must not read PlayerDataSchema to do that: that
+-- module is the save format's, and the client deliberately never touches it
+-- (ARCHITECTURE.md's pure-module rule). Sending the number is how the panel
+-- learns it.
 local function publish(player: Player, inventory: { ItemInstance })
-	Remotes.get("InventoryUpdated"):FireClient(player, { items = inventory })
+	Remotes.get("InventoryUpdated"):FireClient(player, {
+		items = inventory,
+		capacity = PlayerDataSchema.MAX_INVENTORY,
+	})
 end
 
 local function copyItems(items: { ItemInstance }): { ItemInstance }

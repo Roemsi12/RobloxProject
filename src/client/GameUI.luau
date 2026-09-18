@@ -77,13 +77,16 @@ local RARITY_COLORS: { [string]: Color3 } = {
 	epic = Color3.fromRGB(200, 110, 255),
 }
 
--- itemId -> display name, from the same shared LootTables the server built the
--- item from (an ItemInstance carries no name of its own).
+-- itemId -> display name and flavour, from the same shared LootTables the
+-- server built the item from (an ItemInstance carries neither of its own).
 local ITEM_NAMES: { [string]: string } = {}
+local ITEM_FLAVORS: { [string]: string } = {}
 for _, descriptor in LootTables do
 	ITEM_NAMES[descriptor.itemId] = descriptor.name
+	ITEM_FLAVORS[descriptor.itemId] = descriptor.flavor
 end
 ITEM_NAMES[DungeonDefs.TREASURE_LOOT.itemId] = DungeonDefs.TREASURE_LOOT.name
+ITEM_FLAVORS[DungeonDefs.TREASURE_LOOT.itemId] = DungeonDefs.TREASURE_LOOT.flavor
 
 -- DungeonNotice tones.
 local NOTICE_COLORS: { [string]: Color3 } = {
@@ -183,10 +186,72 @@ end
 -- Listing it as an item would also mean inventing an itemId for every weapon
 -- and paying the save format's inventory cap for something that is always
 -- exactly one.
-local function buildInventory(parent: Instance): (Frame, Frame, TextLabel)
+-- The inventory: the equipped weapon, then everything picked up, as a grid of
+-- tiles rather than a list of lines.
+--
+-- Identical items are stacked. The save format allows five hundred of them and
+-- a dungeon pays out one per chest, so a flat row-per-item list stops being
+-- readable somewhere in the first hour. Stacking is safe because the only
+-- thing that distinguishes two copies is `upgradeLevel`, which is part of the
+-- stack key — two Rotted Claws at level 0 really are interchangeable, and a
+-- pair at different levels stay in separate stacks.
+local INVENTORY_COLUMNS = 4
+local TILE_SIZE = 78
+local TILE_PADDING = 6
+-- The grid wraps on width, so the panel is sized from the tiles rather than
+-- the other way round: picking both by hand is how a fifth column appears the
+-- next time a tile grows two pixels.
+local GRID_WIDTH = INVENTORY_COLUMNS * TILE_SIZE + (INVENTORY_COLUMNS - 1) * TILE_PADDING
+local PANEL_PADDING = 12
+local SCROLLBAR = 6
+local INVENTORY_WIDTH = GRID_WIDTH + PANEL_PADDING * 2 + SCROLLBAR
+
+type Stack = {
+	itemId: string,
+	rarity: string,
+	upgradeLevel: number,
+	count: number,
+	-- Where this stack first appeared in the list, so the order a player
+	-- picked things up in is the order they see them in.
+	order: number,
+}
+
+local function stackItems(items: { any }): ({ Stack }, number)
+	local byKey: { [string]: Stack } = {}
+	local stacks: { Stack } = {}
+	local total = 0
+
+	for index, item in items do
+		total += 1
+		local level = item.upgradeLevel or 0
+		local key = `{item.itemId}|{item.rarity}|{level}`
+
+		local stack = byKey[key]
+		if stack then
+			stack.count += 1
+		else
+			stack = {
+				itemId = item.itemId,
+				rarity = item.rarity,
+				upgradeLevel = level,
+				count = 1,
+				order = index,
+			}
+			byKey[key] = stack
+			table.insert(stacks, stack)
+		end
+	end
+
+	table.sort(stacks, function(a, b)
+		return a.order < b.order
+	end)
+	return stacks, total
+end
+
+local function buildInventory(parent: Instance): (Frame, ({ any }, number) -> (), TextLabel)
 	local panel = Instance.new("Frame")
-	panel.Size = UDim2.fromOffset(268, 348)
-	panel.Position = UDim2.new(1, -284, 0, 16)
+	panel.Size = UDim2.fromOffset(INVENTORY_WIDTH, 430)
+	panel.Position = UDim2.new(1, -(INVENTORY_WIDTH + 16), 0, 16)
 	panel.BackgroundColor3 = PANEL_COLOR
 	panel.BackgroundTransparency = 0.15
 	panel.Visible = false
@@ -194,19 +259,34 @@ local function buildInventory(parent: Instance): (Frame, Frame, TextLabel)
 	stylePanel(panel)
 
 	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(1, 0, 0, 30)
+	title.Size = UDim2.new(1, -110, 0, 30)
+	title.Position = UDim2.fromOffset(12, 6)
 	title.BackgroundTransparency = 1
 	title.TextColor3 = Color3.fromRGB(255, 215, 140)
 	title.Font = Enum.Font.GothamBold
 	title.TextSize = 20
+	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.Text = "Inventory (I)"
 	title.Parent = panel
 
-	buildSectionLabel(panel, "WEAPON", 34)
+	-- How full the bag is. Worth showing, because a full one silently refuses
+	-- chest rows and this is the only place that says why.
+	local capacity = Instance.new("TextLabel")
+	capacity.Size = UDim2.fromOffset(98, 30)
+	capacity.Position = UDim2.new(1, -110, 0, 6)
+	capacity.BackgroundTransparency = 1
+	capacity.TextColor3 = Color3.fromRGB(150, 140, 125)
+	capacity.Font = Enum.Font.Gotham
+	capacity.TextSize = 14
+	capacity.TextXAlignment = Enum.TextXAlignment.Right
+	capacity.Text = ""
+	capacity.Parent = panel
+
+	buildSectionLabel(panel, "WEAPON", 38)
 
 	local weaponRow = Instance.new("TextLabel")
-	weaponRow.Size = UDim2.new(1, -16, 0, 26)
-	weaponRow.Position = UDim2.fromOffset(8, 52)
+	weaponRow.Size = UDim2.new(1, -24, 0, 26)
+	weaponRow.Position = UDim2.fromOffset(12, 56)
 	weaponRow.BackgroundTransparency = 1
 	weaponRow.TextColor3 = Color3.fromRGB(150, 150, 150)
 	weaponRow.Font = Enum.Font.Gotham
@@ -216,25 +296,154 @@ local function buildInventory(parent: Instance): (Frame, Frame, TextLabel)
 	weaponRow.Parent = panel
 
 	local divider = Instance.new("Frame")
-	divider.Size = UDim2.new(1, -16, 0, 1)
-	divider.Position = UDim2.fromOffset(8, 84)
+	divider.Size = UDim2.new(1, -24, 0, 1)
+	divider.Position = UDim2.fromOffset(12, 88)
 	divider.BorderSizePixel = 0
 	divider.BackgroundColor3 = PANEL_EDGE
 	divider.BackgroundTransparency = 0.5
 	divider.Parent = panel
 
-	buildSectionLabel(panel, "ITEMS", 92)
+	buildSectionLabel(panel, "ITEMS", 96)
 
-	local list = Instance.new("Frame")
-	list.Size = UDim2.new(1, -16, 1, -122)
-	list.Position = UDim2.fromOffset(8, 114)
-	list.BackgroundTransparency = 1
-	list.Parent = panel
+	local grid = Instance.new("ScrollingFrame")
+	grid.Size = UDim2.new(1, -24, 1, -170)
+	grid.Position = UDim2.fromOffset(12, 118)
+	grid.BackgroundTransparency = 1
+	grid.BorderSizePixel = 0
+	grid.ScrollBarThickness = 4
+	grid.ScrollBarImageColor3 = PANEL_EDGE
+	grid.CanvasSize = UDim2.new()
+	grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	grid.Parent = panel
 
-	local layout = Instance.new("UIListLayout")
-	layout.Parent = list
+	local layout = Instance.new("UIGridLayout")
+	layout.CellSize = UDim2.fromOffset(TILE_SIZE, TILE_SIZE)
+	layout.CellPadding = UDim2.fromOffset(TILE_PADDING, TILE_PADDING)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = grid
 
-	return panel, list, weaponRow
+	-- The detail strip under the grid. Hovering a tile fills it in; this is
+	-- where an item's flavour text lives, rather than on a tile too small to
+	-- hold it.
+	local detail = Instance.new("TextLabel")
+	detail.Size = UDim2.new(1, -24, 0, 42)
+	detail.Position = UDim2.new(0, 12, 1, -50)
+	detail.BackgroundTransparency = 1
+	detail.Font = Enum.Font.Gotham
+	detail.TextSize = 12
+	detail.TextColor3 = Color3.fromRGB(150, 140, 125)
+	detail.TextXAlignment = Enum.TextXAlignment.Left
+	detail.TextYAlignment = Enum.TextYAlignment.Top
+	detail.TextWrapped = true
+	detail.Text = ""
+	detail.Parent = panel
+
+	local empty = Instance.new("TextLabel")
+	empty.Size = UDim2.new(1, -24, 0, 40)
+	empty.Position = UDim2.fromOffset(12, 140)
+	empty.BackgroundTransparency = 1
+	empty.Font = Enum.Font.Gotham
+	empty.TextSize = 14
+	empty.TextColor3 = Color3.fromRGB(120, 112, 124)
+	empty.TextWrapped = true
+	empty.Text = "Nothing yet. Clear a room, open the chest behind it, and take what's inside."
+	empty.Parent = panel
+
+	local function render(items: { any }, limit: number)
+		for _, child in grid:GetChildren() do
+			if child:IsA("TextButton") then
+				child:Destroy()
+			end
+		end
+
+		local stacks, total = stackItems(items)
+		-- The cap comes from the server with the list rather than from
+		-- PlayerDataSchema: that module is the save format's, and the client
+		-- deliberately never reads it (ARCHITECTURE.md).
+		capacity.Text = if limit > 0 then `{total} / {limit}` else tostring(total)
+		capacity.TextColor3 = if limit > 0 and total >= limit then BAD else Color3.fromRGB(150, 140, 125)
+		empty.Visible = #stacks == 0
+		if #stacks == 0 then
+			detail.Text = ""
+		end
+
+		for index, stack in stacks do
+			local color = RARITY_COLORS[stack.rarity] or Color3.fromRGB(225, 225, 225)
+			local name = ITEM_NAMES[stack.itemId] or stack.itemId
+
+			local tile = Instance.new("TextButton")
+			tile.Size = UDim2.fromOffset(TILE_SIZE, TILE_SIZE)
+			tile.BackgroundColor3 = Color3.fromRGB(26, 23, 30)
+			tile.BackgroundTransparency = 0.1
+			tile.AutoButtonColor = false
+			tile.Text = ""
+			tile.LayoutOrder = index
+			tile.Parent = grid
+
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(0, 6)
+			corner.Parent = tile
+
+			-- The rarity is the border, not the text colour: at this size a
+			-- coloured edge reads across the whole grid at a glance, and the
+			-- name stays legible.
+			local stroke = Instance.new("UIStroke")
+			stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			stroke.Color = color
+			stroke.Transparency = 0.25
+			stroke.Thickness = 1.5
+			stroke.Parent = tile
+
+			local label = Instance.new("TextLabel")
+			label.Size = UDim2.new(1, -10, 1, -20)
+			label.Position = UDim2.fromOffset(5, 6)
+			label.BackgroundTransparency = 1
+			label.Font = Enum.Font.Gotham
+			label.TextSize = 11
+			label.TextColor3 = Color3.fromRGB(228, 222, 214)
+			label.TextWrapped = true
+			label.TextYAlignment = Enum.TextYAlignment.Top
+			label.Text = name
+			label.Parent = tile
+
+			local badge = Instance.new("TextLabel")
+			badge.Size = UDim2.new(1, -10, 0, 14)
+			badge.Position = UDim2.new(0, 5, 1, -18)
+			badge.BackgroundTransparency = 1
+			badge.Font = Enum.Font.GothamBold
+			badge.TextSize = 12
+			badge.TextColor3 = color
+			badge.TextXAlignment = Enum.TextXAlignment.Right
+			badge.Text = if stack.count > 1 then `×{stack.count}` else ""
+			badge.Parent = tile
+
+			if stack.upgradeLevel > 0 then
+				local level = Instance.new("TextLabel")
+				level.Size = UDim2.fromOffset(24, 14)
+				level.Position = UDim2.new(0, 5, 1, -18)
+				level.BackgroundTransparency = 1
+				level.Font = Enum.Font.GothamBold
+				level.TextSize = 12
+				level.TextColor3 = GOLD
+				level.TextXAlignment = Enum.TextXAlignment.Left
+				level.Text = `+{stack.upgradeLevel}`
+				level.Parent = tile
+			end
+
+			local flavor = ITEM_FLAVORS[stack.itemId] or ""
+			tile.MouseEnter:Connect(function()
+				stroke.Transparency = 0
+				detail.Text = `{name}  ·  {stack.rarity}{if stack.count > 1 then `  ·  ×{stack.count}` else ""}\n{flavor}`
+				detail.TextColor3 = color
+			end)
+			tile.MouseLeave:Connect(function()
+				stroke.Transparency = 0.25
+				detail.Text = ""
+			end)
+		end
+	end
+
+	return panel, render, weaponRow
 end
 
 -- The dungeon run on screen: progress at the top, the boss bar during the boss
@@ -465,7 +674,7 @@ type LootRow = {
 	taken: boolean,
 }
 
-local function buildLootPanel(gui: ScreenGui, onTake: (string, number?, boolean) -> ()): (Frame, (any) -> ())
+local function buildLootPanel(gui: ScreenGui, onTake: (string, number?, boolean) -> ()): (Frame, (any) -> (), () -> ())
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
@@ -477,7 +686,7 @@ local function buildLootPanel(gui: ScreenGui, onTake: (string, number?, boolean)
 	stylePanel(panel)
 
 	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(1, -24, 0, 26)
+	title.Size = UDim2.new(1, -56, 0, 26)
 	title.Position = UDim2.fromOffset(12, 10)
 	title.BackgroundTransparency = 1
 	title.Font = Enum.Font.GothamBold
@@ -487,6 +696,24 @@ local function buildLootPanel(gui: ScreenGui, onTake: (string, number?, boolean)
 	title.Text = "Chest"
 	title.Parent = panel
 
+	-- A button, not just a key. The menu frees the pointer while it is open,
+	-- so there is always something to click — which a keybind alone is not:
+	-- Escape is the Roblox menu's key first and this panel's second, and when
+	-- the engine keeps it, a chest with no button on it cannot be closed at
+	-- all.
+	local closeButton = Instance.new("TextButton")
+	closeButton.Name = "Close"
+	closeButton.Size = UDim2.fromOffset(28, 28)
+	closeButton.Position = UDim2.new(1, -38, 0, 9)
+	closeButton.BackgroundColor3 = Color3.fromRGB(42, 34, 40)
+	closeButton.BackgroundTransparency = 0.1
+	closeButton.Font = Enum.Font.GothamBold
+	closeButton.TextSize = 16
+	closeButton.TextColor3 = Color3.fromRGB(230, 205, 205)
+	closeButton.Text = "✕"
+	closeButton.Parent = panel
+	stylePanel(closeButton)
+
 	local hint = Instance.new("TextLabel")
 	hint.Size = UDim2.new(1, -24, 0, 16)
 	hint.Position = UDim2.new(0, 12, 1, -26)
@@ -495,7 +722,7 @@ local function buildLootPanel(gui: ScreenGui, onTake: (string, number?, boolean)
 	hint.TextSize = 12
 	hint.TextColor3 = Color3.fromRGB(150, 140, 125)
 	hint.TextXAlignment = Enum.TextXAlignment.Left
-	hint.Text = "Click to take  ·  anything you leave stays in the chest  ·  Esc to close"
+	hint.Text = "Click to take  ·  what you leave stays in the chest  ·  ✕ or Esc to close"
 	hint.Parent = panel
 
 	local list = Instance.new("Frame")
@@ -561,6 +788,15 @@ local function buildLootPanel(gui: ScreenGui, onTake: (string, number?, boolean)
 
 	local openChestId: string? = nil
 
+	-- Every way out of the menu comes through here, so none of them can forget
+	-- to let go of the chest it was showing.
+	local function close()
+		openChestId = nil
+		panel.Visible = false
+	end
+
+	closeButton.MouseButton1Click:Connect(close)
+
 	local function refresh(payload: any)
 		local chestId = payload.chestId
 		if type(chestId) ~= "string" then
@@ -613,7 +849,7 @@ local function buildLootPanel(gui: ScreenGui, onTake: (string, number?, boolean)
 		panel.Visible = true
 	end
 
-	return panel, refresh
+	return panel, refresh, close
 end
 
 --[[ Levels and the skill tree ]]
@@ -1135,9 +1371,9 @@ function GameUI.start()
 	buildDungeonHUD(gui)
 	buildCombatHUD(gui)
 
-	local inventoryPanel, inventoryList, inventoryWeapon = buildInventory(gui)
+	local inventoryPanel, renderInventory, inventoryWeapon = buildInventory(gui)
 
-	local lootPanel, refreshLoot = buildLootPanel(gui, function(chestId, slot, coins)
+	local lootPanel, refreshLoot, closeLoot = buildLootPanel(gui, function(chestId, slot, coins)
 		Remotes.get("ChestTakeItem"):FireServer({ chestId = chestId, slot = slot, coins = coins })
 	end)
 
@@ -1150,6 +1386,7 @@ function GameUI.start()
 	end)
 
 	local flashLevel = makeFlashLabel(gui, UDim2.new(0.5, 0, 0, 250))
+	local flashLoot = makeFlashLabel(gui, UDim2.new(0.5, 0, 0, 290))
 
 	Remotes.get("ProgressionChanged").OnClientEvent:Connect(function(payload)
 		local state: Progression = {
@@ -1223,10 +1460,17 @@ function GameUI.start()
 		end
 	end)
 
-	Remotes.get("ChestOpened").OnClientEvent:Connect(function(payload)
-		refreshLoot(payload)
-		CameraLock.setCursorFree(true)
-	end)
+	-- One place decides who holds the pointer. Every path that shows or hides
+	-- a panel that needs the mouse goes through this, rather than each of them
+	-- remembering to hand the cursor back — a close path that forgot is what
+	-- made an open chest impossible to get out of.
+	local function updateCursor()
+		CameraLock.setCursorFree(lootPanel.Visible or skillPanel.Visible)
+	end
+	lootPanel:GetPropertyChangedSignal("Visible"):Connect(updateCursor)
+	skillPanel:GetPropertyChangedSignal("Visible"):Connect(updateCursor)
+
+	Remotes.get("ChestOpened").OnClientEvent:Connect(refreshLoot)
 
 	-- Someone took a row, possibly the player themselves. Only redrawn while
 	-- the menu is open: an update about a chest across the dungeon is noise.
@@ -1236,24 +1480,36 @@ function GameUI.start()
 		end
 	end)
 
+	-- What the player is carrying, as the server last reported it. The count
+	-- per item is kept so the next update can say what is new: an item taken
+	-- from a chest goes into a panel that is usually shut, and "you got this"
+	-- has to be visible without opening it.
+	local held: { [string]: number } = {}
+	local firstInventory = true
+
 	Remotes.get("InventoryUpdated").OnClientEvent:Connect(function(payload)
-		for _, child in inventoryList:GetChildren() do
-			if child:IsA("TextLabel") then
-				child:Destroy()
+		local items = payload.items or {}
+		renderInventory(items, payload.capacity or 0)
+
+		local counts: { [string]: number } = {}
+		for _, item in items do
+			counts[item.itemId] = (counts[item.itemId] or 0) + 1
+		end
+
+		-- Nothing is announced on the first update: that one is the profile
+		-- loading, and everything in it was picked up in an earlier session.
+		if not firstInventory then
+			for itemId, count in counts do
+				local gained = count - (held[itemId] or 0)
+				if gained > 0 then
+					local name = ITEM_NAMES[itemId] or itemId
+					flashLoot(if gained > 1 then `{name} ×{gained} — taken` else `{name} — taken`, GOLD, 2.5)
+				end
 			end
 		end
 
-		for _, item in payload.items do
-			local row = Instance.new("TextLabel")
-			row.Size = UDim2.new(1, 0, 0, 24)
-			row.BackgroundTransparency = 1
-			row.TextColor3 = RARITY_COLORS[item.rarity] or Color3.fromRGB(255, 255, 255)
-			row.Font = Enum.Font.Gotham
-			row.TextSize = 16
-			row.TextXAlignment = Enum.TextXAlignment.Left
-			row.Text = `{ITEM_NAMES[item.itemId] or item.itemId} ({item.rarity})`
-			row.Parent = inventoryList
-		end
+		held = counts
+		firstInventory = false
 	end)
 
 	Remotes.get("PvPStatusChanged").OnClientEvent:Connect(function(payload)
@@ -1290,23 +1546,25 @@ function GameUI.start()
 		return Enum.ContextActionResult.Sink
 	end, false, Enum.KeyCode.I)
 
-	-- The tree panel needs the mouse, which the locked camera is holding.
-	-- Opening it hands the cursor back and closing it takes it again, so
-	-- spending a point never means fighting the camera for the pointer.
-	-- Esc closes the loot menu before Roblox's own menu sees it.
+	-- Esc tries to close the loot menu before Roblox's own menu sees it. It
+	-- does not always get the chance — the engine keeps that key for itself in
+	-- some contexts — which is why the panel carries a ✕ button as well, and
+	-- why Backspace is bound alongside as a keyboard way out that nothing else
+	-- is competing for.
 	ContextActionService:BindAction(CLOSE_LOOT_ACTION, function(_, inputState)
 		if inputState ~= Enum.UserInputState.Begin or not lootPanel.Visible then
 			return Enum.ContextActionResult.Pass
 		end
-		lootPanel.Visible = false
-		CameraLock.setCursorFree(skillPanel.Visible)
+		closeLoot()
 		return Enum.ContextActionResult.Sink
-	end, false, Enum.KeyCode.Escape)
+	end, false, Enum.KeyCode.Escape, Enum.KeyCode.Backspace)
 
+	-- The tree panel needs the mouse, which the locked camera is holding.
+	-- Toggling it is all this does; updateCursor above hands the pointer over
+	-- and takes it back.
 	ContextActionService:BindAction(SKILLS_ACTION, function(_, inputState)
 		if inputState == Enum.UserInputState.Begin then
 			skillPanel.Visible = not skillPanel.Visible
-			CameraLock.setCursorFree(skillPanel.Visible)
 		end
 		return Enum.ContextActionResult.Sink
 	end, false, Enum.KeyCode.K)

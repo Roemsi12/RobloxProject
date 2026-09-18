@@ -133,13 +133,28 @@ local function setCycleDirection(humanoid: Humanoid, backwards: boolean)
 	end
 
 	for _, track in animator:GetPlayingAnimationTracks() do
-		if isWalkCycle(track.Name) then
-			-- Flipped only when the sign is wrong, so the speed the Animate
-			-- script picked for the character's pace is otherwise left alone.
-			local speed = track.Speed
-			if speed ~= 0 and (speed < 0) ~= backwards then
-				track:AdjustSpeed(-speed)
-			end
+		if not isWalkCycle(track.Name) then
+			continue
+		end
+
+		-- The direction is asserted, never inferred. `AdjustSpeed(-n)` really
+		-- does run a track backwards, but `Speed` does not report the sign
+		-- back: it reads positive again the moment the Animate script re-sets
+		-- the speed for the character's pace, which it does on every velocity
+		-- change. Deciding "is it already reversed?" from that read is how
+		-- backing up ended up playing forwards — the answer was always "yes,
+		-- it's forwards", whatever we had just set.
+		--
+		-- So take the magnitude, which is the pace the Animate script picked
+		-- and worth keeping, and put our own sign on it every frame.
+		local pace = math.abs(track.Speed)
+		if pace == 0 then
+			continue
+		end
+
+		local wanted = if backwards then -pace else pace
+		if track.Speed ~= wanted then
+			track:AdjustSpeed(wanted)
 		end
 	end
 end
