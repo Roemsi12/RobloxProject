@@ -561,3 +561,229 @@ describe("Enemy tell budgets", function()
 		end
 	end)
 end)
+
+describe("Chain links", function()
+	-- A handful of seeds rather than the full fuzz: these loops run over pairs
+	-- of archetypes *and* pairs of seeds, so the cost is quadratic, and the
+	-- properties being checked are structural rather than statistical.
+	local PAIR_SEEDS = { 1, 7, 13, 29, 101, 257, 1013, 4099 }
+	local LEAD = 0.3
+	local RECOVERY = 0.6
+
+	-- A carry pose is what the body is still holding when the next link's tell
+	-- arrives. If one sat on top of a tell, a player would read a question
+	-- into a pose that is not asking one, and answer a strike that never came.
+	--
+	-- The bar is deliberately lower than MIN_DIVERGENCE, and the measured
+	-- floor is 10.6 (Raise's carry against Plant's tell). Two tells have
+	-- nothing but silhouette to tell them apart, so they get the full bar. A
+	-- carry and a tell also differ in *when* they arrive and in which
+	-- direction the body is travelling: a carry lands straight after an impact
+	-- and is decaying, a tell arrives after a settle and is then held still.
+	-- That extra signal is why 10 is enough here when 12 is not enough there.
+	local CARRY_DIVERGENCE = 10
+
+	local COMPONENTS = { "rx", "ry", "rz", "px", "py", "pz" }
+
+	-- divergence() only looks at rotation, which is the right measure for "can
+	-- a player tell these apart" and the wrong one for "are these the same
+	-- pose". The seam needs the second question, so this compares every
+	-- component, including the positional ones.
+	local function identical(a: AttackChoreography.Poses, b: AttackChoreography.Poses): boolean
+		local parts: { [string]: boolean } = {}
+		for part in a do
+			parts[part] = true
+		end
+		for part in b do
+			parts[part] = true
+		end
+		for part in parts do
+			local left: any = a[part] or {}
+			local right: any = b[part] or {}
+			for _, axis in COMPONENTS do
+				if (left[axis] or 0) ~= (right[axis] or 0) then
+					return false
+				end
+			end
+		end
+		return true
+	end
+
+	local function isEmpty(poses: AttackChoreography.Poses): boolean
+		for _ in poses do
+			return false
+		end
+		return true
+	end
+
+	local function linkOf(
+		from: AttackChoreography.Archetype,
+		to: AttackChoreography.Archetype,
+		fromSeed: number,
+		seed: number,
+		carryOut: boolean?
+	)
+		return AttackChoreography.generateLink({
+			archetype = to,
+			leadTime = LEAD,
+			recovery = RECOVERY,
+			seed = seed,
+			from = from,
+			fromSeed = fromSeed,
+			carryOut = carryOut,
+		})
+	end
+
+	-- The seam. If this holds, the crossfade from the previous attack into the
+	-- link blends a pose into itself, which is a no-op, and the rig cannot
+	-- twitch at the join however the two attacks were chosen.
+	it("starts a link at exactly the pose the attack before it ended on", function()
+		for _, from in ARCHETYPES do
+			for _, to in ARCHETYPES do
+				for _, fromSeed in PAIR_SEEDS do
+					local anim = linkOf(from, to, fromSeed, 31)
+					local first = anim.keyframes[1]
+					check(`{from}->{to} seed {fromSeed} starts at t=0`, first.time == 0)
+					check(
+						`{from}->{to} seed {fromSeed} starts in the carry pose`,
+						identical(first.poses, AttackChoreography.carryPose(from, fromSeed))
+					)
+				end
+			end
+		end
+	end)
+
+	-- The other half of that seam: the attack being chained *out of* has to
+	-- finish where the link expects to find it, instead of standing up.
+	it("ends an attack that carries into another on its own carry pose", function()
+		for _, archetype in ARCHETYPES do
+			for _, seed in PAIR_SEEDS do
+				local held = AttackChoreography.generate({
+					archetype = archetype,
+					leadTime = LEAD,
+					recovery = RECOVERY,
+					seed = seed,
+					carryOut = true,
+				})
+				local last = held.keyframes[#held.keyframes]
+				check(`{archetype} seed {seed} ends at its length`, last.time == held.length)
+				check(
+					`{archetype} seed {seed} ends held in its carry pose`,
+					identical(last.poses, AttackChoreography.carryPose(archetype, seed))
+				)
+			end
+		end
+	end)
+
+	-- ...and the converse, or every attack in the game would end mid-swing.
+	it("still returns an unchained attack to rest", function()
+		for _, archetype in ARCHETYPES do
+			local plain = AttackChoreography.generate({
+				archetype = archetype,
+				leadTime = LEAD,
+				recovery = RECOVERY,
+				seed = 31,
+			})
+			local last = plain.keyframes[#plain.keyframes]
+			check(`{archetype} returns to rest`, isEmpty(last.poses))
+		end
+	end)
+
+	-- The previous attack's follow-through already carried the body the other
+	-- way; that *is* the counter-move. A second gather makes the rig load
+	-- twice, and the link reads as a stutter rather than a continuation.
+	it("gives a link no anticipation beat", function()
+		for _, from in ARCHETYPES do
+			for _, to in ARCHETYPES do
+				local anim = linkOf(from, to, 7, 31)
+				check(
+					`{from}->{to} goes straight from the carry to the windup`,
+					anim.keyframes[2].time == AttackChoreography.LINK_SETTLE
+				)
+			end
+		end
+	end)
+
+	-- The whole point of chaining onto the same grammar: a chained Coil has to
+	-- ask the player exactly what a standalone Coil asks. If the tell drifted,
+	-- chains would be a second language to learn on top of the first.
+	it("asks the same question a standalone attack would", function()
+		for _, from in ARCHETYPES do
+			for _, to in ARCHETYPES do
+				local anim = linkOf(from, to, 7, 31)
+				local windup = anim.keyframes[2]
+				check(
+					`{from}->{to} holds the plain {to} tell`,
+					identical(windup.poses, AttackChoreography.tellPose(to, 31))
+				)
+			end
+		end
+	end)
+
+	-- The same contract `generate` is held to, so the server resolving a link
+	-- and the player watching it stay one event.
+	it("puts a link's impact exactly its lead time after the tell lands", function()
+		for _, from in ARCHETYPES do
+			for _, to in ARCHETYPES do
+				local anim = linkOf(from, to, 7, 31)
+				local lead = (anim.impact :: number) - AttackChoreography.LINK_SETTLE
+				check(`{from}->{to} lead {lead}`, math.abs(lead - LEAD) < 1e-9)
+			end
+		end
+	end)
+
+	it("never lets a carry pose be mistaken for a tell", function()
+		for _, from in ARCHETYPES do
+			for _, to in ARCHETYPES do
+				local worst, worstPair = math.huge, ""
+				for _, fromSeed in PAIR_SEEDS do
+					for _, seed in PAIR_SEEDS do
+						local apart = AttackChoreography.divergence(
+							AttackChoreography.carryPose(from, fromSeed),
+							AttackChoreography.tellPose(to, seed)
+						)
+						if apart < worst then
+							worst, worstPair = apart, `{fromSeed}/{seed}`
+						end
+					end
+				end
+				check(
+					`carry({from}) vs tell({to}) worst {worstPair} = {math.floor(worst * 10) / 10}`,
+					worst >= CARRY_DIVERGENCE
+				)
+			end
+		end
+	end)
+
+	-- `follows` is not an affinity ranking, and deliberately not derived from
+	-- pose distance: doing that would make Plant the natural follow-up to
+	-- everything, because a low grounded pose sits close to every carry. What
+	-- it encodes is one rule -- a chain never asks the same question twice in
+	-- a row. Repeating a tell is exactly the repetition that made enemies feel
+	-- interchangeable in the first place.
+	it("never lets a chain repeat the archetype it just used", function()
+		for _, archetype in ARCHETYPES do
+			local allowed = AttackChoreography.follows(archetype)
+			check(`{archetype} can be followed by something`, #allowed > 0)
+			check(`{archetype} does not follow itself`, table.find(allowed, archetype) == nil)
+			for _, target in allowed do
+				check(`{archetype} -> {target} is a real archetype`, table.find(ARCHETYPES, target) ~= nil)
+			end
+		end
+	end)
+
+	it("builds the same link twice for the same inputs", function()
+		for _, from in ARCHETYPES do
+			for _, to in ARCHETYPES do
+				local a = linkOf(from, to, 7, 31, true)
+				local b = linkOf(from, to, 7, 31, true)
+				check(`{from}->{to} same length`, a.length == b.length)
+				check(`{from}->{to} same keyframe count`, #a.keyframes == #b.keyframes)
+				for index, frame in a.keyframes do
+					check(`{from}->{to} keyframe {index} time`, frame.time == b.keyframes[index].time)
+					check(`{from}->{to} keyframe {index} poses`, identical(frame.poses, b.keyframes[index].poses))
+				end
+			end
+		end
+	end)
+end)

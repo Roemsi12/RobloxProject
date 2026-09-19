@@ -394,6 +394,10 @@ export type AttackSpec = {
 	-- The carriage of the enemy throwing it. Never touches diagnostic joints,
 	-- so it cannot change which answer the tell asks for.
 	accent: Accent?,
+	-- Set when another link follows this one. The attack then ends held in
+	-- its carry pose rather than standing back up, which is the only thing
+	-- that tells a player the chain is still running.
+	carryOut: boolean?,
 }
 
 -- How long the rig takes to snap into the tell from rest. The tell is only
@@ -401,6 +405,13 @@ export type AttackSpec = {
 -- inside it — an attack whose windup is still moving is not yet readable.
 local SETTLE = 0.12
 AttackChoreography.SETTLE = SETTLE
+
+-- The same beat for a link, and shorter, because the rig is not starting
+-- from rest: it is already wound into the previous attack's carry pose, so
+-- it arrives at the new tell sooner. Not zero -- a tell that teleports into
+-- place is a tell nobody can read.
+local LINK_SETTLE = 0.06
+AttackChoreography.LINK_SETTLE = LINK_SETTLE
 
 function AttackChoreography.get(archetype: Archetype): ArchetypeDef
 	local def = ARCHETYPE_DEFS[archetype]
@@ -438,7 +449,61 @@ function AttackChoreography.generate(spec: AttackSpec): KeyframeMath.AnimationDe
 		impact,
 		windupAt,
 		varied(def, def.tell, spec.seed, false, spec.accent),
-		varied(def, def.hit, spec.seed, true, spec.accent)
+		varied(def, def.hit, spec.seed, true, spec.accent),
+		nil,
+		spec.carryOut
+	)
+end
+
+-- Where this archetype leaves the body once it has carried through.
+--
+-- A chain link starts here, so this is one half of the seam. It is a pure
+-- function of the archetype and the seed, which is why the server only has to
+-- send `fromAttackId` and `fromSeed` for the client to rebuild it exactly.
+function AttackChoreography.carryPose(archetype: Archetype, seed: number, accent: Accent?): Poses
+	local def = AttackChoreography.get(archetype)
+	return AnimationDefs.carryOf(varied(def, def.hit, seed, true, accent))
+end
+
+-- An attack thrown out of another one, without a trip back through neutral.
+export type LinkSpec = {
+	archetype: Archetype,
+	leadTime: number,
+	recovery: number,
+	seed: number,
+	accent: Accent?,
+	-- The attack this one flows out of. Its carry pose is where this link
+	-- begins, so the two animations meet exactly.
+	from: Archetype,
+	fromSeed: number,
+	carryOut: boolean?,
+}
+
+-- The same attack as `generate`, re-cut to start from where the last one
+-- finished.
+--
+-- The tell is identical: same archetype, same seed, same diagnostic joints.
+-- Only the approach to it changes, which is the point — a chained Coil has to
+-- ask the player the same question a standalone Coil does, or the chain
+-- becomes a second language to learn.
+function AttackChoreography.generateLink(spec: LinkSpec): KeyframeMath.AnimationDef
+	local def = AttackChoreography.get(spec.archetype)
+
+	assert(spec.leadTime > 0, "leadTime must be positive")
+	assert(spec.recovery > 0, "recovery must be positive")
+
+	local windupAt = LINK_SETTLE
+	local impact = windupAt + spec.leadTime
+	local length = impact + spec.recovery
+
+	return AnimationDefs.link(
+		length,
+		impact,
+		windupAt,
+		AttackChoreography.carryPose(spec.from, spec.fromSeed, spec.accent),
+		varied(def, def.tell, spec.seed, false, spec.accent),
+		varied(def, def.hit, spec.seed, true, spec.accent),
+		spec.carryOut == true
 	)
 end
 

@@ -438,6 +438,20 @@ local FOLLOW_THROUGH = 1.15
 local ANTICIPATE = 0.16
 local ANTICIPATE_AT = 0.4
 
+-- Where the body ends up once a strike has carried through: the hit pose,
+-- pushed past itself by the follow-through.
+--
+-- Both sides of a chain seam call this. A link starts at exactly the pose the
+-- previous attack finished on, so the crossfade between them is a
+-- mathematical no-op and the rig never twitches at the join. Deriving it in
+-- one place is what makes that true by construction rather than by two
+-- expressions happening to agree.
+local function carryOf(hit: Poses): Poses
+	return exaggerate(hit, FOLLOW_THROUGH)
+end
+
+AnimationDefs.carryOf = carryOf
+
 -- An attack or swing: rest, the windup peaking at `windupAt`, a coil that
 -- holds the tension, the strike at `impact`, a follow-through carrying past
 -- it, an optional recovery pose, and rest by `length`.
@@ -446,7 +460,18 @@ local ANTICIPATE_AT = 0.4
 -- windup, keeps drawing back almost imperceptibly, then snaps. Because the
 -- snap is shorter than a straight windup-to-hit swing, the strike reads as
 -- faster and heavier without the impact moving at all.
-local function strike(length: number, impact: number, windupAt: number, windup: Poses, hit: Poses, recovery: Poses?): AnimationDef
+local function strike(
+	length: number,
+	impact: number,
+	windupAt: number,
+	windup: Poses,
+	hit: Poses,
+	recovery: Poses?,
+	-- Set when this strike opens a chain: it ends held in its carry pose
+	-- instead of standing back up, so the next link can start from exactly
+	-- there. See `link` below.
+	holdEnd: boolean?
+): AnimationDef
 	local coilAt = windupAt + (impact - windupAt) * 0.45
 	local followAt = impact + math.min(0.07, (length - impact) * 0.2)
 
@@ -464,14 +489,18 @@ local function strike(length: number, impact: number, windupAt: number, windup: 
 		-- weight, and carries through fast before slowing.
 		kf(coilAt, exaggerate(windup, COIL), "In"),
 		kf(impact, hit, "Out"),
-		kf(followAt, exaggerate(hit, FOLLOW_THROUGH)),
+		kf(followAt, carryOf(hit)),
 	}
 
 	if recovery then
 		table.insert(keyframes, kf(followAt + (length - followAt) * 0.5, recovery))
 	end
 
-	table.insert(keyframes, kf(length, {}))
+	if holdEnd then
+		table.insert(keyframes, kf(length, carryOf(hit)))
+	else
+		table.insert(keyframes, kf(length, {}))
+	end
 
 	return {
 		length = length,
@@ -488,6 +517,63 @@ end
 -- its own version of them would drift from the hand-authored attacks, and the
 -- player would be reading two different languages.
 AnimationDefs.strike = strike
+
+-- One link of a chain: a strike that begins already loaded.
+--
+-- Two differences from `strike`, both of them about not throwing away the
+-- momentum the previous attack ended with:
+--
+--  * It starts at `carryIn` rather than at rest, and has **no anticipation
+--    beat**. The previous attack's follow-through already carried the body
+--    the other way — that *is* the counter-move. Adding another one makes the
+--    rig gather twice and the link reads as a stutter instead of a
+--    continuation.
+--  * When it is not the last link it ends held in its own carry pose instead
+--    of standing back up. That unfinished silhouette is the only signpost
+--    that a chain is still running: a player who sees the rig fail to recover
+--    knows another one is coming. Nothing says so in the interface, because a
+--    chain that announces itself is one players stop reading the body for.
+local function link(
+	length: number,
+	impact: number,
+	windupAt: number,
+	carryIn: Poses,
+	windup: Poses,
+	hit: Poses,
+	holdEnd: boolean
+): AnimationDef
+	local coilAt = windupAt + (impact - windupAt) * 0.45
+	local followAt = impact + math.min(0.07, (length - impact) * 0.2)
+	local carryOut = carryOf(hit)
+
+	local keyframes = {
+		kf(0, carryIn, "Out"),
+		-- Straight from the carry into the new windup. The coil and the hit
+		-- are the same beats `strike` uses, so a link and a standalone attack
+		-- land with identical weight.
+		kf(windupAt, windup),
+		kf(coilAt, exaggerate(windup, COIL), "In"),
+		kf(impact, hit, "Out"),
+		kf(followAt, carryOut),
+	}
+
+	if holdEnd then
+		-- Held, not settling. The rig stays wound.
+		table.insert(keyframes, kf(length, carryOut))
+	else
+		table.insert(keyframes, kf(length, {}))
+	end
+
+	return {
+		length = length,
+		looped = false,
+		priority = "Action",
+		impact = impact,
+		keyframes = keyframes,
+	}
+end
+
+AnimationDefs.link = link
 
 -- The same idle, re-labelled for walking: for a rig that never moves, so
 -- every enemy still has the full basic set.
