@@ -1638,6 +1638,14 @@ Nothing appears in the interface, because a chain that announces itself there
 is one players stop reading the body for — which is the thing this combat
 system exists to reward.
 
+**An enemy may close between links, but not during a wind-up.** Movement is
+otherwise frozen off idle, because an enemy sliding toward you while a tell is
+on screen makes the hit land somewhere other than where the tell said. Between
+links there is no tell on screen yet, so there is nothing to make unreadable --
+and an enemy rooted for a whole three-link flurry would make stepping back the
+answer to every chain in the game. Hitting it during that gap breaks the chain,
+which is the aggressive answer to a flurry.
+
 **A chain is a risk the enemy takes.** Recovery grows with each extra link, so
 a long flurry leaves it open for longer afterwards. Without that, chaining is a
 straight buff and there is no reason a player would ever want to bait one out.

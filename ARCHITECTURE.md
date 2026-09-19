@@ -429,6 +429,17 @@ is invisible from the animation layer: a parry press from a stunned player is
 player regaining agency — and every link must clear the floor of the band for
 the answer it demands.
 
+Between two links the enemy sits in a **`carry`** state, which is "telegraph,
+except it may reposition". Enemy movement is otherwise gated on being idle,
+because an enemy sliding toward you while a tell is on screen makes the hit
+land somewhere other than where the tell said it would. A carry is the other
+half of that argument rather than an exception to it: no tell is on screen yet,
+so there is no beat to make unreadable — and an enemy rooted for a whole
+three-link flurry would make "step back after the first hit" the answer to
+every chain in the game. Hitting a carrying enemy flinches it, which moves it
+off `carry`, which is the exact condition the next link checks before it fires:
+that is what makes hitting into a flurry break one.
+
 | Enemy | `maxChain` | `chainChance` | Why |
 |---|---|---|---|
 | `Shambler` | 3 | 0.55 | The relentless one. Its attacks are not faster than the skeleton's; there are just fewer gaps between them |
