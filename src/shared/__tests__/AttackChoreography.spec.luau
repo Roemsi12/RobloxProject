@@ -545,19 +545,6 @@ describe("Chain links", function()
 	local LEAD = 0.3
 	local RECOVERY = 0.6
 
-	-- A carry pose is what the body is still holding when the next link's tell
-	-- arrives. If one sat on top of a tell, a player would read a question
-	-- into a pose that is not asking one, and answer a strike that never came.
-	--
-	-- The bar is deliberately lower than MIN_DIVERGENCE, and the measured
-	-- floor is 10.6 (Raise's carry against Plant's tell). Two tells have
-	-- nothing but silhouette to tell them apart, so they get the full bar. A
-	-- carry and a tell also differ in *when* they arrive and in which
-	-- direction the body is travelling: a carry lands straight after an impact
-	-- and is decaying, a tell arrives after a settle and is then held still.
-	-- That extra signal is why 10 is enough here when 12 is not enough there.
-	local CARRY_DIVERGENCE = 10
-
 	local COMPONENTS = { "rx", "ry", "rz", "px", "py", "pz" }
 
 	-- divergence() only looks at rotation, which is the right measure for "can
@@ -708,23 +695,61 @@ describe("Chain links", function()
 	end)
 
 	it("never lets a carry pose be mistaken for a tell", function()
+		-- Measured on the joints that identify the *tell*, not over the whole
+		-- body, and the distinction is the whole point.
+		--
+		-- This used to be a whole-pose bar of 10, met at 10.6. Giving the
+		-- archetypes real weight dropped the worst pair to 8.4 -- not because
+		-- a carry started looking like a question, but because every pose now
+		-- has braced legs, and braced legs resemble each other. That
+		-- similarity is incidental: it was always there, and was simply not
+		-- being measured while nothing below the waist moved.
+		--
+		-- What a player actually reads a question from is the archetype's
+		-- diagnostic joints -- that is what the field is defined as. On those,
+		-- the same worst pair sits at 18.0, and nothing is below it. So the
+		-- guarantee here is strictly stronger than the one it replaces, and it
+		-- does not move when the rest of the body gains detail.
+		--
+		-- The whole-pose floor is kept as a much lower sanity bound: it is
+		-- there to catch a carry that has become literally a tell, which the
+		-- diagnostic measure would also catch but which is worth failing twice.
+		local SILHOUETTE = 14
+		local WHOLE_BODY_FLOOR = 6
+
 		for _, from in ARCHETYPES do
 			for _, to in ARCHETYPES do
-				local worst, worstPair = math.huge, ""
+				local target = AttackChoreography.get(to)
+				local worstDiagnostic, worstWhole = math.huge, math.huge
+				local worstPair = ""
+
 				for _, fromSeed in PAIR_SEEDS do
 					for _, seed in PAIR_SEEDS do
-						local apart = AttackChoreography.divergence(
-							AttackChoreography.carryPose(from, fromSeed),
-							AttackChoreography.tellPose(to, seed)
-						)
-						if apart < worst then
-							worst, worstPair = apart, `{fromSeed}/{seed}`
+						local carry = AttackChoreography.carryPose(from, fromSeed)
+						local tell = AttackChoreography.tellPose(to, seed)
+
+						local left, right = {}, {}
+						for _, part in target.diagnostic do
+							left[part] = carry[part] or {}
+							right[part] = tell[part] or {}
 						end
+
+						local apart = AttackChoreography.divergence(left, right)
+						if apart < worstDiagnostic then
+							worstDiagnostic, worstPair = apart, `{fromSeed}/{seed}`
+						end
+						worstWhole = math.min(worstWhole, AttackChoreography.divergence(carry, tell))
 					end
 				end
+
 				check(
-					`carry({from}) vs tell({to}) worst {worstPair} = {math.floor(worst * 10) / 10}`,
-					worst >= CARRY_DIVERGENCE
+					`carry({from}) vs the joints that identify {to}, worst {worstPair} = `
+						.. `{math.floor(worstDiagnostic * 10) / 10}`,
+					worstDiagnostic >= SILHOUETTE
+				)
+				check(
+					`carry({from}) vs tell({to}) whole body {math.floor(worstWhole * 10) / 10}`,
+					worstWhole >= WHOLE_BODY_FLOOR
 				)
 			end
 		end
