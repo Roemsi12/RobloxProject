@@ -2,8 +2,17 @@
 -- Read strips: what each of AttackChoreography's tells looks like at the
 -- moment a player has to decide what to do about it.
 --
---   lune run read-strips            -- the four tells side by side
---   lune run read-strips WindBack   -- one tell, through its whole run-up
+--   lune run read-strips                -- the four tells side by side
+--   lune run read-strips WindBack       -- one tell, through its whole run-up
+--   lune run read-strips accent Coil    -- that tell as each enemy wears it
+--   lune run read-strips chain Raise    -- a carry pose, then what follows it
+--
+-- The last two answer questions the numbers cannot. `accent` is the check on
+-- whether enemies actually look different: the four tells are a shared
+-- grammar on purpose, so without an accent every enemy would be the same
+-- fighter reskinned. `chain` photographs the seam -- if a carry pose already
+-- looks like one of the tells that can follow it, players will answer a beat
+-- nobody asked for.
 --
 -- The fuzz harness proves the four tells are far apart as numbers. This is how
 -- a person checks they are far apart to an eye, which is the only measure that
@@ -33,6 +42,7 @@ local SharedModules = require("./lib/sharedModules")
 local Shared = SharedModules.load("src/shared")
 local AttackChoreography = Shared.AttackChoreography
 local KeyframeMath = Shared.KeyframeMath
+local EnemyDefs = Shared.EnemyDefs
 
 -- Where along the run-up to sample, as seconds before impact. Dense either
 -- side of the reaction floor (0.35) and the decision (0.25), sparse elsewhere.
@@ -44,8 +54,15 @@ local LEAD = 0.45
 local RECOVERY = 0.6
 local SEED = 7
 
-local filter = process.args[1]
-if filter and not AttackChoreography.isParryable then
+-- Modes:
+--   (none)            the four tells at the decision moment
+--   <Archetype>       one tell, through its whole run-up
+--   accent <A>        the same tell worn by every enemy, side by side
+--   chain <A>         a carry pose beside the tells that may follow it
+local mode = process.args[1]
+local modeArg = process.args[2]
+
+if mode and not AttackChoreography.isParryable then
 	error("AttackChoreography did not load")
 end
 
@@ -59,10 +76,12 @@ local function poseAt(archetype: string, beforeImpact: number): KeyframeMath.Pos
 	return KeyframeMath.sample(anim, math.max(anim.impact - beforeImpact, 0))
 end
 
-local function poseLiteral(pose: KeyframeMath.PoseMap): string
+-- Tolerant of the sparse pose tables `tellPose` and `carryPose` return, where
+-- an axis a pose does not touch is simply absent rather than zero.
+local function poseLiteral(pose: any): string
 	local parts = {}
 	for part, v in pose do
-		table.insert(parts, string.format("%s={%.1f,%.1f,%.1f}", part, v.rx, v.ry, v.rz))
+		table.insert(parts, string.format("%s={%.1f,%.1f,%.1f}", part, v.rx or 0, v.ry or 0, v.rz or 0))
 	end
 	table.sort(parts)
 	return "{" .. table.concat(parts, ",") .. "}"
@@ -72,25 +91,60 @@ end
 
 local labels: { string } = {}
 local poses: { string } = {}
+local title: string
 
-if filter then
+if mode == "accent" then
+	-- The check on whether the accent is doing its job. The four tells are a
+	-- shared grammar on purpose, which is what makes them learnable and also
+	-- what would make every enemy look alike without this. If a Shambler and
+	-- a SkeletonWarrior are indistinguishable in this row, the accent is
+	-- decorative and the enemies really are the same fighter reskinned.
+	local archetype = modeArg or "WindBack"
+	local names = {}
+	for enemyId in EnemyDefs do
+		table.insert(names, enemyId)
+	end
+	table.sort(names)
+
+	for _, enemyId in names do
+		local def = EnemyDefs[enemyId]
+		table.insert(labels, enemyId)
+		table.insert(poses, poseLiteral(AttackChoreography.tellPose(archetype, SEED, def.accent)))
+	end
+	title = `the {archetype} tell as each enemy wears it`
+elseif mode == "chain" then
+	-- The seam, as an eye sees it. Column one is where the body is left by
+	-- the attack that just landed; the rest are the tells that may come out
+	-- of it. The hazard being looked for is a carry that already looks like
+	-- one of them, which would have players answering a beat that is not
+	-- being asked.
+	local from = modeArg or "WindBack"
+	table.insert(labels, `carry({from})`)
+	table.insert(poses, poseLiteral(AttackChoreography.carryPose(from, SEED)))
+
+	for _, target in AttackChoreography.follows(from) do
+		local answer = if AttackChoreography.isParryable(target) then "parry" else "DODGE"
+		table.insert(labels, `-> {target} ({answer})`)
+		table.insert(poses, poseLiteral(AttackChoreography.tellPose(target, SEED)))
+	end
+	title = `what follows a {from}: its carry pose, then each tell it can become`
+elseif mode then
 	for _, offset in OFFSETS do
 		table.insert(labels, string.format("-%dms", math.floor(offset * 1000 + 0.5)))
-		table.insert(poses, poseLiteral(poseAt(filter, offset)))
+		table.insert(poses, poseLiteral(poseAt(mode, offset)))
 	end
+	title = `{mode}, from 500ms before impact to the hit`
 else
 	for _, archetype in AttackChoreography.ARCHETYPES do
 		local answer = if AttackChoreography.isParryable(archetype) then "parry" else "DODGE"
 		table.insert(labels, `{archetype} ({answer})`)
 		table.insert(poses, poseLiteral(poseAt(archetype, AttackChoreography.DECISION_AT)))
 	end
+	title = `the four tells at {math.floor(AttackChoreography.DECISION_AT * 1000)}ms before impact`
 end
 
 --[[ The Studio half ]]
 
-local title = if filter
-	then `{filter}, from 500ms before impact to the hit`
-	else `the four tells at {math.floor(AttackChoreography.DECISION_AT * 1000)}ms before impact`
 
 print(`-- Read strip: {title}`)
 print("-- Generated by `lune run read-strips`. Paste into Studio's command bar")

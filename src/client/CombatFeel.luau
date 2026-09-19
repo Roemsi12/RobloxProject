@@ -195,6 +195,10 @@ function CombatFeel.start()
 			return
 		end
 
+		-- Once per link, not once per chain, and deliberately: each link is a
+		-- real wind-up and the sound is one of the cues a player reads. Going
+		-- quiet on follow-ups would make the fastest part of a fight the part
+		-- with the least information in it.
 		SoundFX.playAt("enemy_windup", root.Position)
 
 		local defId = model:GetAttribute("EnemyDefId")

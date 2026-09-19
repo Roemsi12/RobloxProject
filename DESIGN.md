@@ -1575,6 +1575,123 @@ back, where a quiver goes. Previously weapon pieces could only attach to hands
 and forearms; the R6 fallback for that is the whole Torso, and the half-a-part
 drop that positions an R6 hand is now correctly applied to hands only.
 
+
+## Decisions made in the chaining pass (Sept 2026)
+
+### Reactability is a band, not a floor
+
+Asked for directly: *the enemies are too slow after they show their tell. i
+want it to be much faster. that way i dont get punished for reacting to the
+tell.*
+
+The bug was a one-sided rule. Every attack was held above a reaction floor and
+nothing capped it from the other side, which sounds safe and is not, because
+**the parry window is anchored to impact**, not to the tell. A long tell pushes
+that window later than the player's reaction, so a player who does the right
+thing — reads the pose, presses — presses *early*, whiffs, and eats the
+cooldown. Reacting correctly was the losing move.
+
+So the rule became a band, derived rather than chosen:
+
+```
+parryable    lead ∈ [REACTION_SLOW − lateTolerance, REACTION_FAST + earlyTolerance]
+unparryable  lead ∈ [REACTION_SLOW,                 REACTION_FAST + DODGE_IFRAMES]
+```
+
+taken as the intersection across every class, so no class is ever asked to
+answer something it structurally cannot. `AttackChoreography.readableLead` owns
+it, and the tuning follows from the weapons rather than from judgement — when
+the classes gained per-weapon parry profiles, the band moved on its own and the
+tests named the six attacks that no longer fitted.
+
+**Class identity lives in how wide a window is, not in whether the attack can
+be read at all.** A class with tight frames has to be precise. It should never
+be the class that simply cannot answer, and the band is what guarantees that.
+
+### Enemies chain, and the gap is what got spent
+
+Two complaints shared a cause: enemies felt repetitive, and they felt passive.
+An attack ended by returning to rest, then the server waited a full recovery
+plus an idle beat before choosing the next one — 1.4–2.0s of standing still
+between swings, most of it frozen in place.
+
+A chain spends that gap instead of waiting through it. **The time comes out of
+the gap, never out of the tell**, because shortening tells is the one lever
+that directly buys unreadability, and the whole system is trying to make
+reading pay.
+
+**The hitstun floor is what makes this non-obvious.** A parry press from a
+stunned player is *discarded*, not mistimed — the guard does not even rise. So
+for 0.50s after a hit lands (`STRIKE_RESOLUTION_GRACE` + `PLAYER_HIT_STUN`) a
+link is unparryable by construction, whatever its tell looks like, and reaction
+time starts on top of that rather than during it.
+
+That is why a link's start is **computed from its deadline** rather than placed
+at a fixed gap after the previous one. A fixed gap tuned on the Shambler would
+have shipped a SkeletonWarrior link with a 0.22s effective lead. This mirrors
+how `leadTime` is already an input to the generator rather than something it
+reports back: the readable thing is the constraint, and the timing bends to it.
+
+**The signpost is the absence of a return to rest.** An attack that ends held
+in its carry pose is visibly unfinished, and that is the only cue a chain gets.
+Nothing appears in the interface, because a chain that announces itself there
+is one players stop reading the body for — which is the thing this combat
+system exists to reward.
+
+**A chain is a risk the enemy takes.** Recovery grows with each extra link, so
+a long flurry leaves it open for longer afterwards. Without that, chaining is a
+straight buff and there is no reason a player would ever want to bait one out.
+
+**Frequency is per-enemy personality**, not one global rate. The Shambler
+flurries constantly, the SkeletonWarrior follows up about a third of the time
+and the restraint is its read, the Spitter does not chain at all because it
+kites. Same four tells; different fighters.
+
+### An enemy's accent, and why the tells stayed shared
+
+The four tells are a shared grammar on purpose — that is what makes reading
+transfer between enemies — and it is also exactly what made every enemy look
+alike. Two skeletons and a zombie asking the same question the same way is a
+player who stops looking at animations.
+
+The fix is an **accent**: a per-enemy postural bias applied only to joints that
+are *not* diagnostic of the archetype. The joints that identify the answer are
+untouched, so a WindBack is still unmistakably a WindBack, while the Shambler
+hunches and leads with its head, the Spitter squats low and square, and the
+SkeletonWarrior stands economical and upright. Identity without any cost to
+readability, and the last property is true by construction rather than by
+tuning.
+
+`lune run read-strips accent Coil` is the check: the same tell worn by every
+enemy, side by side. If a Shambler and a SkeletonWarrior are indistinguishable
+there, the accent is decorative and the enemies really are one fighter
+reskinned.
+
+### `follows` is not an affinity ranking
+
+It had quietly become "every archetype except this one", and the honest reading
+is that this is all it ever encoded: **a chain never asks the same question
+twice running.** Repeating a tell is precisely the repetition that made enemies
+feel interchangeable.
+
+It is deliberately *not* derived from pose distance, which is the obvious thing
+to try. Doing that ranks Plant as the natural follow-up to everything, because a
+low grounded pose sits close to every carry pose — and Plant is the one tell
+whose answer is "move" rather than "parry". Distance would have quietly made the
+most expensive mistake in the game also the most frequently suggested one.
+
+### The punish window was never there
+
+Found while splitting the attack loop, and pre-existing. `flinch()` checked
+`state == "telegraph"` and then looked up the active attack — but the attack is
+cleared at resolution while the state stays `"telegraph"` until recovery ends.
+The lookup found nothing, returned early, and did not even set flinch immunity.
+
+**Enemies were unflinchable for the entire 0.8s recovery after every attack.**
+That is the punish window — the thing a player earns by baiting an attack out
+and stepping in — and hitting into it did nothing at all. It also meant hitting
+into a flurry would not have broken one, so the fix was a prerequisite for
+chaining rather than a bonus alongside it.
 ## Open / not yet decided
 
 - ~~Is solo play fully supported, or is this group-first content? This changes
