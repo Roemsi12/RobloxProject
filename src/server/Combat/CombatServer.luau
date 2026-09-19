@@ -134,6 +134,20 @@ local function getTarget(enemy: EnemyAI.Enemy): (Player?, number)
 end
 
 --[[ Enemy attacks ]]
+--
+-- The longest section in the file, so it is signposted. Reading order is also
+-- dependency order: each part uses the ones above it.
+--
+--   What a hit does to a player      bleeds, heals -- the effects themselves
+--   Who a strike reaches             server-side hit detection at impact
+--   Resolving a strike               parried, or landed. One or the other
+--   Timing and state helpers         waiting, staggering, throwing
+--   Throwing an attack               runStrike, runChain, and the AI loop
+
+--[[ What a hit does to a player ]]
+
+-- The effects a resolved strike applies, kept separate from deciding whether
+-- it resolved that way at all.
 
 -- Keeps ticking independently of the enemy, which may die, respawn or start
 -- another attack while the player is still bleeding. Stops early if the
@@ -190,6 +204,11 @@ local function applyBurstHeal(healer: Player, amount: number, radius: number)
 		end
 	end
 end
+
+--[[ Who a strike reaches, and who answered it ]]
+
+-- Hit detection is server-side and runs at the moment of impact, against
+-- server positions. The client never names what it hit.
 
 type Victim = {
 	player: Player,
@@ -273,6 +292,12 @@ end
 -- A strike that at least one player parried: nobody takes it, every parrier
 -- gets their class payoff, and the enemy staggers for the longest of them.
 -- Returns the stagger duration.
+--[[ Resolving a strike ]]
+
+-- Exactly one of these runs per strike: parried, or landed. Both are the end
+-- of the line for that attack -- the enemy state they leave behind is what the
+-- attack loop reads to decide whether a chain continues.
+
 local function resolveParried(enemy: EnemyAI.Enemy, attack: ActiveAttack, parriers: { Victim }, now: number): number
 	local staggerFor = 0
 
@@ -386,6 +411,10 @@ end
 
 -- Waits until `deadline`, returning early if the attack is interrupted or the
 -- enemy dies. Polled on Heartbeat because the wait has to be interruptible.
+--[[ Timing and state helpers ]]
+
+-- Waiting, staggering and throwing things, shared by every path above.
+
 local function waitUntilOrInterrupted(deadline: number, enemy: EnemyAI.Enemy, attack: ActiveAttack)
 	while Workspace:GetServerTimeNow() < deadline do
 		if attack.interrupted or not enemy.alive then
@@ -440,6 +469,11 @@ local function launchProjectile(enemy: EnemyAI.Enemy, attack: ActiveAttack, proj
 
 	return flight
 end
+
+--[[ Throwing an attack ]]
+
+-- The loop itself: one strike, then however many links follow it. Everything
+-- above is what a strike *does*; this is when it happens.
 
 -- What a single strike did, so `runChain` can decide whether to keep going.
 --

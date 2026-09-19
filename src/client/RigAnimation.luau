@@ -105,6 +105,8 @@ export type Controller = {
 	twistShoulder: number,
 }
 
+--[[ Building a controller ]]
+
 local function clock(): number
 	return os.clock()
 end
@@ -182,6 +184,10 @@ function RigAnimation.jointCount(controller: Controller): number
 	return count
 end
 
+--[[ Tracks, fades and time ]]
+
+-- The internals both layers share.
+
 -- The published version of an animation, loaded once, if it has one.
 local function publishedTrack(controller: Controller, name: string): AnimationTrack?
 	local id = AnimationIds.get(controller.rigId, name)
@@ -236,6 +242,10 @@ local function actionTime(layer: Layer, now: number): number
 	end
 	return elapsed * layer.timeScale
 end
+
+--[[ The base layer ]]
+
+-- The looping one: idle, walk. Replaced rather than stacked.
 
 function RigAnimation.setBase(controller: Controller, name: string, speed: number?)
 	controller.baseSpeed = speed or 1
@@ -304,6 +314,11 @@ function RigAnimation.currentBase(controller: Controller): string?
 	local base = controller.base
 	return base and base.name
 end
+
+--[[ The action layer ]]
+
+-- One-shot: an attack, a stagger, a death. Poses only the parts it animates,
+-- and the base keeps moving everything else.
 
 function RigAnimation.playAction(controller: Controller, name: string, options: ActionOptions?)
 	local opts: ActionOptions = options or {}
@@ -393,6 +408,8 @@ local function canHold(layer: Layer, now: number): boolean
 	return not (windup and layer.anim.impact and now - layer.startedAt < windup)
 end
 
+--[[ Poses to CFrames ]]
+
 local function toCFrame(values: KeyframeMath.PoseValues, scale: number): CFrame
 	return CFrame.new(values.px * scale, values.py * scale, values.pz * scale)
 		* CFrame.Angles(math.rad(values.rx), math.rad(values.ry), math.rad(values.rz))
@@ -429,6 +446,15 @@ function RigAnimation.setTwist(controller: Controller, hip: number, shoulder: nu
 	controller.twistHip = hip
 	controller.twistShoulder = shoulder
 end
+
+--[[ The frame ]]
+
+-- Where the two layers actually become a pose. This is the seam anything
+-- layering on top of animation hooks into: `controller.lastPose` below is the
+-- composed result, after base, action and crossfade, before it becomes
+-- CFrames. Note there are two application branches -- an external rig blends
+-- over what the Animator already wrote, an owned one is posed directly -- so
+-- anything overriding a joint has to do it in both.
 
 -- Advance one frame and pose the rig. Call from PreSimulation.
 function RigAnimation.step(controller: Controller, deltaTime: number)
