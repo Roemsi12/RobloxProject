@@ -33,7 +33,11 @@ local ROBLOX_API: RigAssembly.Api = {
 	Enum = Enum,
 }
 
-export type EnemyState = "idle" | "telegraph" | "staggered" | "flinched" | "dead"
+-- "carry" is the gap between two links of a chain: the previous attack has
+-- resolved and the next tell has not started. It is deliberately distinct from
+-- "telegraph", because the two differ in exactly one way that matters -- an
+-- enemy may reposition during a carry and may not during a wind-up.
+export type EnemyState = "idle" | "telegraph" | "carry" | "staggered" | "flinched" | "dead"
 
 -- Receives the player who landed the killing blow, or nil.
 export type DeathCallback = (killer: Player?) -> ()
@@ -179,8 +183,15 @@ function EnemyAI.step(enemy: Enemy, targetPosition: Vector3, deltaTime: number)
 	end
 
 	-- An enemy mid-windup is committed: letting it reposition during the
-	-- telegraph would make the parry beat unreadable.
-	if enemy.state ~= "idle" then
+	-- telegraph would make the parry beat unreadable, since the hit would
+	-- land somewhere other than where the tell said it would.
+	--
+	-- A carry is the other half of that argument rather than an exception to
+	-- it. Between two links of a chain there is no tell on screen yet, so
+	-- there is no beat to make unreadable -- and an enemy rooted for the whole
+	-- of a three-link flurry would make "step back after the first hit" the
+	-- answer to every chain in the game.
+	if enemy.state ~= "idle" and enemy.state ~= "carry" then
 		return
 	end
 

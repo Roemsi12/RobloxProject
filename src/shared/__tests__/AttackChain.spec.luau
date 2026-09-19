@@ -82,6 +82,40 @@ describe("AttackChain timing", function()
 		end
 	end)
 
+
+	-- The invariant that makes the seam work on screen rather than only on
+	-- paper.
+	--
+	-- A strike that carries into another holds its carry pose until its own
+	-- animation ends, which is `impact + RECOVER_DURATION`. The link then
+	-- crossfades out of whatever the rig is holding at that moment. So long as
+	-- the link starts inside that window, it starts from the carry pose and
+	-- the blend is the no-op the seam tests prove it to be.
+	--
+	-- If the link started *after* it, the rig would visibly stand back up and
+	-- then wind again -- the exact stutter the whole no-anticipation-beat
+	-- design exists to avoid, and it would not fail any other test here.
+	-- Currently the gap tops out around 0.44s against a 0.8s hold, so there is
+	-- room; this fails if RECOVER_DURATION is lowered or a floor is raised
+	-- enough to close it.
+	it("starts every link while the previous carry pose is still held", function()
+		for enemyId, def in EnemyDefs do
+			for openerId, opener in def.attacks do
+				for _, linkId in AttackChain.candidates(def, openerId, def.preferredRange, {}, NOW) do
+					local link = def.attacks[linkId]
+					local previousImpact = NOW + opener.telegraphDuration
+					local timing = AttackChain.linkTiming(previousImpact, link.leadTime, link.parryable)
+					local gap = timing.startsAt - previousImpact
+
+					check(
+						`{enemyId} {openerId}->{linkId} waits {math.floor(gap * 1000) / 1000}s, `
+							.. `carry is held for {CombatConstants.RECOVER_DURATION}s`,
+						gap <= CombatConstants.RECOVER_DURATION
+					)
+				end
+			end
+		end
+	end)
 	it("never starts a link before its carry pose has been seen", function()
 		for _, def in EnemyDefs do
 			for openerId, opener in def.attacks do

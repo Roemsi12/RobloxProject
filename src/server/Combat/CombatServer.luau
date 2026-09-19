@@ -527,11 +527,23 @@ local function runStrike(enemy: EnemyAI.Enemy, attackId: string, context: Strike
 			attackDef.leadTime,
 			attackDef.parryable
 		)
+		-- "carry", not "telegraph". The only difference between the two is
+		-- that an enemy may reposition during a carry: there is no tell on
+		-- screen to make unreadable yet, and a Shambler rooted for a whole
+		-- three-link flurry would make stepping back the answer to every
+		-- chain. It also keeps `runEnemyLoop` out, since that only starts an
+		-- attack on an idle enemy.
+		enemy.state = "carry"
+
 		local waitFor = timing.startsAt - Workspace:GetServerTimeNow()
 		if waitFor > 0 then
 			task.wait(waitFor)
 		end
-		if not enemy.alive or enemy.state ~= "telegraph" then
+
+		-- Anything that moved the enemy off "carry" during the gap -- a flinch
+		-- from a player hitting into the flurry, a stagger, death -- ends the
+		-- chain here. That is what makes hitting into a chain break it.
+		if not enemy.alive or enemy.state ~= "carry" then
 			return { outcome = "gone", impactTime = 0, seed = seed }
 		end
 	end
@@ -674,6 +686,16 @@ local function runChain(enemy: EnemyAI.Enemy, openerId: string)
 		-- flurry to break it is the aggressive answer to one, and it only
 		-- works because this stops here.
 		if result.outcome ~= "landed" then
+			-- ...except "gone", which covers an attack abandoned rather than
+			-- answered -- a thrown attack whose target walked out of reach
+			-- before it let go. Nothing has moved the enemy out of
+			-- "telegraph" in that case, and `runEnemyLoop` only ever acts on
+			-- an idle enemy, so leaving it would freeze that enemy for good:
+			-- no attacks, no movement, until something killed it. Guarded, so
+			-- it cannot clobber a stagger or a flinch that did run.
+			if enemy.alive and enemy.state == "telegraph" then
+				enemy.state = "idle"
+			end
 			return
 		end
 
@@ -775,7 +797,11 @@ local function flinch(enemy: EnemyAI.Enemy, now: number)
 			-- which is what makes baiting an attack out worth doing.
 			task.spawn(holdEnemyState, enemy, "flinched", "flinch", CombatConstants.ENEMY_FLINCH_DURATION)
 		end
-	elseif enemy.state == "idle" then
+	elseif enemy.state == "idle" or enemy.state == "carry" then
+		-- "carry" is the gap between two links of a chain. Breaking one by
+		-- hitting into it is the aggressive answer to a flurry, and it works
+		-- because the flinch moves the enemy off "carry", which is the exact
+		-- condition the next link checks before it fires.
 		task.spawn(holdEnemyState, enemy, "flinched", "flinch", CombatConstants.ENEMY_FLINCH_DURATION)
 	else
 		return
