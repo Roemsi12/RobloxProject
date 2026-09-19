@@ -459,8 +459,13 @@ local function readableLead(parryable: boolean): (number, number)
 	end
 
 	-- The tightest window in the game sets the band, so every class can answer
-	-- every attack. The Assassin's is deliberately the narrowest, and it is the
-	-- one that decides this.
+	-- every attack. Deliberately not named here: which class is narrowest is a
+	-- tuning decision that has already moved once, and a comment naming one
+	-- goes stale silently. The loop below finds it.
+	--
+	-- Class identity lives in how *wide* the window is, not in whether the
+	-- attack can be read at all. A class with tight frames has to be precise;
+	-- it should never be the class that simply cannot answer.
 	local lowest, highest = 0, math.huge
 	for _, weapon in WeaponDefs do
 		lowest = math.max(lowest, slow - weapon.parry.lateTolerance)
