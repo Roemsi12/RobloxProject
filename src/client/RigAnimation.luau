@@ -84,6 +84,14 @@ export type Controller = {
 	fadeFrom: PoseMap?,
 	fadeStart: number,
 	lastPose: PoseMap,
+	-- An overlay rig's base (a player's stance or idle) as it looked when the
+	-- base last changed, and when that change started. Overlay rigs get no
+	-- `fadeFrom`: that one blends a pose the rig owns outright, and here the
+	-- Animator owns most of the joints. Without this, walking out of a planted
+	-- idle snaps the legs from the idle's stance to the walk in one frame.
+	baseFadeFrom: PoseMap?,
+	baseFadeStart: number,
+	lastBasePose: PoseMap,
 	written: { [string]: boolean },
 	tracks: { [string]: AnimationTrack },
 	-- Hit-stop: the rig holds its pose until this clock time.
@@ -151,6 +159,9 @@ function RigAnimation.new(model: Model, rigId: string, external: boolean): Contr
 		fadeFrom = nil,
 		fadeStart = 0,
 		lastPose = {},
+		baseFadeFrom = nil,
+		baseFadeStart = 0,
+		lastBasePose = {},
 		written = {},
 		tracks = {},
 		frozenUntil = 0,
@@ -256,6 +267,12 @@ function RigAnimation.setBase(controller: Controller, name: string, speed: numbe
 		beginFade(controller)
 	end
 
+	-- Overlay rigs blend from wherever the outgoing base had got to.
+	if overlaysAnimator(controller) and current then
+		controller.baseFadeFrom = controller.lastBasePose
+		controller.baseFadeStart = clock()
+	end
+
 	controller.base = {
 		name = name,
 		anim = anim,
@@ -274,6 +291,10 @@ function RigAnimation.clearBase(controller: Controller)
 	local current = controller.base
 	if current and current.track then
 		current.track:Stop(CROSSFADE)
+	end
+	if overlaysAnimator(controller) and current then
+		controller.baseFadeFrom = controller.lastBasePose
+		controller.baseFadeStart = clock()
 	end
 	controller.base = nil
 end
@@ -456,6 +477,17 @@ function RigAnimation.step(controller: Controller, deltaTime: number)
 			pose = KeyframeMath.sample(base.anim, base.phase)
 		end
 	end
+
+	local baseFadeFrom = controller.baseFadeFrom
+	if baseFadeFrom then
+		local progress = (now - controller.baseFadeStart) / CROSSFADE
+		if progress >= 1 then
+			controller.baseFadeFrom = nil
+		else
+			overlayBase = KeyframeMath.blend(baseFadeFrom, overlayBase, progress)
+		end
+	end
+	controller.lastBasePose = overlayBase
 
 	if action then
 		local t = actionTime(action, now)

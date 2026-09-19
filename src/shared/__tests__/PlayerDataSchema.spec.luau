@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local EconomyDefs = require(Shared.EconomyDefs)
+local AppearanceDefs = require(Shared.AppearanceDefs)
 local PlayerDataSchema = require(Shared.PlayerDataSchema)
 
 local JestGlobals = require(ReplicatedStorage.DevPackages.JestGlobals)
@@ -25,6 +26,7 @@ local function validRecord(): { [string]: any }
 		},
 		xp = 1500,
 		skills = { Staff = { kind_hand = 2 } },
+		appearance = AppearanceDefs.default(),
 	}
 end
 
@@ -39,6 +41,7 @@ describe("PlayerDataSchema.default", function()
 			inventory = {},
 			xp = 0,
 			skills = {},
+			appearance = AppearanceDefs.default(),
 		})
 	end)
 
@@ -46,6 +49,58 @@ describe("PlayerDataSchema.default", function()
 		local a = PlayerDataSchema.default()
 		a.coins = 99
 		expect(PlayerDataSchema.default().coins).toBe(0)
+	end)
+end)
+
+describe("PlayerDataSchema appearance", function()
+	it("gives a record with no look the default one", function()
+		local record = validRecord()
+		record.appearance = nil
+		expect(PlayerDataSchema.sanitize(record).appearance).toEqual(AppearanceDefs.default())
+	end)
+
+	-- The opposite of the rule for ids everywhere else in this file. An
+	-- unrecognised weapon may simply be newer than this server and is kept; an
+	-- unrecognised hairstyle is a character with no hair, so it falls back.
+	it("falls an unknown choice back without losing the rest of the look", function()
+		local record = validRecord()
+		record.appearance = {
+			build = "standard",
+			skin = "corpse",
+			hair = "something_this_server_has_never_heard_of",
+			hairColor = "white",
+			face = "hollowed",
+			marking = "scar",
+			garb = "plate",
+			garbColor = "iron",
+			trimColor = "gold",
+		}
+
+		local clean = PlayerDataSchema.sanitize(record).appearance
+		expect(clean.hair).toBe(AppearanceDefs.default().hair)
+		-- Everything the server does recognise survives.
+		expect(clean.skin).toBe("corpse")
+		expect(clean.face).toBe("hollowed")
+		expect(clean.garb).toBe("plate")
+		expect(clean.trimColor).toBe("gold")
+	end)
+
+	it("survives a look that isn't a record at all", function()
+		local record = validRecord()
+		record.appearance = "penguin"
+		expect(PlayerDataSchema.sanitize(record).appearance).toEqual(AppearanceDefs.default())
+	end)
+
+	-- Everyone who played before the mirror existed has a version-2 profile.
+	it("carries a pre-appearance profile forward", function()
+		local old = validRecord()
+		old.version = 2
+		old.appearance = nil
+
+		local data, status = PlayerDataSchema.migrate(old)
+		expect(status).toBe("ok")
+		expect(data.coins).toBe(old.coins)
+		expect(data.appearance).toEqual(AppearanceDefs.default())
 	end)
 end)
 

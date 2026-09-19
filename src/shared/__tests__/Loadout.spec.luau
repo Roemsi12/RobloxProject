@@ -49,7 +49,7 @@ describe("Loadout class derivation", function()
 
 		expect(#ids).toBe(count)
 		-- Sorted, so debug keybinds map to the same weapon every session.
-		expect(ids).toEqual({ "Daggers", "Staff", "SwordAndShield" })
+		expect(ids).toEqual({ "Bow", "Daggers", "Focus", "Greataxe", "Rapier", "Staff", "SwordAndShield" })
 	end)
 end)
 
@@ -216,11 +216,20 @@ describe("melee pacing", function()
 		end
 	end)
 
-	it("keeps the Assassin the fastest and the Tank the slowest", function()
+	-- The class pass added weapons at both ends of this: the Berserker is
+	-- slower than the Tank now, and nothing is faster than the Assassin.
+	it("keeps the Assassin the fastest and the Berserker the slowest", function()
 		local function cycle(weaponId: string): number
 			return Loadout.swingTiming(WeaponDefs[weaponId].attack, 1).readyAfter
 		end
 		expect(cycle("Daggers")).toBeLessThan(cycle("Staff"))
 		expect(cycle("Staff")).toBeLessThan(cycle("SwordAndShield"))
+		expect(cycle("SwordAndShield")).toBeLessThan(cycle("Greataxe"))
+
+		local fastest, slowest = "Daggers", "Greataxe"
+		for weaponId in WeaponDefs do
+			expect({ weaponId, cycle(weaponId) >= cycle(fastest) }).toEqual({ weaponId, true })
+			expect({ weaponId, cycle(weaponId) <= cycle(slowest) }).toEqual({ weaponId, true })
+		end
 	end)
 end)

@@ -31,6 +31,7 @@ local Shared = ReplicatedStorage.Shared
 local PlayerDataSchema = require(Shared.PlayerDataSchema)
 local Remotes = require(Shared.Remotes)
 
+local AppearanceService = require(script.Parent.AppearanceService)
 local CurrencyService = require(script.Parent.Economy.CurrencyService)
 local ProgressionService = require(script.Parent.Progression.ProgressionService)
 local EquipService = require(script.Parent.EquipService)
@@ -205,6 +206,7 @@ local function snapshot(player: Player): PlayerDataSchema.PlayerData
 		inventory = InventoryService.snapshot(player),
 		xp = xp,
 		skills = skills,
+		appearance = AppearanceService.snapshot(player),
 	})
 end
 
@@ -302,6 +304,10 @@ local function hydrate(player: Player, data: PlayerDataSchema.PlayerData)
 	CurrencyService.hydrate(player, data.coins, data.crystals)
 	ProgressionService.hydrate(player, data.xp, data.skills)
 	InventoryService.hydrate(player, data.inventory)
+	-- Last of the four: it respawns the character to put the new body on, and
+	-- a character rebuilt before the others have hydrated would come back
+	-- holding nothing.
+	AppearanceService.hydrate(player, data.appearance)
 end
 
 local function releaseServices(player: Player)
@@ -309,6 +315,7 @@ local function releaseServices(player: Player)
 	CurrencyService.release(player)
 	ProgressionService.release(player)
 	InventoryService.release(player)
+	AppearanceService.release(player)
 end
 
 local function begin(player: Player, data: PlayerDataSchema.PlayerData, persistent: boolean)

@@ -208,6 +208,197 @@ local ABILITIES: { [string]: AbilityDef } = {
 		arcDegrees = 360,
 		stagger = 1.2,
 	},
+	--[[ Greataxe — the Berserker ]]
+
+	-- Fury's end. A Berserker's problem is that everything it does is slow;
+	-- this is the one thing it does that is not.
+	Bloodlust = {
+		id = "Bloodlust",
+		name = "Bloodlust",
+		description = "Swing through everything within reach, and keep swinging.",
+		kind = "burst",
+		cooldown = 18,
+		windup = 0.32,
+		power = 30,
+		duration = 0,
+		radius = 15,
+		arcDegrees = 360,
+		stagger = 1.4,
+	},
+
+	-- Hide's end. Not a shield — a refusal to stop.
+	Ironhide = {
+		id = "Ironhide",
+		name = "Ironhide",
+		description = "Stop feeling it for a while.",
+		kind = "ward",
+		cooldown = 28,
+		windup = 0.3,
+		power = 0.35,
+		duration = 7,
+		radius = 0,
+		arcDegrees = 360,
+		stagger = 0,
+	},
+
+	-- Ruin's end: the axe into the floor, and the floor answering.
+	Earthsplitter = {
+		id = "Earthsplitter",
+		name = "Earthsplitter",
+		description = "Bury the axe in the ground. Everything standing on it stops standing.",
+		kind = "burst",
+		cooldown = 22,
+		windup = 0.5,
+		power = 42,
+		duration = 0,
+		radius = 18,
+		arcDegrees = 360,
+		stagger = 2.4,
+	},
+
+	--[[ Rapier — the Duelist ]]
+
+	-- Form's end. A Duelist in form is not harder to hit; they are harder to
+	-- hit *usefully*.
+	PerfectForm = {
+		id = "PerfectForm",
+		name = "Perfect Form",
+		description = "Settle into guard. Little of what lands means anything for a while.",
+		kind = "ward",
+		cooldown = 24,
+		windup = 0.25,
+		power = 0.45,
+		duration = 5,
+		radius = 0,
+		arcDegrees = 360,
+		stagger = 0,
+	},
+
+	-- Riposte's end: closing the distance is the whole fight for this weapon.
+	Lunge = {
+		id = "Lunge",
+		name = "Lunge",
+		description = "Cover the ground between you in one step, point first.",
+		kind = "blink",
+		cooldown = 13,
+		windup = 0.22,
+		power = 30,
+		duration = 0,
+		radius = 34,
+		arcDegrees = 90,
+		stagger = 1.0,
+	},
+
+	-- Point's end. One thrust, through everything in a line.
+	Pierce = {
+		id = "Pierce",
+		name = "Pierce",
+		description = "One thrust, straight through whatever is in front of it.",
+		kind = "burst",
+		cooldown = 15,
+		windup = 0.28,
+		power = 40,
+		duration = 0,
+		radius = 20,
+		arcDegrees = 35,
+		stagger = 1.2,
+	},
+
+	--[[ Bow — the Ranger ]]
+
+	-- Hunt's end: a Ranger picks the fight, and this is picking it.
+	HuntersMark = {
+		id = "HuntersMark",
+		name = "Hunter's Mark",
+		description = "Put a shaft through whatever is ahead, and leave it reeling.",
+		kind = "burst",
+		cooldown = 12,
+		windup = 0.35,
+		power = 36,
+		duration = 0,
+		radius = 60,
+		arcDegrees = 20,
+		stagger = 1.6,
+	},
+
+	-- Quiver's end: the answer to being found by more than one thing.
+	Volley = {
+		id = "Volley",
+		name = "Volley",
+		description = "Empty the quiver into the space in front of you.",
+		kind = "burst",
+		cooldown = 20,
+		windup = 0.45,
+		power = 26,
+		duration = 0,
+		radius = 58,
+		arcDegrees = 110,
+		stagger = 1.0,
+	},
+
+	-- Flight's end, and the one a Ranger actually needs: distance, back.
+	Disengage = {
+		id = "Disengage",
+		name = "Disengage",
+		description = "Put ground between you and whatever closed it.",
+		kind = "blink",
+		cooldown = 14,
+		windup = 0.2,
+		power = 18,
+		duration = 0,
+		radius = 56,
+		arcDegrees = 180,
+		stagger = 0.8,
+	},
+
+	--[[ Focus — the Mage ]]
+
+	-- Flame's end. The Focus does not hit hard; this does.
+	Cinderburst = {
+		id = "Cinderburst",
+		name = "Cinderburst",
+		description = "The air around you catches, all at once.",
+		kind = "burst",
+		cooldown = 17,
+		windup = 0.4,
+		power = 38,
+		duration = 0,
+		radius = 20,
+		arcDegrees = 360,
+		stagger = 1.5,
+	},
+
+	-- Veil's end: the Mage's answer to being reached.
+	MirrorWard = {
+		id = "MirrorWard",
+		name = "Mirror Ward",
+		description = "Stand behind something that is not there.",
+		kind = "ward",
+		cooldown = 26,
+		windup = 0.3,
+		power = 0.5,
+		duration = 5,
+		radius = 0,
+		arcDegrees = 360,
+		stagger = 0,
+	},
+
+	-- Weave's end. A Mage is not a Healer, and this is deliberately less than
+	-- a Healer's — but a group with neither is a group that dies to chip.
+	Wellspring = {
+		id = "Wellspring",
+		name = "Wellspring",
+		description = "Open a seam of something kinder, and let everyone near it drink.",
+		kind = "mend",
+		cooldown = 24,
+		windup = 0.35,
+		power = 30,
+		duration = 0,
+		radius = 22,
+		arcDegrees = 360,
+		stagger = 0,
+	},
+
 }
 
 function AbilityDefs.get(abilityId: string): AbilityDef?

@@ -1,7 +1,7 @@
 --!strict
 -- Combat animations on players' avatars: each weapon's fighting stance under
 -- walking and idling, its combo swings and critical, the guard held while
--- blocking, feints, the dodge, flinches and guard breaks.
+-- blocking, feints, the dodge roll, flinches and guard breaks.
 --
 -- Every player's stance comes from the weapon their character carries (an
 -- attribute set by the server's WeaponVisuals). Other players' actions come
@@ -44,6 +44,8 @@ type Tracked = {
 	shoulder: number,
 	-- Last frame's answer, which is what gives the reversal its hysteresis.
 	reversed: boolean,
+	-- Whether the feet are currently planted, likewise.
+	planted: boolean,
 }
 
 local localPlayer = Players.LocalPlayer
@@ -59,11 +61,25 @@ local function rootOf(character: Model): BasePart?
 	return character:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
--- The stance follows whatever weapon the character is carrying.
-local function refreshStance(entry: Tracked)
+-- The base a character should be holding: the planted idle when they are
+-- standing still, the walking stance when they are not.
+--
+-- Two animations rather than one because they are allowed different things. A
+-- stance must leave the hips and legs to Roblox's walk cycle; a planted idle
+-- owns the whole body, which is the only way the feet end up where a fighter
+-- would actually put them. RigAnimation cross-fades between the two.
+local function baseFor(entry: Tracked): string?
 	local weaponId = entry.character:GetAttribute(WeaponModelDefs.WEAPON_ATTRIBUTE)
-	if typeof(weaponId) == "string" then
-		RigAnimation.setBase(entry.controller, AnimationDefs.stance(weaponId))
+	if typeof(weaponId) ~= "string" then
+		return nil
+	end
+	return if entry.planted then AnimationDefs.idle(weaponId) else AnimationDefs.stance(weaponId)
+end
+
+local function refreshStance(entry: Tracked)
+	local wanted = baseFor(entry)
+	if wanted then
+		RigAnimation.setBase(entry.controller, wanted)
 	elseif RigAnimation.currentBase(entry.controller) then
 		RigAnimation.clearBase(entry.controller)
 	end
@@ -98,6 +114,7 @@ local function onCharacterAdded(player: Player, character: Model)
 		hip = 0,
 		shoulder = 0,
 		reversed = false,
+		planted = true,
 	}
 	tracked[player] = entry
 
@@ -110,6 +127,11 @@ local function onCharacterAdded(player: Player, character: Model)
 end
 
 --[[ Strafing ]]
+
+-- The four rolls all start "roll_".
+local function isRoll(name: string?): boolean
+	return name ~= nil and string.sub(name, 1, 5) == "roll_"
+end
 
 -- Roblox's Animate script names its tracks after the Animation instances it
 -- loads: "WalkAnim", "RunAnim". Matching on the name is how we find the cycle
@@ -167,14 +189,20 @@ local function updateStrafe(player: Player, entry: Tracked, deltaTime: number)
 	local humanoid = entry.character:FindFirstChildOfClass("Humanoid")
 	local root = rootOf(entry.character)
 
-	local motion: LocomotionMath.Motion
-	if humanoid and root and humanoid.Health > 0 then
-		local move = humanoid.MoveDirection
-		local facing = root.CFrame
+	-- Square, and unwinding: dead, not assembled yet, or rolling.
+	--
+	-- A roll turns the hips itself, and turns them a long way. The strafe twist
+	-- is laid over the same joint, so leaving it on would swing the tumble off
+	-- its axis — a forward roll going over one corner. At TURN_RATE the twist
+	-- is gone well inside the plant, and the roll has the hips to itself.
+	local alive = humanoid ~= nil and root ~= nil and humanoid.Health > 0
+	local steering = alive and not isRoll(RigAnimation.currentAction(entry.controller))
+
+	local motion: LocomotionMath.Motion = { angle = nil, moving = false, reversed = false }
+	if steering then
+		local move = (humanoid :: Humanoid).MoveDirection
+		local facing = (root :: BasePart).CFrame
 		motion = LocomotionMath.resolve(facing.LookVector:Dot(move), facing.RightVector:Dot(move), entry.reversed)
-	else
-		-- Dead, or not assembled yet: unwind to square.
-		motion = { angle = nil, moving = false, reversed = false }
 	end
 
 	entry.reversed = motion.reversed
@@ -183,6 +211,24 @@ local function updateStrafe(player: Player, entry: Tracked, deltaTime: number)
 	entry.hip = LocomotionMath.approach(entry.hip, goal.hip, deltaTime)
 	entry.shoulder = LocomotionMath.approach(entry.shoulder, goal.shoulder, deltaTime)
 	RigAnimation.setTwist(entry.controller, entry.hip, entry.shoulder)
+
+	-- The stance breathes at the pace the character is actually going. Read
+	-- from the assembly's own velocity rather than from MoveDirection, which is
+	-- a unit vector and says nothing about speed — and which is empty for a
+	-- character being carried along by a dodge's push.
+	if root then
+		local velocity = root.AssemblyLinearVelocity
+		local pace = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+		entry.planted = LocomotionMath.planted(pace, entry.planted)
+
+		local wanted = baseFor(entry)
+		if wanted then
+			-- A planted idle keeps its own tempo: it is a character standing
+			-- still, and nothing about standing still should speed up.
+			local tempo = if entry.planted then 1 else LocomotionMath.stanceTempo(pace)
+			RigAnimation.setBase(entry.controller, wanted, tempo)
+		end
+	end
 
 	if player == localPlayer and humanoid then
 		setCycleDirection(humanoid, motion.moving and motion.reversed)
@@ -221,7 +267,7 @@ local function whooshLater(entry: Tracked, weaponId: string, windup: number)
 	end)
 end
 
-local function play(player: Player, action: string, weaponId: string, windup: number?, step: number?)
+local function play(player: Player, action: string, weaponId: string, windup: number?, step: number?, direction: string?)
 	local entry = tracked[player]
 	if not entry or entry.character ~= player.Character then
 		return
@@ -265,7 +311,10 @@ local function play(player: Player, action: string, weaponId: string, windup: nu
 		end
 	elseif action == "dodge" then
 		guardingPlayers[player] = nil
-		RigAnimation.playAction(controller, AnimationDefs.DODGE)
+		-- A roll in the direction the body is travelling. An unknown direction
+		-- (an old client, or a dodge announced without one) rolls backwards,
+		-- which is what a standing dodge does anyway.
+		RigAnimation.playAction(controller, AnimationDefs.roll(direction or "back"))
 		local root = rootOf(entry.character)
 		if root then
 			SoundFX.playAt("dodge", root.Position)
@@ -275,8 +324,8 @@ end
 
 --[[ The local player, played on input by CombatClient ]]
 
-function PlayerAnimation.playLocal(action: string, weaponId: string, windup: number?, step: number?)
-	play(localPlayer, action, weaponId, windup, step)
+function PlayerAnimation.playLocal(action: string, weaponId: string, windup: number?, step: number?, direction: string?)
+	play(localPlayer, action, weaponId, windup, step, direction)
 end
 
 -- Freeze the local player's pose for a moment as their blow lands.
@@ -331,7 +380,7 @@ function PlayerAnimation.start()
 			return
 		end
 
-		play(player, payload.action, payload.weaponId, payload.windup, payload.step)
+		play(player, payload.action, payload.weaponId, payload.windup, payload.step, payload.direction)
 	end)
 
 	-- After Roblox's Animate script has posed each avatar for this frame.

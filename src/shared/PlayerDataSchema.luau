@@ -16,12 +16,13 @@
 --    this server. During a rollback, an older server loading and re-saving a
 --    profile must not delete progress made on content it hasn't heard of.
 
+local AppearanceDefs = require(script.Parent.AppearanceDefs)
 local EconomyDefs = require(script.Parent.EconomyDefs)
 local ProgressionDefs = require(script.Parent.ProgressionDefs)
 
 local PlayerDataSchema = {}
 
-PlayerDataSchema.CURRENT_VERSION = 2
+PlayerDataSchema.CURRENT_VERSION = 3
 
 -- Keeps a single record comfortably inside the DataStore value size limit.
 PlayerDataSchema.MAX_INVENTORY = 500
@@ -58,6 +59,9 @@ export type PlayerData = {
 	-- weaponId -> nodeId -> ranks. Per weapon for the same reason
 	-- upgradeLevels is: your weapon is your class (SkillTreeDefs).
 	skills: { [string]: { [string]: number } },
+	-- How their character looks. Every field is an id from AppearanceDefs,
+	-- which owns what those ids mean and what an unknown one falls back to.
+	appearance: AppearanceDefs.Look,
 }
 
 -- Which server currently owns a profile. Stored alongside the data.
@@ -82,6 +86,7 @@ function PlayerDataSchema.default(): PlayerData
 		inventory = {},
 		xp = 0,
 		skills = {},
+		appearance = AppearanceDefs.default(),
 	}
 end
 
@@ -209,6 +214,13 @@ function PlayerDataSchema.sanitize(raw: unknown): PlayerData
 		-- climb forever with nothing to show for it.
 		xp = ProgressionDefs.cap(toCount(record.xp, MAX_COUNT)),
 		skills = sanitizeSkills(record.skills),
+		-- Unlike the id rule above, a look is sanitised *down* to ids this
+		-- server knows. It has to be: an unknown hairstyle is not progress
+		-- being preserved, it is a character with no hair. AppearanceDefs
+		-- falls each unknown field back on its own rather than replacing the
+		-- whole look, so a newer server's choice of hair doesn't cost the
+		-- player their face as well.
+		appearance = AppearanceDefs.sanitize(record.appearance),
 	}
 end
 
@@ -223,6 +235,15 @@ local migrations: { [number]: (any) -> any } = {
 	-- copy across. The step exists to say that out loud, and because a
 	-- missing step is treated as corrupt data.
 	[1] = function(data: any): any
+		return data
+	end,
+
+	-- 2 -> 3: characters became the game's own body rather than the player's
+	-- Roblox avatar, so a look is saved. Everyone who played before it gets
+	-- the default one, which sanitize fills in — the same "nothing to copy
+	-- across, but say so" step as above. Their first visit to the mirror is
+	-- where they become someone.
+	[2] = function(data: any): any
 		return data
 	end,
 }

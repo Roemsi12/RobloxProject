@@ -28,6 +28,7 @@ local REMOTE_EVENTS = {
 	"EquipWeapon",
 	"SpendSkillPoint",
 	"ChestTakeItem",
+	"SetAppearance",
 
 	-- Server -> Client: combat
 	"EnemyTelegraphStart",
@@ -51,6 +52,8 @@ local REMOTE_EVENTS = {
 	"UpgradeResult",
 	"ProgressionChanged",
 	"LevelGained",
+	"AppearanceChanged",
+	"OpenAppearanceEditor",
 
 	-- Server -> Client: the dungeon run
 	"DungeonUpdated",

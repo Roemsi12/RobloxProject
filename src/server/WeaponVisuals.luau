@@ -17,12 +17,15 @@ local EquipService = require(script.Parent.EquipService)
 
 local WeaponVisuals = {}
 
--- R6 avatars have no hands or forearms; the nearest whole arm stands in.
+-- R6 avatars have no hands, forearms or a split torso; the nearest whole part
+-- stands in.
 local R6_FALLBACK: { [string]: string } = {
 	RightHand = "Right Arm",
 	LeftHand = "Left Arm",
 	LeftLowerArm = "Left Arm",
 	RightLowerArm = "Right Arm",
+	UpperTorso = "Torso",
+	LowerTorso = "Torso",
 }
 
 -- Where a hand holds things, if the avatar says.
@@ -174,12 +177,17 @@ local function attach(character: Model, weaponId: string, level: number)
 
 		-- Hands hold from their grip point when the avatar has one. On an R6
 		-- arm, the hand is at the bottom of the arm.
+		--
+		-- That shift is for hands only. A piece hanging off the torso — a
+		-- quiver, a sheath — is already placed against the middle of the part
+		-- it is on, and dropping it half a torso on an R6 body would put it
+		-- through the hips.
 		local anchor = CFrame.identity
 		local gripName = GRIP_ATTACHMENT[piece.attachTo]
 		local grip = gripName and part0:FindFirstChild(gripName)
 		if grip and grip:IsA("Attachment") then
 			anchor = CFrame.new(grip.Position)
-		elseif isFallback then
+		elseif isFallback and gripName then
 			anchor = CFrame.new(0, -part0.Size.Y / 2, 0)
 		end
 

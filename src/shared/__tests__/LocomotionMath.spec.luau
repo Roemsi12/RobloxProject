@@ -103,6 +103,97 @@ describe("LocomotionMath.twist", function()
 	end)
 end)
 
+describe("LocomotionMath.rollDirection", function()
+	it("rolls the way the body is going", function()
+		expect(LocomotionMath.rollDirection(1, 0)).toBe("forward")
+		expect(LocomotionMath.rollDirection(-1, 0)).toBe("back")
+		expect(LocomotionMath.rollDirection(0, 1)).toBe("right")
+		expect(LocomotionMath.rollDirection(0, -1)).toBe("left")
+	end)
+
+	-- Standing still, the dodge already steps straight back; the roll follows.
+	it("rolls backwards when standing still", function()
+		expect(LocomotionMath.rollDirection(0, 0)).toBe("back")
+		expect(LocomotionMath.rollDirection(0.01, -0.01)).toBe("back")
+	end)
+
+	it("takes whichever of the two dominates", function()
+		expect(LocomotionMath.rollDirection(1, 0.4)).toBe("forward")
+		expect(LocomotionMath.rollDirection(0.4, 1)).toBe("right")
+		expect(LocomotionMath.rollDirection(-1, 0.4)).toBe("back")
+		expect(LocomotionMath.rollDirection(-0.4, -1)).toBe("left")
+	end)
+
+	-- Exactly on the diagonal has to pick one and keep picking it, or a player
+	-- holding a diagonal gets a different roll every press.
+	it("is stable on the diagonal", function()
+		local first = LocomotionMath.rollDirection(1, 1)
+		expect(LocomotionMath.rollDirection(1, 1)).toBe(first)
+		expect(LocomotionMath.rollDirection(2, 2)).toBe(first)
+	end)
+
+	it("never returns anything but the four", function()
+		local allowed = { forward = true, back = true, left = true, right = true }
+		for forward = -2, 2, 0.5 do
+			for right = -2, 2, 0.5 do
+				local direction = LocomotionMath.rollDirection(forward, right)
+				expect({ forward, right, allowed[direction] == true }).toEqual({ forward, right, true })
+			end
+		end
+	end)
+end)
+
+describe("LocomotionMath.planted", function()
+	it("plants the feet at a standstill and picks them up at a walk", function()
+		expect(LocomotionMath.planted(0, false)).toBe(true)
+		expect(LocomotionMath.planted(12, true)).toBe(false)
+	end)
+
+	-- Without the gap, a character drifting at exactly the boundary swaps
+	-- between a planted idle and a walking stance every frame.
+	it("holds its answer through the gap between the two thresholds", function()
+		local between = (LocomotionMath.PLANT_BELOW + LocomotionMath.UNPLANT_ABOVE) / 2
+		expect(LocomotionMath.planted(between, true)).toBe(true)
+		expect(LocomotionMath.planted(between, false)).toBe(false)
+	end)
+
+	-- A character on a moving platform, or still settling out of a roll, never
+	-- reaches a true zero.
+	it("plants at a crawl rather than only at exactly zero", function()
+		expect(LocomotionMath.PLANT_BELOW > 0).toBe(true)
+		expect(LocomotionMath.planted(LocomotionMath.PLANT_BELOW / 2, false)).toBe(true)
+	end)
+end)
+
+describe("LocomotionMath.stanceTempo", function()
+	it("breathes at its authored tempo standing still", function()
+		expect(LocomotionMath.stanceTempo(0)).toBe(LocomotionMath.MIN_TEMPO)
+	end)
+
+	it("reaches full tempo at a full-pace run", function()
+		expect(LocomotionMath.stanceTempo(LocomotionMath.FULL_PACE)).toBeCloseTo(LocomotionMath.MAX_TEMPO)
+	end)
+
+	it("quickens with pace", function()
+		local slow = LocomotionMath.stanceTempo(4)
+		local quick = LocomotionMath.stanceTempo(12)
+		expect(slow < quick).toBe(true)
+		expect(slow > LocomotionMath.MIN_TEMPO).toBe(true)
+	end)
+
+	-- A dodge's push moves a character far faster than they can walk, and a
+	-- stance flapping at four times its tempo reads as panic.
+	it("never runs away with itself", function()
+		expect(LocomotionMath.stanceTempo(200)).toBe(LocomotionMath.MAX_TEMPO)
+	end)
+
+	-- Speed is a magnitude, but nothing should break if a caller hands it a
+	-- signed one.
+	it("treats negative speed as standing still", function()
+		expect(LocomotionMath.stanceTempo(-10)).toBe(LocomotionMath.MIN_TEMPO)
+	end)
+end)
+
 describe("LocomotionMath.approach", function()
 	it("moves toward the goal at the turn rate", function()
 		expect(LocomotionMath.approach(0, 90, 0.1)).toBeCloseTo(LocomotionMath.TURN_RATE * 0.1)

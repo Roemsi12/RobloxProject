@@ -74,8 +74,17 @@ local GATE_STAND_BACK = 13
 
 -- Where each station stands in its aisle.
 local ALTAR_X = -56
-local ALTAR_Z = { -42, 0, 42 }
+-- How far apart altars stand down the west aisle. An altar is sixteen studs
+-- across its steps and its braziers stand out to seventeen, so this is about
+-- the closest two can be without their fires meeting.
+local ALTAR_SPACING = 22
+-- The stretch of aisle altars may use: clear of the dais at the south end and
+-- the gate alcoves at the north.
+local ALTAR_Z_LIMIT = 68
 local FORGE_X = 56
+-- Opposite the first altar, across the hall from it.
+local MIRROR_X = 56
+local MIRROR_Z = -42
 local DUEL_AT = Vector3.new(52, 0, -66)
 
 -- The dais at the south end that players arrive on.
@@ -114,6 +123,10 @@ export type Lobby = {
 	-- Looks out of the forge's open front, the way BlacksmithService wants it.
 	forgeAnchor: CFrame,
 	duelAnchor: CFrame,
+	-- The looking glass, backed against the east aisle wall opposite the
+	-- altars: you decide who you are on one side of the hall and what you
+	-- fight with on the other.
+	mirrorAnchor: CFrame,
 }
 
 local part = Stonework.part
@@ -497,11 +510,29 @@ local function addNave(model: Model, centre: CFrame)
 	end
 end
 
+-- Evenly spaced down the aisle and centred on the hall, however many there
+-- are. Derived rather than listed because the size of the class roster is not
+-- this file's business: it is handed a count and lays out that many.
+local function altarOffsets(count: number): { number }
+	if count <= 0 then
+		return {}
+	end
+
+	-- Squeezed rather than overrun if a future roster outgrows the aisle.
+	local spacing = math.min(ALTAR_SPACING, (ALTAR_Z_LIMIT * 2) / math.max(count - 1, 1))
+	local offsets = {}
+	for index = 1, count do
+		table.insert(offsets, (index - 1 - (count - 1) / 2) * spacing)
+	end
+	return offsets
+end
+
 --[[ Build ]]
 
 -- `origin` is the floor centre of the hall in the world. `colors` is one
--- accent per gate, in the order the gates stand across the north wall.
-function LobbyBuilder.build(origin: CFrame, colors: { Color3 }): Lobby
+-- accent per gate, in the order the gates stand across the north wall, and
+-- `altarCount` how many class altars to make room for down the west aisle.
+function LobbyBuilder.build(origin: CFrame, colors: { Color3 }, altarCount: number): Lobby
 	local centre = CFrame.new(origin.Position)
 
 	local model = Instance.new("Model")
@@ -533,7 +564,7 @@ function LobbyBuilder.build(origin: CFrame, colors: { Color3 }): Lobby
 	end
 
 	local altarAnchors = {}
-	for _, z in ALTAR_Z do
+	for _, z in altarOffsets(altarCount) do
 		local stand = (centre * CFrame.new(ALTAR_X, 0, z)).Position
 		table.insert(altarAnchors, CFrame.lookAt(stand, (centre * CFrame.new(0, 0, z)).Position))
 	end
@@ -556,6 +587,10 @@ function LobbyBuilder.build(origin: CFrame, colors: { Color3 }): Lobby
 		gateAnchors = gateAnchors,
 		altarAnchors = altarAnchors,
 		forgeAnchor = CFrame.lookAt((centre * CFrame.new(FORGE_X, 0, 0)).Position, position),
+		mirrorAnchor = CFrame.lookAt(
+			(centre * CFrame.new(MIRROR_X, 0, MIRROR_Z)).Position,
+			(centre * CFrame.new(0, 0, MIRROR_Z)).Position
+		),
 		duelAnchor = CFrame.lookAt(
 			(centre * CFrame.new(DUEL_AT)).Position,
 			(centre * CFrame.new(0, 0, DUEL_AT.Z)).Position

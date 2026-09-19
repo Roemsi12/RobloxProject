@@ -322,7 +322,13 @@ local FLOOR_Y = 0
 local SINK_TOLERANCE = 0.6
 local PLANTED_TOLERANCE = 0.35
 local LYING_MAX_HEIGHT = 1.5
-local SAMPLES = 24
+
+-- Sampled finely, because the thing this catches is usually brief. A roll that
+-- unwound its turn over three frames at the end put a head a full stud through
+-- the floor and still passed at 24 samples: the grid stepped straight over it.
+-- Every animation in the project clears the floor at this rate, so the cost is
+-- a moment of startup and the check stops depending on where the samples land.
+local SAMPLES = 96
 
 local FEET = { "RightFoot", "LeftFoot" }
 
@@ -383,11 +389,14 @@ for _, rigId in rigIds do
 				end
 			end
 
-			if name == "idle" then
+			-- Enemies' "idle" and players' "idle_<weapon>" alike: a planted
+			-- stance is the one animation where a foot hanging in the air or
+			-- pushed through the floor is on screen long enough to be seen.
+			if string.sub(name, 1, 4) == "idle" then
 				for _, foot in FEET do
 					local bottom = lowestPoint(world[foot], partsByName[foot].Size)
 					if math.abs(bottom - FLOOR_Y) > plantedTolerance then
-						problem(string.format("%s/idle: %s not planted (y=%.2f) at t=%.2f", rigId, foot, bottom, t))
+						problem(string.format("%s/%s: %s not planted (y=%.2f) at t=%.2f", rigId, name, foot, bottom, t))
 					end
 				end
 			end

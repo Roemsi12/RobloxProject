@@ -48,12 +48,23 @@ function AnimationDefs.stance(weaponId: string): string
 	return `stance_{weaponId}`
 end
 
+-- Players: the weapon's planted fighting stance, for standing still.
+--
+-- Separate from `stance` because it is allowed what a stance is not: the hips
+-- and the legs. A stance has to leave Roblox's walk cycle alone underneath it,
+-- which means the feet are never where a fighter would put them. Standing
+-- still there is no walk cycle worth protecting, so the whole body can settle
+-- into a real guard — weight back, feet apart, weapon up. PlayerAnimation
+-- swaps between the two as the character starts and stops moving.
+function AnimationDefs.idle(weaponId: string): string
+	return `idle_{weaponId}`
+end
+
 -- Players: the weapon's heavy attack.
 function AnimationDefs.critical(weaponId: string): string
 	return `critical_{weaponId}`
 end
 
-AnimationDefs.DODGE = "dodge"
 AnimationDefs.GUARD_BREAK = "guard_break"
 -- Players: the weapon's signature move (AbilityDefs). One animation for all
 -- three, because all three are the same shape — gather, then release.
@@ -68,6 +79,17 @@ end
 -- One swing of a weapon's combo (WeaponDefs attack.combo), counted from 1.
 function AnimationDefs.swing(weaponId: string, step: number): string
 	return `swing_{weaponId}_{step}`
+end
+
+-- Players: the dodge roll, in the direction the body is travelling
+-- (LocomotionMath.rollDirection). Four rolls rather than one dash, because a
+-- roll is the one move in the game that turns the whole body: played in the
+-- wrong direction it doesn't just look off, it points the tumble across the
+-- way the character is sliding.
+AnimationDefs.ROLL_DIRECTIONS = { "forward", "back", "left", "right" }
+
+function AnimationDefs.roll(direction: string): string
+	return `roll_{direction}`
 end
 
 --[[ Building blocks ]]
@@ -925,6 +947,164 @@ local function footwork(front: number, back: number, twist: number): Poses
 	}
 end
 
+--[[ Rolling ]]
+
+-- A combat roll: plant, tuck, go right over, and come up on your feet.
+--
+-- The whole body turns, which nothing else in this file does. `LowerTorso`
+-- rotates everything hanging off it, so `rx` sweeping to a full turn is the
+-- tumble itself, and `py` is the hips' height above where they stand.
+--
+-- The hips do not stay still while that happens, and getting that wrong is
+-- what makes a roll read as a rig spinning on a spit. A tucked body rolls like
+-- a wheel: its centre holds roughly one tuck-radius off the floor while the
+-- hips orbit that centre, riding up as the shoulders go down and dropping as
+-- the body comes over them. Which quarter is which differs between rolling
+-- forwards and backwards, so the two carry different height curves — see
+-- FORWARD_HIPS. None of those numbers is a guess: the workbench solves every
+-- part of every animation against the floor, so a roll that drags a shoulder
+-- through the ground fails the build instead of shipping.
+--
+-- Direction is a turn plus a sign, not four hand-authored rolls. `turn` aims
+-- the body (`ry`, applied inside the tumble because CFrame.Angles multiplies
+-- Rx * Ry * Rz, so the body is aimed first and then tumbled about the
+-- character's own left-right axis), and `sign` picks which way it goes over.
+-- Forward and back are the same tuck spun opposite ways, because a spine curls
+-- the same way into both; the sideways pair are shoulder rolls, aimed on the
+-- diagonal rather than flat, which is how a body actually gets over its own
+-- side.
+
+-- How far the sideways rolls turn the body before going over. A flat 90 is a
+-- barrel roll, which reads as falling over; on the diagonal it reads as
+-- dropping a shoulder and going over it.
+local SHOULDER_TURN = 58
+
+-- The curl. Everything is measured from this: the tighter the tuck, the
+-- smaller the circle the head and heels travel, and the lower the hips can
+-- ride without either of them reaching the floor.
+--
+-- The spine folds much further than a spine really folds. It has to: the neck
+-- alone sits 1.5 studs from the hips, so a merely rounded back still swings
+-- the head a full 3 studs below them halfway over — through the floor, at any
+-- hip height low enough to look like a roll rather than a pirouette. Folding
+-- the chest down onto the thighs brings the head inside 1.7, and the whole
+-- tumble fits. It is on screen for about a fifth of a second.
+local function tuck(depth: number): Poses
+	local d = depth
+	return {
+		UpperTorso = { rx = -100 * d },
+		Head = { rx = -62 * d },
+		-- Arms drawn across the chest, out of the way of the floor.
+		RightUpperArm = { rx = -18 * d, rz = 38 * d },
+		LeftUpperArm = { rx = -18 * d, rz = -38 * d },
+		RightLowerArm = { rx = 104 * d },
+		LeftLowerArm = { rx = 104 * d },
+		-- Knees to the chest, shins folded back under the thighs.
+		RightUpperLeg = { rx = 96 * d },
+		LeftUpperLeg = { rx = 88 * d },
+		RightLowerLeg = { rx = -132 * d },
+		LeftLowerLeg = { rx = -126 * d },
+		RightFoot = { rx = 40 * d },
+		LeftFoot = { rx = 38 * d },
+	}
+end
+
+-- The tuck, turned and tumbled: `turn` degrees about Y, `angle` degrees of the
+-- roll so far, with the hips `height` studs below where they stand.
+local function tumble(turn: number, angle: number, height: number, depth: number): Poses
+	return merge(tuck(depth), {
+		LowerTorso = { rx = angle, ry = turn, py = height },
+	})
+end
+
+-- A crouched pose with the hips left where `crouch` put them, so the feet stay
+-- on the floor. Restating py is not optional: merge replaces a part's whole
+-- pose, so any LowerTorso pose laid over a crouch drops its height correction
+-- and drives the feet into the ground.
+local function crouched(angle: number, extra: Poses): Poses
+	local base = crouch(angle)
+	local hips = table.clone(extra.LowerTorso or {})
+	hips.py = (base.LowerTorso :: any).py
+	local out = table.clone(extra)
+	out.LowerTorso = hips
+	return merge(base, out)
+end
+
+-- How far the hips sit below standing at each quarter of the tumble.
+--
+-- Not the same going forwards and backwards, and this is the part that has to
+-- be measured rather than felt: the head passes the bottom of its arc early in
+-- a forward roll and late in a backward one, so the hips have to be up out of
+-- its way at opposite moments. Getting it wrong puts a head through the floor,
+-- which is why the workbench solves every one of these against it.
+local FORWARD_HIPS = { -0.62, -1.32, -1.08 }
+local BACK_HIPS = { -1.05, -1.12, -0.34 }
+
+local function roll(turn: number, sign: number): AnimationDef
+	local hips = if sign > 0 then BACK_HIPS else FORWARD_HIPS
+	-- The turn, completed. Every pose after the tumble carries it, and so does
+	-- the last keyframe, because the sampler interpolates these as plain
+	-- numbers: land on 0 and the body unwinds the way it came, spinning 285
+	-- degrees backwards over the three frames it had left to stand up in. A
+	-- full turn is the identity rotation, so a rig holding 360 is a rig
+	-- standing straight.
+	local turned = sign * 360
+
+	-- The plant: dropping into it, weight forward over a low, braced body. The
+	-- hands are what reach the floor first, so they lead.
+	local plant: Poses = crouched(52, {
+		LowerTorso = { ry = turn * 0.55 },
+		UpperTorso = { rx = -34 },
+		Head = { rx = 14 },
+		RightUpperArm = { rx = 52, rz = 22 },
+		LeftUpperArm = { rx = 52, rz = -22 },
+		RightLowerArm = { rx = 26 },
+		LeftLowerArm = { rx = 26 },
+	})
+
+	-- Landing: feet back under the body, still low, one beat before standing.
+	-- Coming out of a roll on straight legs is the single thing that makes one
+	-- look weightless.
+	local landing: Poses = crouched(44, {
+		LowerTorso = { rx = turned, ry = turn * 0.4 },
+		UpperTorso = { rx = -24 },
+		Head = { rx = 12 },
+		RightUpperArm = { rx = -16, rz = 30 },
+		LeftUpperArm = { rx = -22, rz = -26 },
+		RightLowerArm = { rx = 52 },
+		LeftLowerArm = { rx = 46 },
+	})
+
+	local rise: Poses = crouched(18, {
+		LowerTorso = { rx = turned },
+		UpperTorso = { rx = -8 },
+		RightUpperArm = { rx = -6, rz = 12 },
+		LeftUpperArm = { rx = -8, rz = -12 },
+		RightLowerArm = { rx = 22 },
+		LeftLowerArm = { rx = 20 },
+	})
+
+	return {
+		length = 0.62,
+		looped = false,
+		priority = "Action",
+		keyframes = {
+			kf(0, {}, "Out"),
+			kf(0.07, plant, "In"),
+			-- Over the shoulders, the hips riding up as they go: that rise is
+			-- what stops a tumble reading as a rig turning on a spit.
+			kf(0.15, tumble(turn, sign * 95, hips[1], 0.95), "Linear"),
+			-- Inverted and fully curled, the hips at their lowest.
+			kf(0.24, tumble(turn, sign * 190, hips[2], 1), "Linear"),
+			-- Coming round, the legs already unfolding to find the floor.
+			kf(0.33, tumble(turn, sign * 285, hips[3], 0.72), "Out"),
+			kf(0.42, landing),
+			kf(0.52, rise),
+			kf(0.62, { LowerTorso = { rx = turned } }),
+		},
+	}
+end
+
 -- A looping stance: the pose, breathing slightly. Upper body only, so it sits
 -- over Roblox's own walk and run.
 local function stanceLoop(pose: Poses): AnimationDef
@@ -943,6 +1123,60 @@ local function stanceLoop(pose: Poses): AnimationDef
 	end
 
 	local L = 2.4
+	return {
+		length = L,
+		looped = true,
+		priority = "Idle",
+		keyframes = {
+			kf(0, at(0, 0, 0)),
+			kf(L * 0.25, at(0.8, 0.2, 1)),
+			kf(L * 0.5, at(1, 0.8, 0)),
+			kf(L * 0.75, at(0.35, 1, -1)),
+			kf(L, at(0, 0, 0)),
+		},
+	}
+end
+
+-- A planted idle: a fighting stance with the feet actually in it.
+--
+-- `front` and `back` are how far each thigh swings (mirrored, so the right
+-- foot leads), `twist` how far the hips turn off square, and `pose` the upper
+-- body over it. The same three clocks as every other loop in this file —
+-- breath, the arms arriving late, a slow shift of weight — but here the weight
+-- shift reaches the legs too, because there is no walk cycle underneath to
+-- argue with: the knees soften and straighten as the weight moves between the
+-- feet, which is what stops a planted stance reading as a statue.
+local function idleLoop(pose: Poses, front: number, back: number, twist: number): AnimationDef
+	local footing = mirror(footwork(front, back, twist))
+	local drop = (footing.LowerTorso :: any).py or 0
+	local hipTurn = (footing.LowerTorso :: any).ry or 0
+
+	local function at(breath: number, lag: number, sway: number): Poses
+		local poses = merge(footing, pose)
+		-- Restated: merge replaces a part's whole pose, and the upper-body
+		-- pose above carries no hips, so without this the footwork's height
+		-- correction and hip turn are lost and the feet sink.
+		poses.LowerTorso = {
+			py = drop + math.abs(sway) * 0.06,
+			ry = hipTurn + sway * 1.2,
+			rz = sway * 1.6,
+		}
+
+		nudge(poses, "UpperTorso", -2 * breath, sway * 1.8, -sway * 0.8)
+		nudge(poses, "Head", -breath, -sway * 2.4, sway * 1.1)
+		nudge(poses, "RightUpperArm", 2 * lag, 0, sway)
+		nudge(poses, "LeftUpperArm", 2 * lag, 0, sway)
+		nudge(poses, "RightLowerArm", 1.5 * lag, 0, 0)
+		nudge(poses, "LeftLowerArm", 1.5 * lag, 0, 0)
+		-- The weight settling onto one leg and off the other.
+		nudge(poses, "RightUpperLeg", -sway * 1.4, 0, 0)
+		nudge(poses, "LeftUpperLeg", sway * 1.4, 0, 0)
+		nudge(poses, "RightLowerLeg", sway * 1.1, 0, 0)
+		nudge(poses, "LeftLowerLeg", -sway * 1.1, 0, 0)
+		return poses
+	end
+
+	local L = 3.2
 	return {
 		length = L,
 		looped = true,
@@ -1009,6 +1243,19 @@ local R15Player: { [string]: AnimationDef } = {
 		-- Sums with the arm above it to about -24: tip just clear of the floor.
 		RightHand = { rx = -42 },
 	})),
+
+	-- Standing still: side-on behind the shield, sword drawn back low and
+	-- across the body, ready to come up. The shield leads because that is what
+	-- this class is — the first thing an enemy meets is the board.
+	[AnimationDefs.idle("SwordAndShield")] = idleLoop(merge(SHIELD_BACK, {
+		UpperTorso = { rx = -4, ry = 26 },
+		Head = { ry = -30 },
+		LeftUpperArm = { rx = 62, rz = -16 },
+		LeftLowerArm = { rx = 74 },
+		RightUpperArm = { rx = -18, ry = 10, rz = 14 },
+		RightLowerArm = { rx = 34 },
+		RightHand = { rx = -30 },
+	}), 20, 16, 30),
 
 	-- Shield up in front of the face, sword held low and ready.
 	[AnimationDefs.guard("SwordAndShield")] = guardSnap({
@@ -1129,6 +1376,20 @@ local R15Player: { [string]: AnimationDef } = {
 		LeftHand = { rx = -96 },
 	}),
 
+	-- Standing still: low and coiled, nearly side-on, one blade forward at the
+	-- hip and the other held back in a reverse grip. Weight on the back foot,
+	-- so the whole pose reads as about to leave the spot it is on.
+	[AnimationDefs.idle("Daggers")] = idleLoop({
+		UpperTorso = { rx = -12, ry = 34 },
+		Head = { rx = 8, ry = -40 },
+		RightUpperArm = { rx = 26, ry = 16, rz = 10 },
+		RightLowerArm = { rx = 58 },
+		RightHand = { rx = -80 },
+		LeftUpperArm = { rx = -34, ry = -14, rz = -18 },
+		LeftLowerArm = { rx = 68 },
+		LeftHand = { rx = -104 },
+	}, 24, 20, 36),
+
 	-- Blades crossed in front of the face.
 	[AnimationDefs.guard("Daggers")] = guardSnap({
 		UpperTorso = { rx = -8 },
@@ -1243,6 +1504,18 @@ local R15Player: { [string]: AnimationDef } = {
 		LeftLowerArm = { rx = 22 },
 	}),
 
+	-- Standing still: the staff planted, both hands stacked on it, leaning a
+	-- little of the body's weight through it. The one idle in the game that is
+	-- resting rather than threatening, which is the point of the class.
+	[AnimationDefs.idle("Staff")] = idleLoop({
+		UpperTorso = { rx = 6, ry = 14 },
+		Head = { rx = -8, ry = -18 },
+		RightUpperArm = { rx = 14, ry = 8, rz = 9 },
+		RightLowerArm = { rx = 26 },
+		LeftUpperArm = { rx = 48, ry = -6, rz = -12 },
+		LeftLowerArm = { rx = 52 },
+	}, 12, 22, 18),
+
 	-- Staff raised level in front, both hands wide.
 	[AnimationDefs.guard("Staff")] = guardSnap({
 		UpperTorso = { rx = -6 },
@@ -1347,34 +1620,557 @@ local R15Player: { [string]: AnimationDef } = {
 		LeftLowerArm = { rx = 60 },
 	})),
 
+	--[[ Greataxe: the Berserker ]]
+
+	-- Everything this weapon does is heavy and late. The windups are longer
+	-- than anything else in the game and the follow-throughs carry the body
+	-- past where it meant to stop, because that overshoot is the only way a
+	-- swing reads as weighing something the swinger cannot quite control.
+
+	-- Carried on the shoulder, which is where a thing this heavy is carried.
+	[AnimationDefs.stance("Greataxe")] = stanceLoop({
+		UpperTorso = { rx = -6, ry = -14 },
+		Head = { ry = 16 },
+		RightUpperArm = { rx = -22, ry = -20, rz = 42 },
+		RightLowerArm = { rx = 118 },
+		LeftUpperArm = { rx = 14, rz = -8 },
+		LeftLowerArm = { rx = 30 },
+	}),
+
+	-- Standing still: the axe head down on the floor, both hands stacked on
+	-- the butt of the haft, leaning on it. The only idle in the game where the
+	-- weapon is touching the ground, because it is the only one heavy enough.
+	[AnimationDefs.idle("Greataxe")] = idleLoop({
+		UpperTorso = { rx = 14, ry = 10 },
+		Head = { rx = -16, ry = -14 },
+		RightUpperArm = { rx = 36, ry = 6, rz = 12 },
+		RightLowerArm = { rx = 30 },
+		LeftUpperArm = { rx = 42, ry = -8, rz = -14 },
+		LeftLowerArm = { rx = 38 },
+	}, 16, 24, 14),
+
+	-- The haft held across, which is all this weapon can do to block.
+	[AnimationDefs.guard("Greataxe")] = guardSnap({
+		UpperTorso = { rx = -10, ry = -8 },
+		RightUpperArm = { rx = 84, rz = 34 },
+		RightLowerArm = { rx = 52 },
+		LeftUpperArm = { rx = 96, rz = -28 },
+		LeftLowerArm = { rx = 48 },
+	}),
+
+	-- 1: a flat cleave, right to left, off the shoulder.
+	[AnimationDefs.swing("Greataxe", 1)] = strike(1.05, 0.46, 0.3, merge(footwork(10, 16, -34), {
+		UpperTorso = { rx = 8, ry = -62 },
+		Head = { ry = 34 },
+		RightUpperArm = { rx = 42, ry = 28, rz = 62 },
+		RightLowerArm = { rx = 86 },
+		LeftUpperArm = { rx = 30, rz = 26 },
+		LeftLowerArm = { rx = 74 },
+	}), merge(footwork(40, 26, 40), {
+		UpperTorso = { rx = -16, ry = 62 },
+		Head = { ry = -28 },
+		RightUpperArm = { rx = 78, ry = -20, rz = -44 },
+		RightLowerArm = { rx = 10 },
+		LeftUpperArm = { rx = 62, rz = -56 },
+		LeftLowerArm = { rx = 14 },
+	})),
+
+	-- 2: the cleave coming back the other way, using where 1 finished.
+	[AnimationDefs.swing("Greataxe", 2)] = strike(1.0, 0.44, 0.28, merge(footwork(12, 16, 38), {
+		UpperTorso = { rx = 6, ry = 60 },
+		Head = { ry = -30 },
+		RightUpperArm = { rx = 74, ry = -18, rz = -40 },
+		RightLowerArm = { rx = 74 },
+		LeftUpperArm = { rx = 58, rz = -52 },
+		LeftLowerArm = { rx = 68 },
+	}), merge(footwork(38, 26, -40), {
+		UpperTorso = { rx = -16, ry = -62 },
+		Head = { ry = 28 },
+		RightUpperArm = { rx = 50, ry = 26, rz = 66 },
+		RightLowerArm = { rx = 12 },
+		LeftUpperArm = { rx = 36, rz = 34 },
+		LeftLowerArm = { rx = 16 },
+	})),
+
+	-- 3: a rising cut, up through the body from low right.
+	[AnimationDefs.swing("Greataxe", 3)] = strike(0.98, 0.42, 0.26, merge(footwork(10, 20, -26), {
+		UpperTorso = { rx = 26, ry = -34 },
+		Head = { rx = -14, ry = 20 },
+		RightUpperArm = { rx = -34, ry = 14, rz = 30 },
+		RightLowerArm = { rx = 58 },
+		LeftUpperArm = { rx = -22, rz = -18 },
+		LeftLowerArm = { rx = 52 },
+	}), merge(footwork(34, 22, 26), {
+		UpperTorso = { rx = -22, ry = 30 },
+		Head = { rx = 12, ry = -18 },
+		RightUpperArm = { rx = 150, rz = 18 },
+		RightLowerArm = { rx = 18 },
+		LeftUpperArm = { rx = 138, rz = -22 },
+		LeftLowerArm = { rx = 22 },
+	})),
+
+	-- 4, the finisher: straight up over the head and down like a felled tree.
+	[AnimationDefs.swing("Greataxe", 4)] = strike(1.5, 0.62, 0.38, merge(footwork(6, 8, 0), {
+		UpperTorso = { rx = 30 },
+		Head = { rx = 18 },
+		RightUpperArm = { rx = 176, rz = 14 },
+		RightLowerArm = { rx = 34 },
+		LeftUpperArm = { rx = 172, rz = -14 },
+		LeftLowerArm = { rx = 34 },
+	}), merge(footwork(46, 30, 0), {
+		UpperTorso = { rx = -48 },
+		Head = { rx = -18 },
+		RightUpperArm = { rx = 56, rz = -8 },
+		RightLowerArm = { rx = 4 },
+		LeftUpperArm = { rx = 56, rz = 8 },
+		LeftLowerArm = { rx = 4 },
+	}), merge(footwork(26, 18, 0), {
+		UpperTorso = { rx = -26 },
+		Head = { rx = -8 },
+		RightUpperArm = { rx = 40, rz = 6 },
+		RightLowerArm = { rx = 26 },
+		LeftUpperArm = { rx = 40, rz = -6 },
+		LeftLowerArm = { rx = 26 },
+	})),
+
+	-- Critical: wind the whole body round and take everything with it.
+	[AnimationDefs.critical("Greataxe")] = strike(1.7, 0.75, 0.48, merge(footwork(12, 26, -56), {
+		UpperTorso = { rx = 12, ry = -92 },
+		Head = { ry = 54 },
+		RightUpperArm = { rx = 58, ry = 34, rz = 72 },
+		RightLowerArm = { rx = 74 },
+		LeftUpperArm = { rx = 44, rz = 34 },
+		LeftLowerArm = { rx = 68 },
+	}), merge(footwork(44, 28, 58), {
+		UpperTorso = { rx = -20, ry = 92 },
+		Head = { ry = -46 },
+		RightUpperArm = { rx = 84, ry = -28, rz = -52 },
+		RightLowerArm = { rx = 8 },
+		LeftUpperArm = { rx = 68, rz = -62 },
+		LeftLowerArm = { rx = 12 },
+	}), merge(footwork(24, 16, 26), {
+		UpperTorso = { rx = -12, ry = 40 },
+		RightUpperArm = { rx = 56, rz = -14 },
+		RightLowerArm = { rx = 34 },
+		LeftUpperArm = { rx = 48, rz = -24 },
+		LeftLowerArm = { rx = 40 },
+	})),
+
+	--[[ Rapier: the Duelist ]]
+
+	-- Side-on to everything, which is what a rapier is for: present as little
+	-- of yourself as possible and put the point between you and them.
+
+	[AnimationDefs.stance("Rapier")] = stanceLoop({
+		UpperTorso = { ry = 30 },
+		Head = { ry = -34 },
+		RightUpperArm = { rx = 22, ry = 12, rz = 8 },
+		RightLowerArm = { rx = 34 },
+		RightHand = { rx = -18 },
+		-- The off hand held back and high, the way a fencer carries it.
+		LeftUpperArm = { rx = -26, rz = -34 },
+		LeftLowerArm = { rx = 64 },
+	}),
+
+	-- Standing still: en garde proper. Front foot forward, back knee bent
+	-- under the weight, the point already level with where a throat would be.
+	[AnimationDefs.idle("Rapier")] = idleLoop({
+		UpperTorso = { rx = -6, ry = 40 },
+		Head = { rx = 4, ry = -48 },
+		RightUpperArm = { rx = 44, ry = 14, rz = 6 },
+		RightLowerArm = { rx = 26 },
+		RightHand = { rx = -10 },
+		LeftUpperArm = { rx = -40, ry = -10, rz = -42 },
+		LeftLowerArm = { rx = 88 },
+	}, 26, 22, 42),
+
+	-- A circular parry: the cup turned across the line.
+	[AnimationDefs.guard("Rapier")] = guardSnap({
+		UpperTorso = { rx = -4, ry = 22 },
+		Head = { ry = -20 },
+		RightUpperArm = { rx = 72, ry = 10, rz = 22 },
+		RightLowerArm = { rx = 44 },
+		RightHand = { rx = 26 },
+		LeftUpperArm = { rx = -30, rz = -40 },
+		LeftLowerArm = { rx = 80 },
+	}),
+
+	-- 1: a straight thrust off the front foot.
+	[AnimationDefs.swing("Rapier", 1)] = strike(0.5, 0.2, 0.12, merge(mirror(footwork(14, 10, 26)), {
+		UpperTorso = { ry = 34 },
+		Head = { ry = -34 },
+		RightUpperArm = { rx = 18, ry = 16, rz = 10 },
+		RightLowerArm = { rx = 74 },
+		LeftUpperArm = { rx = -30, rz = -36 },
+		LeftLowerArm = { rx = 70 },
+	}), merge(mirror(footwork(34, 18, 12)), {
+		UpperTorso = { rx = -10, ry = 16 },
+		Head = { ry = -16 },
+		RightUpperArm = { rx = 84, ry = 6, rz = 2 },
+		RightLowerArm = { rx = 6 },
+		LeftUpperArm = { rx = -46, rz = -48 },
+		LeftLowerArm = { rx = 50 },
+	})),
+
+	-- 2: the same thrust again, faster, off a recovered guard.
+	[AnimationDefs.swing("Rapier", 2)] = strike(0.46, 0.18, 0.1, merge(mirror(footwork(16, 10, 22)), {
+		UpperTorso = { ry = 30 },
+		RightUpperArm = { rx = 30, ry = 14, rz = 12 },
+		RightLowerArm = { rx = 66 },
+		LeftUpperArm = { rx = -28, rz = -34 },
+		LeftLowerArm = { rx = 68 },
+	}), merge(mirror(footwork(36, 18, 10)), {
+		UpperTorso = { rx = -12, ry = 14 },
+		RightUpperArm = { rx = 88, ry = 4 },
+		RightLowerArm = { rx = 4 },
+		LeftUpperArm = { rx = -48, rz = -50 },
+		LeftLowerArm = { rx = 48 },
+	})),
+
+	-- 3: a circular cut off the wrist, in and across.
+	[AnimationDefs.swing("Rapier", 3)] = strike(0.55, 0.22, 0.13, merge(mirror(footwork(14, 12, 34)), {
+		UpperTorso = { rx = 4, ry = 44 },
+		Head = { ry = -34 },
+		RightUpperArm = { rx = 48, ry = 20, rz = 30 },
+		RightLowerArm = { rx = 58 },
+		RightHand = { rx = 40 },
+		LeftUpperArm = { rx = -26, rz = -32 },
+		LeftLowerArm = { rx = 66 },
+	}), merge(mirror(footwork(32, 18, -6)), {
+		UpperTorso = { rx = -8, ry = -4 },
+		Head = { ry = 8 },
+		RightUpperArm = { rx = 72, ry = -12, rz = -22 },
+		RightLowerArm = { rx = 12 },
+		RightHand = { rx = -24 },
+		LeftUpperArm = { rx = -44, rz = -46 },
+		LeftLowerArm = { rx = 52 },
+	})),
+
+	-- 4, the finisher: a full lunge, the body flat out behind the point.
+	[AnimationDefs.swing("Rapier", 4)] = strike(0.78, 0.28, 0.17, merge(mirror(footwork(12, 14, 34)), {
+		UpperTorso = { rx = 8, ry = 44 },
+		Head = { ry = -40 },
+		RightUpperArm = { rx = 10, ry = 20, rz = 14 },
+		RightLowerArm = { rx = 88 },
+		LeftUpperArm = { rx = -34, rz = -38 },
+		LeftLowerArm = { rx = 74 },
+	}), merge(mirror(footwork(52, 12, 6)), {
+		UpperTorso = { rx = -22, ry = 8 },
+		Head = { rx = 6, ry = -8 },
+		RightUpperArm = { rx = 92, ry = 2 },
+		RightLowerArm = { rx = 0 },
+		-- The off arm thrown back along the line of the lunge, which is what
+		-- makes a lunge read as a lunge and not a step.
+		LeftUpperArm = { rx = -78, rz = -54 },
+		LeftLowerArm = { rx = 16 },
+	}), merge(mirror(footwork(26, 16, 20)), {
+		UpperTorso = { rx = -8, ry = 24 },
+		RightUpperArm = { rx = 54, rz = 8 },
+		RightLowerArm = { rx = 34 },
+		LeftUpperArm = { rx = -36, rz = -40 },
+		LeftLowerArm = { rx = 58 },
+	})),
+
+	-- Critical: a passing lunge, running them through and walking past.
+	[AnimationDefs.critical("Rapier")] = strike(1.1, 0.48, 0.3, merge(mirror(footwork(10, 18, 44)), {
+		UpperTorso = { rx = 10, ry = 56 },
+		Head = { ry = -50 },
+		RightUpperArm = { rx = -6, ry = 24, rz = 18 },
+		RightLowerArm = { rx = 96 },
+		LeftUpperArm = { rx = -40, rz = -42 },
+		LeftLowerArm = { rx = 80 },
+	}), merge(mirror(footwork(56, 10, -10)), {
+		UpperTorso = { rx = -26, ry = -8 },
+		Head = { rx = 8, ry = 10 },
+		RightUpperArm = { rx = 96, ry = -6, rz = -4 },
+		RightLowerArm = { rx = 0 },
+		LeftUpperArm = { rx = -84, rz = -58 },
+		LeftLowerArm = { rx = 10 },
+	}), merge(mirror(footwork(28, 18, 14)), {
+		UpperTorso = { rx = -10, ry = 18 },
+		RightUpperArm = { rx = 58, rz = 6 },
+		RightLowerArm = { rx = 30 },
+		LeftUpperArm = { rx = -40, rz = -44 },
+		LeftLowerArm = { rx = 60 },
+	})),
+
+	--[[ Longbow: the Ranger ]]
+
+	-- The bow is in the left hand, so every one of these is built around the
+	-- left arm staying out at the target while the right does all the moving.
+	-- A shot is a draw and a release, and the release is the impact.
+
+	[AnimationDefs.stance("Bow")] = stanceLoop({
+		UpperTorso = { ry = 18 },
+		Head = { ry = -22 },
+		-- The bow arm carried across the body, string hand near the hip.
+		LeftUpperArm = { rx = 34, ry = -12, rz = -16 },
+		LeftLowerArm = { rx = 42 },
+		RightUpperArm = { rx = 10, rz = 10 },
+		RightLowerArm = { rx = 52 },
+	}),
+
+	-- Standing still: bow arm down but not slack, string hand resting on the
+	-- quiver. Watching something, rather than aiming at it.
+	[AnimationDefs.idle("Bow")] = idleLoop({
+		UpperTorso = { rx = -4, ry = 24 },
+		Head = { ry = -34 },
+		LeftUpperArm = { rx = 22, ry = -10, rz = -12 },
+		LeftLowerArm = { rx = 30 },
+		RightUpperArm = { rx = -30, ry = -16, rz = 26 },
+		RightLowerArm = { rx = 96 },
+	}, 18, 20, 30),
+
+	-- The bow turned flat across the face. It is a bow; this is the best it
+	-- can do, and the parry frames in WeaponDefs say so.
+	[AnimationDefs.guard("Bow")] = guardSnap({
+		UpperTorso = { rx = -8, ry = 10 },
+		LeftUpperArm = { rx = 94, ry = -16, rz = -22 },
+		LeftLowerArm = { rx = 56 },
+		RightUpperArm = { rx = 70, rz = 30 },
+		RightLowerArm = { rx = 70 },
+	}),
+
+	-- 1: draw and loose. The bow arm comes up and locks; the right hand
+	-- pulls back past the jaw and lets go.
+	[AnimationDefs.swing("Bow", 1)] = strike(0.9, 0.44, 0.3, merge(footwork(8, 10, 26), {
+		UpperTorso = { rx = -2, ry = 30 },
+		Head = { ry = -36 },
+		LeftUpperArm = { rx = 86, ry = -20, rz = -14 },
+		LeftLowerArm = { rx = 10 },
+		RightUpperArm = { rx = 64, ry = 26, rz = 40 },
+		RightLowerArm = { rx = 116 },
+	}), merge(footwork(12, 12, 20), {
+		UpperTorso = { rx = -4, ry = 24 },
+		Head = { ry = -30 },
+		LeftUpperArm = { rx = 88, ry = -20, rz = -12 },
+		LeftLowerArm = { rx = 8 },
+		-- The release: the string hand flies back off the face.
+		RightUpperArm = { rx = 40, ry = 34, rz = 58 },
+		RightLowerArm = { rx = 84 },
+	})),
+
+	-- 2: a shorter draw, nocked from the quiver on the way up.
+	[AnimationDefs.swing("Bow", 2)] = strike(0.86, 0.42, 0.28, merge(footwork(8, 10, 24), {
+		UpperTorso = { ry = 28 },
+		Head = { ry = -34 },
+		LeftUpperArm = { rx = 84, ry = -20, rz = -14 },
+		LeftLowerArm = { rx = 12 },
+		RightUpperArm = { rx = 58, ry = 24, rz = 44 },
+		RightLowerArm = { rx = 112 },
+	}), merge(footwork(12, 12, 18), {
+		UpperTorso = { rx = -4, ry = 22 },
+		LeftUpperArm = { rx = 88, ry = -20, rz = -12 },
+		LeftLowerArm = { rx = 8 },
+		RightUpperArm = { rx = 36, ry = 32, rz = 60 },
+		RightLowerArm = { rx = 80 },
+	})),
+
+	-- 3: the same again, leaning into it.
+	[AnimationDefs.swing("Bow", 3)] = strike(0.86, 0.42, 0.28, merge(footwork(10, 12, 22), {
+		UpperTorso = { rx = 4, ry = 26 },
+		Head = { ry = -30 },
+		LeftUpperArm = { rx = 82, ry = -18, rz = -16 },
+		LeftLowerArm = { rx = 14 },
+		RightUpperArm = { rx = 60, ry = 22, rz = 42 },
+		RightLowerArm = { rx = 114 },
+	}), merge(footwork(16, 14, 16), {
+		UpperTorso = { rx = -8, ry = 20 },
+		LeftUpperArm = { rx = 90, ry = -20, rz = -10 },
+		LeftLowerArm = { rx = 6 },
+		RightUpperArm = { rx = 38, ry = 30, rz = 58 },
+		RightLowerArm = { rx = 78 },
+	})),
+
+	-- 4, the finisher: drawn all the way to the ear and held a beat.
+	[AnimationDefs.swing("Bow", 4)] = strike(1.25, 0.6, 0.4, merge(footwork(10, 14, 30), {
+		UpperTorso = { rx = 2, ry = 34 },
+		Head = { ry = -40 },
+		LeftUpperArm = { rx = 90, ry = -22, rz = -10 },
+		LeftLowerArm = { rx = 4 },
+		RightUpperArm = { rx = 72, ry = 30, rz = 48 },
+		RightLowerArm = { rx = 128 },
+	}), merge(footwork(14, 14, 22), {
+		UpperTorso = { rx = -6, ry = 26 },
+		Head = { ry = -32 },
+		LeftUpperArm = { rx = 92, ry = -22, rz = -8 },
+		LeftLowerArm = { rx = 2 },
+		RightUpperArm = { rx = 34, ry = 38, rz = 66 },
+		RightLowerArm = { rx = 72 },
+	}), merge(footwork(12, 12, 24), {
+		UpperTorso = { ry = 28 },
+		LeftUpperArm = { rx = 62, ry = -16, rz = -14 },
+		LeftLowerArm = { rx = 26 },
+		RightUpperArm = { rx = 16, rz = 30 },
+		RightLowerArm = { rx = 72 },
+	})),
+
+	-- Critical: a long aimed shot. Everything stops, including the archer.
+	[AnimationDefs.critical("Bow")] = strike(1.5, 0.7, 0.46, merge(footwork(8, 16, 34), {
+		UpperTorso = { rx = -4, ry = 38 },
+		Head = { ry = -46 },
+		LeftUpperArm = { rx = 94, ry = -24, rz = -8 },
+		LeftLowerArm = { rx = 2 },
+		RightUpperArm = { rx = 78, ry = 32, rz = 50 },
+		RightLowerArm = { rx = 132 },
+	}), merge(footwork(12, 16, 26), {
+		UpperTorso = { rx = -8, ry = 30 },
+		Head = { ry = -36 },
+		LeftUpperArm = { rx = 96, ry = -24, rz = -6 },
+		LeftLowerArm = { rx = 0 },
+		RightUpperArm = { rx = 30, ry = 40, rz = 70 },
+		RightLowerArm = { rx = 66 },
+	}), merge(footwork(10, 14, 28), {
+		UpperTorso = { ry = 32 },
+		LeftUpperArm = { rx = 70, ry = -18, rz = -12 },
+		LeftLowerArm = { rx = 20 },
+		RightUpperArm = { rx = 14, rz = 26 },
+		RightLowerArm = { rx = 76 },
+	})),
+
+	--[[ Arcane Focus: the Mage ]]
+
+	-- Nothing here is a swing in the sense the other weapons mean it. The
+	-- Focus is pushed, swept and opened outward, and the hand that is not
+	-- holding it is always doing something — which is what keeps a weapon with
+	-- no blade from looking like an empty hand.
+
+	[AnimationDefs.stance("Focus")] = stanceLoop({
+		UpperTorso = { rx = -4, ry = -10 },
+		Head = { ry = 12 },
+		RightUpperArm = { rx = 26, ry = 14, rz = 16 },
+		RightLowerArm = { rx = 48 },
+		LeftUpperArm = { rx = 12, rz = -10 },
+		LeftLowerArm = { rx = 38 },
+	}),
+
+	-- Standing still: the stone held up at chest height in an open palm, the
+	-- other hand turned under it as though warming itself.
+	[AnimationDefs.idle("Focus")] = idleLoop({
+		UpperTorso = { rx = -6, ry = -16 },
+		Head = { rx = -6, ry = 20 },
+		RightUpperArm = { rx = 44, ry = 16, rz = 22 },
+		RightLowerArm = { rx = 62 },
+		RightHand = { rx = 24 },
+		LeftUpperArm = { rx = 24, ry = -12, rz = -20 },
+		LeftLowerArm = { rx = 74 },
+		LeftHand = { rx = -18 },
+	}, 14, 18, -20),
+
+	-- The stone held out flat, both hands behind it.
+	[AnimationDefs.guard("Focus")] = guardSnap({
+		UpperTorso = { rx = -8 },
+		RightUpperArm = { rx = 96, rz = 22 },
+		RightLowerArm = { rx = 48 },
+		LeftUpperArm = { rx = 88, rz = -30 },
+		LeftLowerArm = { rx = 58 },
+	}),
+
+	-- 1: a sweep across, the stone dragged through the air.
+	[AnimationDefs.swing("Focus", 1)] = strike(0.72, 0.28, 0.17, merge(footwork(10, 10, -26), {
+		UpperTorso = { rx = 4, ry = -44 },
+		Head = { ry = 26 },
+		RightUpperArm = { rx = 52, ry = 26, rz = 48 },
+		RightLowerArm = { rx = 62 },
+		LeftUpperArm = { rx = 20, rz = 18 },
+		LeftLowerArm = { rx = 56 },
+	}), merge(footwork(30, 20, 30), {
+		UpperTorso = { rx = -12, ry = 46 },
+		Head = { ry = -22 },
+		RightUpperArm = { rx = 86, ry = -22, rz = -30 },
+		RightLowerArm = { rx = 16 },
+		LeftUpperArm = { rx = 54, rz = -42 },
+		LeftLowerArm = { rx = 20 },
+	})),
+
+	-- 2: the sweep back, the off hand trailing it.
+	[AnimationDefs.swing("Focus", 2)] = strike(0.7, 0.26, 0.16, merge(footwork(12, 10, 28), {
+		UpperTorso = { rx = 2, ry = 44 },
+		Head = { ry = -24 },
+		RightUpperArm = { rx = 82, ry = -20, rz = -28 },
+		RightLowerArm = { rx = 58 },
+		LeftUpperArm = { rx = 50, rz = -38 },
+		LeftLowerArm = { rx = 54 },
+	}), merge(footwork(30, 20, -30), {
+		UpperTorso = { rx = -12, ry = -46 },
+		Head = { ry = 24 },
+		RightUpperArm = { rx = 58, ry = 28, rz = 52 },
+		RightLowerArm = { rx = 14 },
+		LeftUpperArm = { rx = 26, rz = 24 },
+		LeftLowerArm = { rx = 18 },
+	})),
+
+	-- 3: a two-handed push, straight out from the chest.
+	[AnimationDefs.swing("Focus", 3)] = strike(0.7, 0.26, 0.16, merge(footwork(8, 12, -10), {
+		UpperTorso = { rx = 14, ry = -14 },
+		Head = { rx = 6 },
+		RightUpperArm = { rx = -14, ry = -22, rz = 24 },
+		RightLowerArm = { rx = 92 },
+		LeftUpperArm = { rx = -18, ry = 20, rz = -22 },
+		LeftLowerArm = { rx = 96 },
+	}), merge(footwork(34, 24, 6), {
+		UpperTorso = { rx = -18, ry = 6 },
+		Head = { rx = -8 },
+		RightUpperArm = { rx = 92, ry = 6, rz = 16 },
+		RightLowerArm = { rx = 8 },
+		LeftUpperArm = { rx = 90, ry = -6, rz = -16 },
+		LeftLowerArm = { rx = 10 },
+	})),
+
+	-- 4, the finisher: gathered in low, then thrown wide open.
+	[AnimationDefs.swing("Focus", 4)] = strike(1.0, 0.36, 0.22, merge(footwork(8, 10, 18), {
+		UpperTorso = { rx = 22, ry = 20 },
+		Head = { rx = 12, ry = 10 },
+		RightUpperArm = { rx = -28, ry = -34, rz = 20 },
+		RightLowerArm = { rx = 104 },
+		LeftUpperArm = { rx = -30, ry = 30, rz = -18 },
+		LeftLowerArm = { rx = 108 },
+	}), merge(footwork(38, 26, 0), {
+		UpperTorso = { rx = -26 },
+		Head = { rx = -14 },
+		RightUpperArm = { rx = 74, ry = 14, rz = 62 },
+		RightLowerArm = { rx = 6 },
+		LeftUpperArm = { rx = 74, ry = -14, rz = -62 },
+		LeftLowerArm = { rx = 6 },
+	}), merge(footwork(20, 14, 0), {
+		UpperTorso = { rx = -10 },
+		RightUpperArm = { rx = 44, rz = 30 },
+		RightLowerArm = { rx = 34 },
+		LeftUpperArm = { rx = 44, rz = -30 },
+		LeftLowerArm = { rx = 34 },
+	})),
+
+	-- Critical: turned right round and opened, so it goes out all ways at once.
+	[AnimationDefs.critical("Focus")] = strike(1.4, 0.62, 0.4, merge(footwork(12, 20, -44), {
+		UpperTorso = { rx = 16, ry = -76 },
+		Head = { ry = 44 },
+		RightUpperArm = { rx = -22, ry = -30, rz = 26 },
+		RightLowerArm = { rx = 112 },
+		LeftUpperArm = { rx = -26, ry = 26, rz = -24 },
+		LeftLowerArm = { rx = 114 },
+	}), merge(footwork(36, 24, 48), {
+		UpperTorso = { rx = -18, ry = 78 },
+		Head = { ry = -38 },
+		RightUpperArm = { rx = 80, ry = 16, rz = 72 },
+		RightLowerArm = { rx = 4 },
+		LeftUpperArm = { rx = 80, ry = -16, rz = -72 },
+		LeftLowerArm = { rx = 4 },
+	}), merge(footwork(20, 14, 22), {
+		UpperTorso = { rx = -8, ry = 32 },
+		RightUpperArm = { rx = 48, rz = 34 },
+		RightLowerArm = { rx = 30 },
+		LeftUpperArm = { rx = 48, rz = -34 },
+		LeftLowerArm = { rx = 30 },
+	})),
+
 	--[[ Any weapon ]]
 
-	-- A low, quick dash: crouched, leaning into it, arms trailing.
-	[AnimationDefs.DODGE] = {
-		length = 0.4,
-		looped = false,
-		priority = "Action",
-		keyframes = {
-			kf(0, {}, "Out"),
-			kf(0.07, merge(crouch(24), {
-				UpperTorso = { rx = -28 },
-				Head = { rx = 16 },
-				RightUpperArm = { rx = -35, rz = 25 },
-				LeftUpperArm = { rx = -35, rz = -25 },
-				RightLowerArm = { rx = 30 },
-				LeftLowerArm = { rx = 30 },
-			})),
-			kf(0.26, merge(crouch(16), {
-				UpperTorso = { rx = -16 },
-				Head = { rx = 8 },
-				RightUpperArm = { rx = -10, rz = 15 },
-				LeftUpperArm = { rx = -10, rz = -15 },
-				RightLowerArm = { rx = 25 },
-				LeftLowerArm = { rx = 25 },
-			})),
-			kf(0.4, {}),
-		},
-	},
+	-- The four rolls. Forward and back go over the same tuck in opposite
+	-- directions; left and right drop a shoulder and go over that.
+	[AnimationDefs.roll("forward")] = roll(0, -1),
+	[AnimationDefs.roll("back")] = roll(0, 1),
+	[AnimationDefs.roll("left")] = roll(SHOULDER_TURN, -1),
+	[AnimationDefs.roll("right")] = roll(-SHOULDER_TURN, -1),
 
 	-- The guard shattering: arms thrown wide, then dazed.
 	[AnimationDefs.GUARD_BREAK] = {

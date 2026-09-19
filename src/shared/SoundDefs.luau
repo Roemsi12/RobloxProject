@@ -42,6 +42,13 @@ SoundDefs.SOUNDS = {
 	swing_SwordAndShield = { id = SWORD_SLASH, volume = 0.6, pitchMin = 0.88, pitchMax = 0.98 },
 	swing_Daggers = { id = SWORD_SLASH, volume = 0.45, pitchMin = 1.3, pitchMax = 1.45 },
 	swing_Staff = { id = SWORD_LUNGE, volume = 0.5, pitchMin = 0.72, pitchMax = 0.82 },
+	-- The four from the class pass. Pitch is doing the characterisation here:
+	-- the same few sounds, dropped for weight and raised for speed, which is
+	-- most of what tells a greataxe from a rapier by ear.
+	swing_Greataxe = { id = SWORD_SLASH, volume = 0.75, pitchMin = 0.55, pitchMax = 0.64 },
+	swing_Rapier = { id = SWORD_LUNGE, volume = 0.42, pitchMin = 1.4, pitchMax = 1.55 },
+	swing_Bow = { id = SNAP, volume = 0.55, pitchMin = 0.9, pitchMax = 1.0 },
+	swing_Focus = { id = SWORD_LUNGE, volume = 0.5, pitchMin = 1.05, pitchMax = 1.18 },
 
 	-- Your blow landing on an enemy; a riposte lands lower and louder.
 	hit = { id = COLLIDE, volume = 0.8, pitchMin = 0.85, pitchMax = 1.0 },

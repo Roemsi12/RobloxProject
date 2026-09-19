@@ -17,11 +17,12 @@ local lobby: LobbyBuilder.Lobby? = nil
 
 -- Builds the hall and returns its anchors, so the bootstrap can hand each
 -- station the frame it stands on. `gateColors` is one accent per gate, in the
--- order they stand across the north wall.
-function LobbyService.start(origin: CFrame, gateColors: { Color3 }): LobbyBuilder.Lobby
+-- order they stand across the north wall, and `altarCount` how many class
+-- altars the west aisle has to hold.
+function LobbyService.start(origin: CFrame, gateColors: { Color3 }, altarCount: number): LobbyBuilder.Lobby
 	assert(lobby == nil, "The lobby is built once")
 
-	local built = LobbyBuilder.build(origin, gateColors)
+	local built = LobbyBuilder.build(origin, gateColors, altarCount)
 	built.model.Parent = Workspace
 	lobby = built
 
