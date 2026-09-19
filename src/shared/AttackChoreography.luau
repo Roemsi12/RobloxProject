@@ -82,6 +82,15 @@ type ArchetypeDef = {
 	tell: Poses,
 	-- Where the arc ends up. Varied within bounds.
 	hit: Poses,
+	-- Where the body is left once the swing has carried through, and the one
+	-- cue a chain gets: an attack that ends here instead of standing up is
+	-- visibly unfinished. Authored rather than derived, because a pose that
+	-- has to read across a room at a glance is not something to calculate.
+	--
+	-- Optional while the four are being posed by hand; until an archetype has
+	-- one it falls back to the hit pushed past itself, which is what every
+	-- carry used to be.
+	carry: Poses?,
 	-- The joints that identify this archetype. Never varied, by anything, for
 	-- any reason — these are the silhouette.
 	diagnostic: { string },
@@ -467,6 +476,23 @@ function AttackChoreography.follows(archetype: Archetype): { Archetype }
 	return AttackChoreography.get(archetype).follows
 end
 
+
+-- Where this archetype leaves the body once it has carried through.
+--
+-- Every path that needs a carry pose goes through here -- `carryPose` below,
+-- and the poses `generate` and `generateLink` hand to the animation. Two
+-- expressions for the same pose is how a chain seam drifts apart.
+local function carryPoseOf(def: ArchetypeDef, seed: number, accent: Accent?): Poses
+	local authored = def.carry
+	if authored then
+		return varied(def, authored, seed, true, accent)
+	end
+
+	-- No authored carry yet: the hit pushed past itself by the follow-through,
+	-- which is what every carry was before they were posed by hand.
+	return AnimationDefs.carryOf(varied(def, def.hit, seed, true, accent))
+end
+
 -- The whole attack, as the same kind of AnimationDef the authored ones are.
 --
 -- `impact` sits exactly `leadTime` after the tell lands, every time and for
@@ -490,18 +516,16 @@ function AttackChoreography.generate(spec: AttackSpec): KeyframeMath.AnimationDe
 		varied(def, def.tell, spec.seed, false, spec.accent),
 		varied(def, def.hit, spec.seed, true, spec.accent),
 		nil,
-		spec.carryOut
+		spec.carryOut,
+		carryPoseOf(def, spec.seed, spec.accent)
 	)
 end
 
--- Where this archetype leaves the body once it has carried through.
---
 -- A chain link starts here, so this is one half of the seam. It is a pure
 -- function of the archetype and the seed, which is why the server only has to
 -- send `fromAttackId` and `fromSeed` for the client to rebuild it exactly.
 function AttackChoreography.carryPose(archetype: Archetype, seed: number, accent: Accent?): Poses
-	local def = AttackChoreography.get(archetype)
-	return AnimationDefs.carryOf(varied(def, def.hit, seed, true, accent))
+	return carryPoseOf(AttackChoreography.get(archetype), seed, accent)
 end
 
 -- An attack thrown out of another one, without a trip back through neutral.
@@ -542,7 +566,8 @@ function AttackChoreography.generateLink(spec: LinkSpec): KeyframeMath.Animation
 		AttackChoreography.carryPose(spec.from, spec.fromSeed, spec.accent),
 		varied(def, def.tell, spec.seed, false, spec.accent),
 		varied(def, def.hit, spec.seed, true, spec.accent),
-		spec.carryOut == true
+		spec.carryOut == true,
+		carryPoseOf(def, spec.seed, spec.accent)
 	)
 end
 

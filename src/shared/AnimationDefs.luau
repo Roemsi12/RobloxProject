@@ -470,10 +470,16 @@ local function strike(
 	-- Set when this strike opens a chain: it ends held in its carry pose
 	-- instead of standing back up, so the next link can start from exactly
 	-- there. See `link` below.
-	holdEnd: boolean?
+	holdEnd: boolean?,
+	-- Where the body is left once the swing has carried through. Authored
+	-- attacks leave it out and get the derived one, which is the hit pose
+	-- pushed past itself; a generated attack passes its archetype's own, so
+	-- the pose a chain is signposted by is chosen rather than calculated.
+	carry: Poses?
 ): AnimationDef
 	local coilAt = windupAt + (impact - windupAt) * 0.45
 	local followAt = impact + math.min(0.07, (length - impact) * 0.2)
+	local carried = carry or carryOf(hit)
 
 	local keyframes = {
 		-- A beat the other way first: the upper body gathers before it draws
@@ -489,7 +495,7 @@ local function strike(
 		-- weight, and carries through fast before slowing.
 		kf(coilAt, exaggerate(windup, COIL), "In"),
 		kf(impact, hit, "Out"),
-		kf(followAt, carryOf(hit)),
+		kf(followAt, carried),
 	}
 
 	if recovery then
@@ -497,7 +503,7 @@ local function strike(
 	end
 
 	if holdEnd then
-		table.insert(keyframes, kf(length, carryOf(hit)))
+		table.insert(keyframes, kf(length, carried))
 	else
 		table.insert(keyframes, kf(length, {}))
 	end
@@ -540,11 +546,14 @@ local function link(
 	carryIn: Poses,
 	windup: Poses,
 	hit: Poses,
-	holdEnd: boolean
+	holdEnd: boolean,
+	-- As `strike`: the archetype's own carry pose when it has one, and the
+	-- derived follow-through when it does not.
+	carry: Poses?
 ): AnimationDef
 	local coilAt = windupAt + (impact - windupAt) * 0.45
 	local followAt = impact + math.min(0.07, (length - impact) * 0.2)
-	local carryOut = carryOf(hit)
+	local carryOut = carry or carryOf(hit)
 
 	local keyframes = {
 		kf(0, carryIn, "Out"),
