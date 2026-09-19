@@ -26,6 +26,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AttackChoreography = require(Shared.AttackChoreography)
 local DungeonDefs = require(Shared.DungeonDefs)
 local EnemyDefs = require(Shared.EnemyDefs)
+local KeyframeMath = require(Shared.KeyframeMath)
 
 local JestGlobals = require(ReplicatedStorage.DevPackages.JestGlobals)
 local describe = JestGlobals.describe
@@ -758,6 +759,271 @@ describe("Chain links", function()
 					check(`{from}->{to} keyframe {index} poses`, identical(frame.poses, b.keyframes[index].poses))
 				end
 			end
+		end
+	end)
+end)
+
+describe("Attack weight", function()
+	-- Everything that carries the body's weight. A swing that does not move
+	-- these is a puppet being rotated above the waist, which is what "stiff"
+	-- turned out to mean.
+	local LOWER = {
+		"LowerTorso",
+		"RightUpperLeg", "RightLowerLeg", "RightFoot",
+		"LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+	}
+
+	local LEAD = 0.3
+	local RECOVERY = 0.6
+
+	local function lowerOnly(poses: any): any
+		local out: any = {}
+		for _, part in LOWER do
+			out[part] = poses[part] or {}
+		end
+		return out
+	end
+
+	local function partNames(poses: any): { string }
+		local names = {}
+		for part in poses do
+			table.insert(names, part)
+		end
+		table.sort(names)
+		return names
+	end
+
+	-- A joint present in one keyframe and absent from the next does not hold
+	-- its value between them: `KeyframeMath.resolve(nil)` is REST, so it
+	-- unwinds to flat mid-swing. That is not a hypothetical -- it is why a
+	-- wrist used to straighten through a cut and why Plant's knees and feet
+	-- went flat at the exact instant of the slam.
+	--
+	-- Structural on purpose. The behavioural version ("no joint passes through
+	-- zero") would be wrong: a joint legitimately crossing zero is ordinary,
+	-- and WindBack's torso has to, going from +38 to -44.
+	it("poses the same joints at every stage of a swing", function()
+		for _, archetype in ARCHETYPES do
+			local def = AttackChoreography.get(archetype)
+			local tell = table.concat(partNames(def.tell), ",")
+			local hit = table.concat(partNames(def.hit), ",")
+			check(`{archetype} tell and hit pose the same joints`, tell == hit)
+
+			local carry = def.carry
+			if carry then
+				check(`{archetype} carry poses the same joints`, table.concat(partNames(carry), ",") == tell)
+			end
+		end
+	end)
+
+	-- The complaint, as a number. An attack whose hips sit still has nothing
+	-- behind it however far the arms travel.
+	it("drives the hips between the tell and the hit", function()
+		for _, archetype in ARCHETYPES do
+			local def = AttackChoreography.get(archetype)
+			local moved = AttackChoreography.divergence(
+				{ LowerTorso = def.tell.LowerTorso or {} },
+				{ LowerTorso = def.hit.LowerTorso or {} }
+			)
+			local sank = math.abs(((def.tell.LowerTorso or {}) :: any).py or 0 - 0)
+				- math.abs(((def.hit.LowerTorso or {}) :: any).py or 0)
+			check(`{archetype} turns or sinks its hips ({math.floor(moved * 10) / 10})`, moved > 1 or math.abs(sank) > 0.02)
+		end
+	end)
+	-- The feet commit before the arms do.
+	--
+	-- At the anticipation beat the arms have gathered the *other* way while
+	-- the weight is already partway into its stance. That lag is most of what
+	-- "weight" means: a body does not move all at once, and one that does
+	-- reads as a puppet being rotated.
+	--
+	-- Measured against the tell rather than against rest, because the failure
+	-- being guarded is specific -- the lower body arriving at its *full* tell
+	-- value in a keyframe 48ms off rest, which is a pop rather than a plant.
+	-- That is what `exaggerate` did before it took a separate lower factor,
+	-- and this is the test that notices if it ever does again.
+	it("lets the weight lead the arms into a swing", function()
+		for _, archetype in ARCHETYPES do
+			local anim = AttackChoreography.generate({
+				archetype = archetype,
+				leadTime = LEAD,
+				recovery = RECOVERY,
+				seed = 7,
+			})
+
+			local anticipation = anim.keyframes[2]
+			local tell = anim.keyframes[3]
+
+			local lagging = AttackChoreography.divergence(lowerOnly(anticipation.poses), lowerOnly(tell.poses))
+			local moved = AttackChoreography.divergence(lowerOnly(anticipation.poses), {})
+
+			check(`{archetype} weight is still short of its stance ({math.floor(lagging * 10) / 10})`, lagging > 1)
+			check(`{archetype} weight has left rest ({math.floor(moved * 10) / 10})`, moved > 1)
+		end
+	end)
+
+
+	-- Not just different at the two ends: actually travelling in between. This
+	-- is the one that catches `exaggerate` quietly going back to ignoring the
+	-- lower body, which the two tests above would both miss because they only
+	-- read the archetype's own tables.
+	it("keeps the weight moving through the whole swing", function()
+		for _, archetype in ARCHETYPES do
+			local anim = AttackChoreography.generate({
+				archetype = archetype,
+				leadTime = LEAD,
+				recovery = RECOVERY,
+				seed = 7,
+			})
+
+			local samples = 60
+			local travel = 0
+			local previous = nil
+			for index = 0, samples do
+				local pose = KeyframeMath.sample(anim, anim.length * index / samples)
+				local lower = lowerOnly(pose)
+				if previous then
+					travel += AttackChoreography.divergence(previous, lower)
+				end
+				previous = lower
+			end
+
+			-- 12, against measured 15.6 (WindBack), 23.7 (Coil), 25.8 (Raise)
+			-- and 39.4 (Plant). The reference is the hand-authored attacks the
+			-- generator was failing to match: HollowKing's Overhead travels
+			-- 16.8 and its Shockwave 29.0, so the generated swings now sit in
+			-- the same range rather than a tenth of it. WindBack is the lowest
+			-- and should be -- a flat swing carries its weight as hip rotation
+			-- and a foot transfer, where a slam spends it all going down.
+			check(`{archetype} weight travels {math.floor(travel)} over the swing`, travel > 12)
+		end
+	end)
+
+	-- The legs used to take the identical value at the tell and the hit on
+	-- every seed, because the only thing posing them derived from the seed
+	-- alone and never looked at which end of the swing it was building.
+	it("never freezes the legs across a swing, on any seed", function()
+		for _, archetype in ARCHETYPES do
+			for _, seed in { 1, 7, 13, 29, 101, 257, 1013, 4099 } do
+				local def = AttackChoreography.get(archetype)
+				local tell = lowerOnly(AttackChoreography.tellPose(archetype, seed))
+				local hit = lowerOnly(AttackChoreography.carryPose(archetype, seed))
+				local _ = def
+				check(`{archetype} seed {seed} moves its legs`, AttackChoreography.divergence(tell, hit) > 1)
+			end
+		end
+	end)
+
+	-- Variation biases joints the archetype poses; it must never introduce
+	-- one. A joint that exists only because an accent named it appears in some
+	-- keyframes and not others, which is the unwind above -- and on an
+	-- archetype posing no legs, the accent was the *only* thing touching them,
+	-- so it was the cause of the dead lower body rather than a victim of it.
+	it("never lets variation add a joint the archetype does not pose", function()
+		for _, archetype in ARCHETYPES do
+			local expected = table.concat(partNames(AttackChoreography.get(archetype).tell), ",")
+			for _, enemyId in { "TrainingDummy", "SkeletonWarrior", "Shambler", "Spitter", "HollowKing" } do
+				local accent = EnemyDefs[enemyId].accent :: any
+				for _, seed in { 1, 29, 1013 } do
+					local posed = table.concat(partNames(AttackChoreography.tellPose(archetype, seed, accent)), ",")
+					check(`{archetype} under {enemyId}'s accent, seed {seed}`, posed == expected)
+				end
+			end
+		end
+	end)
+
+	-- The silhouette, measured on its own.
+	--
+	-- `divergence` is a mean over every part either pose touches, so it falls
+	-- as poses gain joints -- adding a full lower body roughly doubled the
+	-- denominator. That makes the whole-pose number a moving target. The
+	-- diagnostic joints are *defined* as what identifies an archetype, so the
+	-- distance between two archetypes measured over only those is what
+	-- actually encodes readability, and it does not move when the rest of the
+	-- body gains detail.
+	it("keeps the joints that identify an archetype far apart", function()
+		local SILHOUETTE = 25
+
+		local function diagnosticPose(archetype: string, seed: number): any
+			local def = AttackChoreography.get(archetype)
+			local pose = AttackChoreography.tellPose(archetype :: any, seed)
+			local out: any = {}
+			for _, part in def.diagnostic do
+				out[part] = pose[part] or {}
+			end
+			return out
+		end
+
+		for indexA, a in ARCHETYPES do
+			for indexB, b in ARCHETYPES do
+				if indexB <= indexA then
+					continue
+				end
+				local worst = math.huge
+				for _, seedA in { 1, 29, 1013 } do
+					for _, seedB in { 7, 257, 4099 } do
+						local left, right = diagnosticPose(a, seedA), diagnosticPose(b, seedB)
+						for part in right do
+							if not left[part] then
+								left[part] = {}
+							end
+						end
+						for part in left do
+							if not right[part] then
+								right[part] = {}
+							end
+						end
+						worst = math.min(worst, AttackChoreography.divergence(left, right))
+					end
+				end
+				check(`{a} vs {b} silhouette {math.floor(worst)}`, worst >= SILHOUETTE)
+			end
+		end
+	end)
+
+	-- `strike` inserts its recovery pose *before* the final keyframe, so an
+	-- attack that both settles and ends held would read carry -> settle ->
+	-- carry: the one cue a chain gets, dipping and coming back.
+	it("holds a carrying attack's carry from the follow-through to its end", function()
+		for _, archetype in ARCHETYPES do
+			local anim = AttackChoreography.generate({
+				archetype = archetype,
+				leadTime = LEAD,
+				recovery = RECOVERY,
+				seed = 7,
+				carryOut = true,
+			})
+			local impact = anim.impact :: number
+			local after = 0
+			for _, frame in anim.keyframes do
+				if frame.time > impact then
+					after += 1
+				end
+			end
+			-- The follow-through and the held end, and nothing between them.
+			check(`{archetype} has two beats after impact, not three`, after == 2)
+		end
+	end)
+
+	-- ...and the converse: an attack that does go back to rest should settle
+	-- on the way rather than glide for half its length.
+	it("settles an unchained attack instead of gliding to rest", function()
+		for _, archetype in ARCHETYPES do
+			local anim = AttackChoreography.generate({
+				archetype = archetype,
+				leadTime = LEAD,
+				recovery = RECOVERY,
+				seed = 7,
+			})
+			local impact = anim.impact :: number
+			local widest = 0
+			for index = 2, #anim.keyframes do
+				local previous = anim.keyframes[index - 1]
+				if previous.time >= impact then
+					widest = math.max(widest, anim.keyframes[index].time - previous.time)
+				end
+			end
+			check(`{archetype} widest gap after impact {math.floor(widest * 100) / 100}`, widest <= 0.45)
 		end
 	end)
 end)

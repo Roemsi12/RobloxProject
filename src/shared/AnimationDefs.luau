@@ -152,6 +152,13 @@ local function crouch(angle: number): Poses
 	}
 end
 
+-- Exposed so the workbench can seed a rig standing in a plausible, floor-solved
+-- stance rather than on dead straight legs. These solve hip height against the
+-- leg angles, which is the one piece of this that is genuinely arithmetic and
+-- the easiest to get wrong by hand.
+AnimationDefs.crouch = crouch
+AnimationDefs.mirror = mirror
+
 -- The ankle angle that leaves a foot `tilt` degrees off flat, given how far
 -- the thigh and shin above it have turned. Poses accumulate down a limb, so a
 -- foot only lies flat when its own angle cancels everything above it — asking
@@ -400,9 +407,7 @@ local function death(backward: boolean): AnimationDef
 	}
 end
 
--- The parts a coil or follow-through exaggerates. Hips and legs are left
--- alone, so feet stay planted wherever the pose put them; the workbench solves
--- every animation against the floor.
+-- The parts a coil or follow-through exaggerates by default.
 local UPPER_BODY = {
 	UpperTorso = true,
 	Head = true,
@@ -414,15 +419,52 @@ local UPPER_BODY = {
 	LeftHand = true,
 }
 
--- The same poses with every upper-body rotation scaled by `factor`.
-local function exaggerate(poses: Poses, factor: number): Poses
+-- Everything that carries the body's weight. Scaled separately, and by a
+-- different amount, because the two halves of a strike do opposite things at
+-- the same moment: the arms gather backwards while the feet are already
+-- driving forwards. One factor for both cannot express that, and using one
+-- is why generated swings had nothing underneath them.
+local LOWER_BODY = {
+	LowerTorso = true,
+	RightUpperLeg = true,
+	RightLowerLeg = true,
+	RightFoot = true,
+	LeftUpperLeg = true,
+	LeftLowerLeg = true,
+	LeftFoot = true,
+}
+
+-- The same poses with the upper body scaled by `upperFactor` and the weight
+-- scaled by `lowerFactor`.
+--
+-- `lowerFactor` defaults to 1, which makes this an exact identity for the
+-- lower body and leaves every authored call site byte-identical.
+--
+-- Note the asymmetry is deliberate and must stay: the lower body is *not*
+-- simply added to UPPER_BODY. A shared factor would make the anticipation
+-- beat (a negative factor) invert a crouch and lift the hips above standing,
+-- and would make the coil (a factor above one) drive the feet through the
+-- floor. The whole point is that the two halves scale differently.
+--
+-- Position is scaled on the lower body but not the upper. `LowerTorso.py` is
+-- how far the hips have sunk, and a coil that does not sink the hips is not a
+-- coil -- so that one number has to move with the rest of the weight.
+local function exaggerate(poses: Poses, upperFactor: number, lowerFactor: number?): Poses
+	local lower = lowerFactor or 1
 	local out: Poses = {}
 	for part, pose in poses do
 		local copy = table.clone(pose)
 		if UPPER_BODY[part] then
-			copy.rx = if copy.rx then copy.rx * factor else nil
-			copy.ry = if copy.ry then copy.ry * factor else nil
-			copy.rz = if copy.rz then copy.rz * factor else nil
+			copy.rx = if copy.rx then copy.rx * upperFactor else nil
+			copy.ry = if copy.ry then copy.ry * upperFactor else nil
+			copy.rz = if copy.rz then copy.rz * upperFactor else nil
+		elseif LOWER_BODY[part] and lower ~= 1 then
+			copy.rx = if copy.rx then copy.rx * lower else nil
+			copy.ry = if copy.ry then copy.ry * lower else nil
+			copy.rz = if copy.rz then copy.rz * lower else nil
+			copy.px = if copy.px then copy.px * lower else nil
+			copy.py = if copy.py then copy.py * lower else nil
+			copy.pz = if copy.pz then copy.pz * lower else nil
 		end
 		out[part] = copy
 	end
@@ -438,6 +480,20 @@ local FOLLOW_THROUGH = 1.15
 local ANTICIPATE = 0.16
 local ANTICIPATE_AT = 0.4
 
+-- How far into its stance the weight already is at the anticipation beat,
+-- while the arms are still gathering the other way.
+--
+-- This one number is most of what "weight" means here. A body does not move
+-- all at once: the feet commit first and the arms arrive late, and that lag
+-- is the difference between a swing and a puppet being rotated. Before it,
+-- the lower body was copied at its *full* windup value into a keyframe 48ms
+-- off rest, so a deep stance did not lag -- it popped.
+local ANTICIPATE_PLANT = 0.45
+
+-- A little extra sink under the drawn-back weapon. Small on purpose: the coil
+-- is a held breath, not a second crouch.
+local COIL_LOWER = 1.06
+
 -- Where the body ends up once a strike has carried through: the hit pose,
 -- pushed past itself by the follow-through.
 --
@@ -451,6 +507,20 @@ local function carryOf(hit: Poses): Poses
 end
 
 AnimationDefs.carryOf = carryOf
+
+-- Where the body settles on the way back to rest: mostly released, still
+-- low. The shape a hand-authored attack gives its third pose --
+-- `merge(crouch(12), ...)` under a `crouch(22)` hit -- derived rather than
+-- authored, because a recovery is a beat the player passes through rather
+-- than one they read.
+local SETTLE_UPPER = 0.45
+local SETTLE_LOWER = 0.6
+
+local function settleOf(carry: Poses): Poses
+	return exaggerate(carry, SETTLE_UPPER, SETTLE_LOWER)
+end
+
+AnimationDefs.settleOf = settleOf
 
 -- An attack or swing: rest, the windup peaking at `windupAt`, a coil that
 -- holds the tension, the strike at `impact`, a follow-through carrying past
@@ -484,16 +554,18 @@ local function strike(
 	local keyframes = {
 		-- A beat the other way first: the upper body gathers before it draws
 		-- back, which is what makes a windup read as a decision rather than a
-		-- pose the rig teleported into. Only the upper body counter-moves —
-		-- `exaggerate` leaves the hips and legs at their windup values, so the
-		-- feet plant first and the arms follow, the order a real strike loads.
+		-- pose the rig teleported into.
+		--
+		-- The two halves go opposite ways here. The arms counter-move, while
+		-- the weight is already ANTICIPATE_PLANT of the way into its stance --
+		-- feet first, arms late, which is the order a real strike loads in.
 		kf(0, {}, "Out"),
-		kf(windupAt * ANTICIPATE_AT, exaggerate(windup, -ANTICIPATE)),
+		kf(windupAt * ANTICIPATE_AT, exaggerate(windup, -ANTICIPATE, ANTICIPATE_PLANT)),
 		-- Snaps into the windup and settles there...
 		kf(windupAt, windup),
 		-- ...then accelerates from the coil into the hit, so it lands with
 		-- weight, and carries through fast before slowing.
-		kf(coilAt, exaggerate(windup, COIL), "In"),
+		kf(coilAt, exaggerate(windup, COIL, COIL_LOWER), "In"),
 		kf(impact, hit, "Out"),
 		kf(followAt, carried),
 	}
@@ -561,7 +633,7 @@ local function link(
 		-- are the same beats `strike` uses, so a link and a standalone attack
 		-- land with identical weight.
 		kf(windupAt, windup),
-		kf(coilAt, exaggerate(windup, COIL), "In"),
+		kf(coilAt, exaggerate(windup, COIL, COIL_LOWER), "In"),
 		kf(impact, hit, "Out"),
 		kf(followAt, carryOut),
 	}
@@ -1041,6 +1113,8 @@ local function footwork(front: number, back: number, twist: number): Poses
 		RightFoot = { rx = -backShin },
 	}
 end
+
+AnimationDefs.footwork = footwork
 
 --[[ Rolling ]]
 

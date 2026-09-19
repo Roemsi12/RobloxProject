@@ -129,21 +129,36 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 	-- flat, left to right. The bread-and-butter swing.
 	WindBack = {
 		tell = {
-			UpperTorso = { rx = 4.0, ry = 38.0 },
-			Head = { ry = -14.0 },
-			RightUpperArm = { rx = 52.6, ry = 34.9, rz = -1.6 },
-			RightLowerArm = { rx = 70.0, rz = -9.2 },
-			RightHand = { rx = -21.3, ry = 31.2, rz = -2.7 },
-			LeftUpperArm = { rx = 15.2, ry = -41.7, rz = -4.1 },
+			Head = { ry = -14 },
+			LeftFoot = { rx = 1.2 },
 			LeftLowerArm = { rx = 33.5 },
+			LeftLowerLeg = { rx = -5.2 },
+			LeftUpperArm = { rx = 15.2, ry = -41.7, rz = -4.1 },
+			LeftUpperLeg = { rx = 4 },
+			LowerTorso = { ry = 14, py = -0.05 },
+			RightFoot = { rx = 21 },
+			RightHand = { rx = -21.3, ry = 31.2, rz = -2.7 },
+			RightLowerArm = { rx = 70, rz = -9.2 },
+			RightLowerLeg = { rx = -7 },
+			RightUpperArm = { rx = 52.6, ry = 34.9, rz = -1.6 },
+			RightUpperLeg = { rx = -14 },
+			UpperTorso = { rx = 4, ry = 38 },
 		},
 		hit = {
-			UpperTorso = { ry = -44, rx = -8 },
 			Head = { ry = 16 },
-			RightUpperArm = { rx = 10, ry = -26, rz = -48 },
-			RightLowerArm = { rx = 12 },
-			LeftUpperArm = { rz = 26 },
+			LeftFoot = { rx = 7.2 },
 			LeftLowerArm = { rx = 14 },
+			LeftLowerLeg = { rx = -31.2 },
+			LeftUpperArm = { rz = 26 },
+			LeftUpperLeg = { rx = 24 },
+			LowerTorso = { ry = -20, py = -0.07 },
+			RightFoot = { rx = 12 },
+			RightHand = {},
+			RightLowerArm = { rx = 12 },
+			RightLowerLeg = { rx = -4 },
+			RightUpperArm = { rx = 10, ry = -26, rz = -48 },
+			RightUpperLeg = { rx = -8 },
+			UpperTorso = { rx = -8, ry = -44 },
 		},
 		diagnostic = { "UpperTorso", "RightUpperArm" },
 		parryable = true,
@@ -154,27 +169,36 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 	-- head. Comes straight down.
 	Raise = {
 		tell = {
-			LowerTorso = { py = 0.16 },
-			UpperTorso = { rx = 16.0 },
-			Head = { rx = 10.0 },
-			RightUpperArm = { rx = 159.4, ry = -1.8, rz = 11.9 },
-			LeftUpperArm = { rx = 157.3, ry = 5.2, rz = -25.8 },
-			RightLowerArm = { rx = 27.4, ry = 10.5, rz = -0.6 },
+			Head = { rx = 10 },
+			LeftFoot = { rx = 6 },
 			LeftLowerArm = { rx = 36.5 },
-			RightHand = { ry = 19.7 },
-			RightUpperLeg = { rx = 11.8, ry = -13.3, rz = 2.7 },
-			LeftUpperLeg = { rx = 8.9, ry = 18.4, rz = -3.4 },
-			RightLowerLeg = { rx = -13.6, ry = -0.4, rz = -0.1 },
 			LeftLowerLeg = { rx = -12.4, ry = 0.4 },
+			LeftUpperArm = { rx = 157.3, ry = 5.2, rz = -25.8 },
+			LeftUpperLeg = { rx = 8.9, ry = 18.4, rz = -3.4 },
+			LowerTorso = { py = 0.16 },
+			RightFoot = { rx = 6 },
+			RightHand = { ry = 19.7 },
+			RightLowerArm = { rx = 27.4, ry = 10.5, rz = -0.6 },
+			RightLowerLeg = { rx = -13.6, ry = -0.4, rz = -0.1 },
+			RightUpperArm = { rx = 159.4, ry = -1.8, rz = 11.9 },
+			RightUpperLeg = { rx = 11.8, ry = -13.3, rz = 2.7 },
+			UpperTorso = { rx = 16 },
 		},
 		hit = {
-			LowerTorso = { py = -0.12 },
-			UpperTorso = { rx = -30 },
 			Head = { rx = -12 },
-			RightUpperArm = { rx = 42, rz = 6 },
-			LeftUpperArm = { rx = 42, rz = -6 },
-			RightLowerArm = { rx = 8 },
+			LeftFoot = { rx = 26 },
 			LeftLowerArm = { rx = 8 },
+			LeftLowerLeg = { rx = -52 },
+			LeftUpperArm = { rx = 42, rz = -6 },
+			LeftUpperLeg = { rx = 26 },
+			LowerTorso = { py = -0.12 },
+			RightFoot = { rx = 26 },
+			RightHand = {},
+			RightLowerArm = { rx = 8 },
+			RightLowerLeg = { rx = -52 },
+			RightUpperArm = { rx = 42, rz = 6 },
+			RightUpperLeg = { rx = 26 },
+			UpperTorso = { rx = -30 },
 		},
 		diagnostic = { "RightUpperArm", "LeftUpperArm" },
 		parryable = true,
@@ -191,25 +215,38 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 	-- made structural rather than left to chance.
 	Coil = {
 		tell = {
-			LowerTorso = { ry = -16.0, py = -0.14 },
-			UpperTorso = { rx = 14.0, ry = -22.0 },
 			Head = { rx = -9.7, ry = 7.9, rz = 1.3 },
-			RightUpperArm = { rx = -59.4, ry = -16.0, rz = 50.7 },
-			RightLowerArm = { rx = 86.0, ry = -0.1, rz = 0.6 },
-			RightHand = { rx = 50.2, ry = -73.2, rz = 64.2 },
-			LeftUpperArm = { rx = 18.4, ry = 2.2, rz = -10.1 },
-			LeftLowerArm = { rx = 35.5, ry = 15.9, rz = 25.7 },
+			LeftFoot = { rx = -0.6 },
 			LeftHand = { rx = 0.1, ry = 0.7, rz = 30.2 },
-			RightUpperLeg = { rx = -10.4, ry = -44.5, rz = -7.3 },
+			LeftLowerArm = { rx = 35.5, ry = 15.9, rz = 25.7 },
+			LeftLowerLeg = { rx = 2.6 },
+			LeftUpperArm = { rx = 18.4, ry = 2.2, rz = -10.1 },
+			LeftUpperLeg = { rx = -2 },
+			LowerTorso = { ry = -16, py = -0.14 },
+			RightFoot = { rx = 30 },
+			RightHand = { rx = 50.2, ry = -73.2, rz = 64.2 },
+			RightLowerArm = { rx = 86, ry = -0.1, rz = 0.6 },
 			RightLowerLeg = { rx = 6.5, ry = 11.8 },
+			RightUpperArm = { rx = -59.4, ry = -16, rz = 50.7 },
+			RightUpperLeg = { rx = -10.4, ry = -44.5, rz = -7.3 },
+			UpperTorso = { rx = 14, ry = -22 },
 		},
 		hit = {
-			LowerTorso = { ry = 10, pz = -0.34, py = -0.04 },
-			UpperTorso = { ry = 14, rx = -16 },
 			Head = { ry = -6 },
-			RightUpperArm = { rx = 78, rz = 2 },
+			LeftFoot = { rx = 9 },
+			LeftHand = {},
+			LeftLowerArm = {},
+			LeftLowerLeg = { rx = -39 },
+			LeftUpperArm = { rx = -10, rz = 22 },
+			LeftUpperLeg = { rx = 30 },
+			LowerTorso = { ry = 10, py = -0.04, pz = -0.34 },
+			RightFoot = { rx = 18 },
+			RightHand = {},
 			RightLowerArm = { rx = 4 },
-			LeftUpperArm = { rz = 22, rx = -10 },
+			RightLowerLeg = { rx = -6 },
+			RightUpperArm = { rx = 78, rz = 2 },
+			RightUpperLeg = { rx = -12 },
+			UpperTorso = { rx = -16, ry = 14 },
 		},
 		diagnostic = { "UpperTorso", "RightUpperArm", "RightLowerArm" },
 		parryable = true,
@@ -226,31 +263,36 @@ local ARCHETYPE_DEFS: { [Archetype]: ArchetypeDef } = {
 	-- most expensive mistake the game can ask a player to make.
 	Plant = {
 		tell = {
-			LowerTorso = { rx = 16.0, py = -0.32 },
-			UpperTorso = { rx = -10.0 },
-			Head = { rx = -8.0 },
-			RightUpperArm = { rx = 43.4, ry = -18.8, rz = 78.6 },
-			LeftUpperArm = { rx = 57.3, ry = 33.2, rz = -77.1 },
-			RightLowerArm = { rx = 8.0, rz = -13.0 },
-			LeftLowerArm = { rx = 8.0, rz = 10.0 },
-			RightHand = { rx = -31.5, ry = -18.7, rz = -1.3 },
-			RightUpperLeg = { rx = -20.0, rz = 20.5 },
-			LeftUpperLeg = { rx = -20.0, rz = -23.1 },
-			RightLowerLeg = { rz = -8.1 },
-			LeftLowerLeg = { rz = 12.2 },
-			RightFoot = { rz = -10.8 },
+			Head = { rx = -8 },
 			LeftFoot = { rz = 9.8 },
+			LeftLowerArm = { rx = 8, rz = 10 },
+			LeftLowerLeg = { rz = 12.2 },
+			LeftUpperArm = { rx = 57.3, ry = 33.2, rz = -77.1 },
+			LeftUpperLeg = { rx = -20, rz = -23.1 },
+			LowerTorso = { rx = 16, py = -0.32 },
+			RightFoot = { rz = -10.8 },
+			RightHand = { rx = -31.5, ry = -18.7, rz = -1.3 },
+			RightLowerArm = { rx = 8, rz = -13 },
+			RightLowerLeg = { rz = -8.1 },
+			RightUpperArm = { rx = 43.4, ry = -18.8, rz = 78.6 },
+			RightUpperLeg = { rx = -20, rz = 20.5 },
+			UpperTorso = { rx = -10 },
 		},
 		hit = {
-			LowerTorso = { py = -0.52 },
-			UpperTorso = { rx = 22 },
 			Head = { rx = 12 },
-			RightUpperArm = { rx = 18, rz = 22 },
-			LeftUpperArm = { rx = 18, rz = -22 },
-			RightLowerArm = { rx = 4 },
+			LeftFoot = { rx = 30 },
 			LeftLowerArm = { rx = 4 },
-			RightUpperLeg = { rz = 34 },
-			LeftUpperLeg = { rz = -34 },
+			LeftLowerLeg = { rx = -60 },
+			LeftUpperArm = { rx = 18, rz = -22 },
+			LeftUpperLeg = { rx = 30, rz = -34 },
+			LowerTorso = { py = -0.52 },
+			RightFoot = { rx = 30 },
+			RightHand = {},
+			RightLowerArm = { rx = 4 },
+			RightLowerLeg = { rx = -60 },
+			RightUpperArm = { rx = 18, rz = 22 },
+			RightUpperLeg = { rx = 30, rz = 34 },
+			UpperTorso = { rx = 22 },
 		},
 		diagnostic = { "RightUpperArm", "LeftUpperArm", "LowerTorso" },
 		parryable = false,
@@ -302,7 +344,20 @@ local CHANNEL_CARRY = 5
 local AMPLITUDE_RANGE = 0.16
 local LEAN_RANGE = 9
 local HEAD_RANGE = 7
-local STANCE_RANGE = 11
+-- Was 11, when this was the only thing moving a generated attack's legs.
+-- With the archetypes posing their own weight it is a perturbation on top of
+-- real choreography rather than a substitute for it, and 11 degrees of splay
+-- fights whoever posed the stance.
+local STANCE_RANGE = 5
+
+-- How much of the stance shift comes back the other way at the hit.
+--
+-- The seed picks which way the weight starts, and the strike moves it the
+-- other way -- so the legs provably differ between the tell and the hit on
+-- every seed. They used to take the identical value at both ends, because
+-- this was derived from the seed alone and never looked at `isHit`, which
+-- meant the one thing moving the legs actually froze them.
+local STANCE_HIT_SHARE = 0.7
 
 local function copyPoses(poses: Poses): Poses
 	local out: Poses = {}
@@ -359,32 +414,49 @@ local function varied(def: ArchetypeDef, poses: Poses, seed: number, isHit: bool
 		out.Head = headPose
 	end
 
+	-- A weight shift, not a fixed splay: one way in the tell, the other way at
+	-- the hit.
+	local shift = if isHit then -stance * STANCE_HIT_SHARE else stance
 	for _, leg in { "RightUpperLeg", "LeftUpperLeg" } do
 		if isDiagnostic(def, leg) then
 			continue
 		end
+		-- Never *creates* a leg. A joint this archetype does not pose is one
+		-- the other keyframes will not pose either, and a part that appears in
+		-- only some keyframes unwinds to flat in between rather than holding.
+		local pose = out[leg]
+		if not pose then
+			continue
+		end
 		local sign = if leg == "RightUpperLeg" then 1 else -1
-		local pose = out[leg] or {}
-		pose.rz = (pose.rz or 0) + stance * sign
-		out[leg] = pose
+		pose.rz = (pose.rz or 0) + shift * sign
 	end
 
 	-- The enemy's own carriage, added last and skipped on every diagnostic
 	-- joint. Last so it is not scaled by the seed's amplitude: an accent is who
 	-- this fighter is, not something that varies swing to swing.
+	--
+	-- It biases joints the archetype already poses; it never introduces one.
+	-- An accent that added a joint would add it to the tell and the hit alike
+	-- and by the same amount, so the joint would sit frozen for the whole
+	-- swing -- and on an archetype that poses no legs, the accent was the only
+	-- thing touching them, which made it the cause of the dead lower body
+	-- rather than a victim of it.
 	if accent then
 		for part, bias in accent do
 			if isDiagnostic(def, part) then
 				continue
 			end
-			local pose = out[part] or {}
+			local pose = out[part]
+			if not pose then
+				continue
+			end
 			for _, axis in COMPONENTS do
 				local add = (bias :: any)[axis]
 				if add then
 					(pose :: any)[axis] = ((pose :: any)[axis] or 0) + add
 				end
 			end
-			out[part] = pose
 		end
 	end
 
@@ -509,15 +581,23 @@ function AttackChoreography.generate(spec: AttackSpec): KeyframeMath.AnimationDe
 	local impact = windupAt + spec.leadTime
 	local length = impact + spec.recovery
 
+	local carry = carryPoseOf(def, spec.seed, spec.accent)
+
+	-- A settle on the way back to rest -- but only when the attack actually
+	-- goes back to rest. `strike` inserts its recovery *before* the final
+	-- keyframe, so on a held end this would read carry -> settle -> carry: the
+	-- one cue a chain gets, dipping and coming back.
+	local recovery = if spec.carryOut then nil else AnimationDefs.settleOf(carry)
+
 	return AnimationDefs.strike(
 		length,
 		impact,
 		windupAt,
 		varied(def, def.tell, spec.seed, false, spec.accent),
 		varied(def, def.hit, spec.seed, true, spec.accent),
-		nil,
+		recovery,
 		spec.carryOut,
-		carryPoseOf(def, spec.seed, spec.accent)
+		carry
 	)
 end
 
