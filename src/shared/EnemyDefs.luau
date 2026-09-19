@@ -150,6 +150,9 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		coinReward = 10,
 		crystalReward = 0,
 		xpReward = 12,
+		-- Always chains, because demonstrating one is what it is for.
+		maxChain = 2,
+		chainChance = 1,
 		attacks = {
 			Overhead = {
 				archetype = "Raise",
@@ -221,6 +224,11 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			RightUpperLeg = { rx = 4, rz = -3 },
 			LeftUpperLeg = { rx = 4, rz = 3 },
 		},
+		-- Follows up occasionally rather than habitually. The restraint is
+		-- the read: a skeleton that mostly throws single attacks makes the
+		-- times it does not mean something.
+		maxChain = 2,
+		chainChance = 0.35,
 		attacks = {
 			-- Leads with a thrust. A disciplined swordsman squaring up and
 			-- driving forward is a different silhouette from the Shambler's
@@ -312,6 +320,11 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			RightLowerLeg = { rx = 24 },
 			LeftLowerLeg = { rx = 8 },
 		},
+		-- The relentless one. Flurries more often than anything else, which
+		-- is where "busy" comes from -- its attacks are not faster than the
+		-- skeleton's, there are just fewer gaps between them.
+		maxChain = 3,
+		chainChance = 0.55,
 		attacks = {
 			Claw = {
 				archetype = "WindBack",
@@ -498,6 +511,10 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			RightLowerLeg = { rx = -10 },
 			LeftLowerLeg = { rx = 16 },
 		},
+		-- Commits to long sequences, and cannot be staggered out of them.
+		-- Answering each link on its own terms is the fight.
+		maxChain = 3,
+		chainChance = 0.5,
 		attacks = {
 			Cleave = {
 				archetype = "WindBack",

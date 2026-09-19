@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage.Shared
+local AttackChain = require(Shared.AttackChain)
 local AttackSelector = require(Shared.AttackSelector)
 local EnemyDefs = require(Shared.EnemyDefs)
 local RigAssembly = require(Shared.RigAssembly)
@@ -211,6 +212,14 @@ end
 
 function EnemyAI.chooseAttack(enemy: Enemy, distance: number, now: number): string?
 	return AttackSelector.chooseAttack(enemy.def, distance, enemy.cooldowns, now)
+end
+
+-- The attack to throw out of `fromAttackId` without returning to neutral,
+-- or nil when nothing legal follows it. Chain links may reach for attacks an
+-- opener cannot (`chainOnly`), which is how an enemy gets a move that only
+-- ever appears part way through a flurry.
+function EnemyAI.chooseChainLink(enemy: Enemy, fromAttackId: string, distance: number, now: number): string?
+	return AttackChain.chooseNext(enemy.def, fromAttackId, distance, enemy.cooldowns, now)
 end
 
 function EnemyAI.markAttackUsed(enemy: Enemy, attackId: string, now: number)
