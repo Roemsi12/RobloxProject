@@ -49,6 +49,10 @@ export type AttackDef = {
 	-- DESIGN.md requires some attacks to be unparryable, so the answer to
 	-- every enemy is never just "parry everything".
 	parryable: boolean,
+	-- Only reachable as a chain link, never as an opener. A move that only
+	-- ever shows up part way through a flurry, so the fight opens the same
+	-- readable way and gets stranger the longer you stay in it.
+	chainOnly: boolean?,
 	damage: number,
 	-- Server-side hit-reg volume, checked against the character's server
 	-- position at the moment of impact. Also bounds who may parry it.
@@ -118,6 +122,18 @@ export type EnemyDef = {
 	-- A plain pose table rather than the exported type, so this module keeps
 	-- requiring nothing. The spec checks it.
 	accent: { [string]: { [string]: number } }?,
+	-- How many attacks this enemy may throw in one chain, counting the
+	-- opener. Defaults to 1, which is no chaining at all: the feature ships
+	-- dark and gets turned on one enemy at a time, because a chain that
+	-- reads badly is far worse than no chain.
+	--
+	-- AttackChain.MAX_LINKS caps this regardless.
+	maxChain: number?,
+	-- Chance of extending after each link, rolled per link. This is the
+	-- per-enemy personality dial: a Shambler that flurries often and a
+	-- SkeletonWarrior that only occasionally follows up read as different
+	-- fighters even when they share a moveset size.
+	chainChance: number?,
 	attacks: { [string]: AttackDef },
 }
 
@@ -347,8 +363,13 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- rather than another melee swing. The Shambler doesn't move while
 			-- winding up, so maxRange must not exceed range — a lunge started
 			-- beyond its reach could only ever miss.
+			-- Deliberately not hyper-armoured, unlike Maul. Parrying staggers an
+			-- enemy whatever its armour, so the flag only decides whether the
+			-- player may *trade* with the attack instead of answering it
+			-- cleanly. Maul is the Shambler's one committed move and keeps it;
+			-- giving it to the Lunge as well left Lunge->Maul with no way in at
+			-- any point, which is a cutscene rather than a flurry.
 			Lunge = {
-				hyperArmor = true,
 				archetype = "Coil",
 				leadTime = 0.36,
 				telegraphDuration = 0.48,

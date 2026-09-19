@@ -24,10 +24,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AttackChoreography = require(Shared.AttackChoreography)
-local CombatConstants = require(Shared.CombatConstants)
 local DungeonDefs = require(Shared.DungeonDefs)
 local EnemyDefs = require(Shared.EnemyDefs)
-local WeaponDefs = require(Shared.WeaponDefs)
 
 local JestGlobals = require(ReplicatedStorage.DevPackages.JestGlobals)
 local describe = JestGlobals.describe
@@ -450,35 +448,11 @@ end)
 -- Parry: the press must fall inside [lead - early, lead + late].
 -- Dodge:  the i-frames run [press, press + DODGE_IFRAMES], so the hit has to
 --         land inside them.
-local function readableLead(parryable: boolean): (number, number)
-	local fast = AttackChoreography.REACTION_FAST
-	local slow = AttackChoreography.REACTION_SLOW
-
-	if not parryable then
-		return slow, fast + CombatConstants.DODGE_IFRAMES
-	end
-
-	-- The tightest window in the game sets the band, so every class can answer
-	-- every attack. Deliberately not named here: which class is narrowest is a
-	-- tuning decision that has already moved once, and a comment naming one
-	-- goes stale silently. The loop below finds it.
-	--
-	-- Class identity lives in how *wide* the window is, not in whether the
-	-- attack can be read at all. A class with tight frames has to be precise;
-	-- it should never be the class that simply cannot answer.
-	local lowest, highest = 0, math.huge
-	for _, weapon in WeaponDefs do
-		lowest = math.max(lowest, slow - weapon.parry.lateTolerance)
-		highest = math.min(highest, fast + weapon.parry.earlyTolerance)
-	end
-	return lowest, highest
-end
-
 describe("Reactable tells", function()
 	it("keeps every attack answerable by reacting to what the player saw", function()
 		for enemyId, def in EnemyDefs do
 			for attackId, attack in def.attacks do
-				local lowest, highest = readableLead(attack.parryable)
+				local lowest, highest = AttackChoreography.readableLead(attack.parryable)
 				check(
 					`{enemyId}.{attackId} lead {attack.leadTime} is below {lowest}`,
 					attack.leadTime >= lowest - 1e-9
@@ -497,7 +471,7 @@ describe("Reactable tells", function()
 		-- is where it should surface — not as every enemy slowly becoming
 		-- unparryable for one class.
 		for _, parryable in { true, false } do
-			local lowest, highest = readableLead(parryable)
+			local lowest, highest = AttackChoreography.readableLead(parryable)
 			check(`{if parryable then "parry" else "dodge"} band {lowest}..{highest} is non-empty`, highest > lowest)
 		end
 	end)
