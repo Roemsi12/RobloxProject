@@ -46,10 +46,29 @@ export type Archetype = "WindBack" | "Raise" | "Coil" | "Plant"
 
 AttackChoreography.ARCHETYPES = { "WindBack", "Raise", "Coil", "Plant" } :: { Archetype }
 
--- Below this, a player is pressing on prediction rather than on what they saw.
--- Human visual reaction lands around 250 ms; the rest is the margin between
--- noticing and having pressed.
-AttackChoreography.REACTION_FLOOR = 0.35
+-- The span of reaction times the game is built to serve: from a quick player
+-- to an ordinary one, measured from the tell landing to the key going down.
+--
+-- These two numbers are the whole basis of what a readable attack is, and they
+-- give a *band*, not a floor. That distinction was got wrong once and it is
+-- worth spelling out, because a floor alone reads as obviously sufficient and
+-- is not:
+--
+--   The parry window is anchored to impact — [impact - early, impact + late]
+--   (ParryMath). Measured from the tell landing, it opens at
+--   `leadTime - early`. So a tell that is on screen *too long* pushes the
+--   window away from the moment the player reacted to it, and reacting to the
+--   tell presses early, whiffs, and eats the parry cooldown.
+--
+--   A player is punished for doing exactly the thing the tell exists to make
+--   them do. Too slow is as unreadable as too fast, and rather more insulting.
+--
+-- The band itself is not stated here, because it falls out of the weapons'
+-- parry windows and the dodge's invulnerability rather than being chosen: see
+-- `readableLead` in AttackChoreography.spec, which derives it and enforces it
+-- against every attack in the game.
+AttackChoreography.REACTION_FAST = 0.22
+AttackChoreography.REACTION_SLOW = 0.32
 
 -- How long after the tell lands the player is still deciding. Divergence
 -- between two archetypes is measured here — the moment the answer is chosen,

@@ -24,8 +24,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AttackChoreography = require(Shared.AttackChoreography)
+local CombatConstants = require(Shared.CombatConstants)
 local DungeonDefs = require(Shared.DungeonDefs)
 local EnemyDefs = require(Shared.EnemyDefs)
+local WeaponDefs = require(Shared.WeaponDefs)
 
 local JestGlobals = require(ReplicatedStorage.DevPackages.JestGlobals)
 local describe = JestGlobals.describe
@@ -86,18 +88,21 @@ describe("AttackChoreography lead time", function()
 		end
 	end)
 
-	it("never lets a generated attack undercut the reaction floor", function()
+	it("hands back exactly the lead it was given, at both ends of the band", function()
 		-- The generator takes lead time as an input, so this is really a check
-		-- that nothing inside it quietly eats into the budget.
+		-- that nothing inside it quietly eats into the budget — at the fast end
+		-- especially, where there is least to spare.
 		for _, archetype in ARCHETYPES do
-			local anim = AttackChoreography.generate({
-				archetype = archetype,
-				leadTime = AttackChoreography.REACTION_FLOOR,
-				recovery = 0.4,
-				seed = 1,
-			})
-			local onScreen = (anim.impact :: number) - AttackChoreography.SETTLE
-			check(`{archetype} clears the floor`, onScreen >= AttackChoreography.REACTION_FLOOR - 1e-9)
+			for _, lead in { AttackChoreography.REACTION_FAST, AttackChoreography.REACTION_SLOW, 0.5 } do
+				local anim = AttackChoreography.generate({
+					archetype = archetype,
+					leadTime = lead,
+					recovery = 0.4,
+					seed = 1,
+				})
+				local onScreen = (anim.impact :: number) - AttackChoreography.SETTLE
+				check(`{archetype} keeps its {lead}s lead`, math.abs(onScreen - lead) < 1e-9)
+			end
 		end
 	end)
 end)
@@ -321,13 +326,25 @@ describe("Enemy identity", function()
 		return lo, hi
 	end
 
-	it("gives every common enemy its own rhythm, distinct from the others", function()
+	it("gives every enemy you can meet its own rhythm, distinct from the others", function()
 		-- The existing per-enemy rule keeps each one internally consistent. It
 		-- does not stop them all being consistent at the *same* tempo, which is
 		-- exactly the complaint.
+		--
+		-- Only enemies that can actually share a room are compared. The rule is
+		-- about telling two fighters apart in front of you, so an enemy in no
+		-- dungeon pool (the training dummy) has nothing to be confused with,
+		-- and the boss fights alone.
+		local inAPool: { [string]: boolean } = {}
+		for _, pool in DungeonDefs.POOLS do
+			for _, enemyId in pool do
+				inAPool[enemyId] = true
+			end
+		end
+
 		local bands = {}
 		for enemyId, def in EnemyDefs do
-			if enemyId == DungeonDefs.BOSS then
+			if enemyId == DungeonDefs.BOSS or not inAPool[enemyId] then
 				continue
 			end
 			local lo, hi = parryableBand(def)
@@ -335,6 +352,8 @@ describe("Enemy identity", function()
 				table.insert(bands, { id = enemyId, lo = lo, hi = hi })
 			end
 		end
+
+		check("more than one enemy is in a dungeon pool", #bands > 1)
 
 		for i, a in bands do
 			for j, b in bands do
@@ -419,28 +438,76 @@ describe("Enemy identity", function()
 	end)
 end)
 
-describe("Enemy tell budgets", function()
-	-- The boss is exempt from both the floor and the rhythm, deliberately. The
-	-- dungeon's common enemies teach the four tells at a speed they can be
-	-- reacted to; the Hollow King is where you find out whether you learned
-	-- them, and he breaks his own rhythm on purpose.
-	it("gives every parryable attack on a common enemy a readable tell", function()
+-- The band a lead time has to land in for a player to answer by reacting to
+-- what they saw, derived rather than chosen.
+--
+-- Too short and the hit is already resolving before a hand can move. Too long
+-- and the window — which is anchored to impact, not to the tell — has not
+-- opened yet when the player reacts, so reacting presses early, whiffs, and
+-- eats the parry cooldown. A tell that punishes the reaction it exists to
+-- provoke is the worse of the two failures.
+--
+-- Parry: the press must fall inside [lead - early, lead + late].
+-- Dodge:  the i-frames run [press, press + DODGE_IFRAMES], so the hit has to
+--         land inside them.
+local function readableLead(parryable: boolean): (number, number)
+	local fast = AttackChoreography.REACTION_FAST
+	local slow = AttackChoreography.REACTION_SLOW
+
+	if not parryable then
+		return slow, fast + CombatConstants.DODGE_IFRAMES
+	end
+
+	-- The tightest window in the game sets the band, so every class can answer
+	-- every attack. The Assassin's is deliberately the narrowest, and it is the
+	-- one that decides this.
+	local lowest, highest = 0, math.huge
+	for _, weapon in WeaponDefs do
+		lowest = math.max(lowest, slow - weapon.parry.lateTolerance)
+		highest = math.min(highest, fast + weapon.parry.earlyTolerance)
+	end
+	return lowest, highest
+end
+
+describe("Reactable tells", function()
+	it("keeps every attack answerable by reacting to what the player saw", function()
 		for enemyId, def in EnemyDefs do
-			if enemyId == DungeonDefs.BOSS then
-				continue
-			end
 			for attackId, attack in def.attacks do
-				if not attack.parryable then
-					continue
-				end
+				local lowest, highest = readableLead(attack.parryable)
 				check(
-					`{enemyId}.{attackId} tell ({attack.leadTime}s) clears the floor`,
-					attack.leadTime >= AttackChoreography.REACTION_FLOOR - 1e-9
+					`{enemyId}.{attackId} lead {attack.leadTime} is below {lowest}`,
+					attack.leadTime >= lowest - 1e-9
+				)
+				check(
+					`{enemyId}.{attackId} lead {attack.leadTime} is above {highest} — reacting to it would press early`,
+					attack.leadTime <= highest + 1e-9
 				)
 			end
 		end
 	end)
 
+	it("leaves the band wide enough to be worth having", function()
+		-- If the weapons' windows ever tighten to the point where no lead time
+		-- satisfies all three classes, that is a combat-tuning problem and this
+		-- is where it should surface — not as every enemy slowly becoming
+		-- unparryable for one class.
+		for _, parryable in { true, false } do
+			local lowest, highest = readableLead(parryable)
+			check(`{if parryable then "parry" else "dodge"} band {lowest}..{highest} is non-empty`, highest > lowest)
+		end
+	end)
+end)
+
+describe("Enemy tell budgets", function()
+	-- Reactability itself is checked above, for every attack including the
+	-- boss's. The boss used to be exempt from it on the grounds that "the
+	-- dungeon teaches the language and the boss tests it" — but that exemption
+	-- was written when the only failure imagined was a tell being too *fast*.
+	-- A tell that is too slow punishes the player for reacting, which is not a
+	-- test of anything. The boss is fast, not unreadable.
+	--
+	-- It keeps its exemption from the one-rhythm rule below, which is a
+	-- different claim: breaking his own tempo is a real boss mechanic.
 	it("keeps a common enemy's attacks on one rhythm", function()
 		-- One timing per enemy, not one per attack: a player should be learning
 		-- the fighter, not a table.

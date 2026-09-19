@@ -41,10 +41,10 @@ export type AttackDef = {
 	-- budget the player reads in, and it is the number to change when an
 	-- attack feels unreadable — never the telegraph.
 	--
-	-- Every parryable attack on a common enemy clears
-	-- AttackChoreography.REACTION_FLOOR, so it can be answered by reacting.
-	-- The Hollow King is exempt: the dungeon teaches the language, and the
-	-- boss is where you find out whether you learned it.
+	-- Held inside a band, not just above a floor: too long and the parry
+	-- window (anchored to impact) has not opened yet when the player reacts to
+	-- the tell, so reacting presses early and eats the cooldown. The spec
+	-- derives the band from the weapons' windows and enforces both ends.
 	leadTime: number,
 	-- DESIGN.md requires some attacks to be unparryable, so the answer to
 	-- every enemy is never just "parry everything".
@@ -137,8 +137,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		attacks = {
 			Overhead = {
 				archetype = "Raise",
-				leadTime = 1.08,
-				telegraphDuration = 1.20,
+				leadTime = 0.40,
+				telegraphDuration = 0.52,
 				parryable = true,
 				damage = 15,
 				range = 10,
@@ -153,8 +153,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- where the language is meant to be learned.
 			Swipe = {
 				archetype = "WindBack",
-				leadTime = 1.14,
-				telegraphDuration = 1.26,
+				leadTime = 0.42,
+				telegraphDuration = 0.54,
 				parryable = true,
 				damage = 12,
 				range = 10,
@@ -168,8 +168,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			GroundSlam = {
 				hyperArmor = true,
 				archetype = "Plant",
-				leadTime = 1.68,
-				telegraphDuration = 1.80,
+				leadTime = 0.52,
+				telegraphDuration = 0.64,
 				parryable = false,
 				damage = 20,
 				range = 14,
@@ -212,8 +212,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- which enemy you are fighting.
 			Thrust = {
 				archetype = "Coil",
-				leadTime = 0.48,
-				telegraphDuration = 0.60,
+				leadTime = 0.29,
+				telegraphDuration = 0.41,
 				parryable = true,
 				damage = 14,
 				range = 9,
@@ -225,8 +225,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			},
 			Slash = {
 				archetype = "WindBack",
-				leadTime = 0.42,
-				telegraphDuration = 0.54,
+				leadTime = 0.27,
+				telegraphDuration = 0.39,
 				parryable = true,
 				damage = 12,
 				range = 8,
@@ -240,8 +240,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- and still inside the band that keeps this enemy on one rhythm.
 			Overhead = {
 				archetype = "Raise",
-				leadTime = 0.56,
-				telegraphDuration = 0.68,
+				leadTime = 0.31,
+				telegraphDuration = 0.43,
 				parryable = true,
 				damage = 18,
 				range = 8,
@@ -254,8 +254,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			GroundSlam = {
 				hyperArmor = true,
 				archetype = "Plant",
-				leadTime = 0.78,
-				telegraphDuration = 0.90,
+				leadTime = 0.40,
+				telegraphDuration = 0.52,
 				parryable = false,
 				damage = 25,
 				range = 14,
@@ -299,8 +299,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		attacks = {
 			Claw = {
 				archetype = "WindBack",
-				leadTime = 0.66,
-				telegraphDuration = 0.78,
+				leadTime = 0.33,
+				telegraphDuration = 0.45,
 				parryable = true,
 				damage = 10,
 				range = 9,
@@ -315,8 +315,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- band so the two can run into each other.
 			Backhand = {
 				archetype = "Raise",
-				leadTime = 0.62,
-				telegraphDuration = 0.74,
+				leadTime = 0.34,
+				telegraphDuration = 0.46,
 				parryable = true,
 				damage = 12,
 				range = 9,
@@ -332,8 +332,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			Maul = {
 				hyperArmor = true,
 				archetype = "Plant",
-				leadTime = 0.80,
-				telegraphDuration = 0.92,
+				leadTime = 0.45,
+				telegraphDuration = 0.57,
 				parryable = false,
 				damage = 18,
 				range = 11,
@@ -350,8 +350,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			Lunge = {
 				hyperArmor = true,
 				archetype = "Coil",
-				leadTime = 0.82,
-				telegraphDuration = 0.94,
+				leadTime = 0.36,
+				telegraphDuration = 0.48,
 				parryable = true,
 				damage = 16,
 				range = 18,
@@ -398,8 +398,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- animal from the melee enemies' swings.
 			Lob = {
 				archetype = "Raise",
-				leadTime = 1.22,
-				telegraphDuration = 1.34,
+				leadTime = 0.39,
+				telegraphDuration = 0.51,
 				parryable = true,
 				damage = 14,
 				range = 28,
@@ -412,8 +412,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			},
 			Spit = {
 				archetype = "Coil",
-				leadTime = 1.28,
-				telegraphDuration = 1.40,
+				leadTime = 0.41,
+				telegraphDuration = 0.53,
 				parryable = true,
 				damage = 12,
 				range = 28,
@@ -431,8 +431,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			Spray = {
 				hyperArmor = true,
 				archetype = "Plant",
-				leadTime = 0.88,
-				telegraphDuration = 1.00,
+				leadTime = 0.50,
+				telegraphDuration = 0.62,
 				parryable = false,
 				damage = 8,
 				range = 12,
@@ -480,8 +480,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		attacks = {
 			Cleave = {
 				archetype = "WindBack",
-				leadTime = 0.53,
-				telegraphDuration = 0.65,
+				leadTime = 0.30,
+				telegraphDuration = 0.42,
 				parryable = true,
 				damage = 18,
 				range = 13,
@@ -494,8 +494,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			Overhead = {
 				hyperArmor = true,
 				archetype = "Raise",
-				leadTime = 0.98,
-				telegraphDuration = 1.10,
+				leadTime = 0.42,
+				telegraphDuration = 0.54,
 				parryable = true,
 				damage = 30,
 				range = 12,
@@ -508,8 +508,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			Shockwave = {
 				hyperArmor = true,
 				archetype = "Plant",
-				leadTime = 1.28,
-				telegraphDuration = 1.40,
+				leadTime = 0.50,
+				telegraphDuration = 0.62,
 				parryable = false,
 				damage = 26,
 				range = 20,
@@ -522,8 +522,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			},
 			BoneSpear = {
 				archetype = "Coil",
-				leadTime = 1.08,
-				telegraphDuration = 1.20,
+				leadTime = 0.40,
+				telegraphDuration = 0.52,
 				parryable = true,
 				damage = 18,
 				range = 34,
