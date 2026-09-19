@@ -93,9 +93,14 @@ DungeonDefs.BOSS = "HollowKing"
 -- Enemy pools. Rooms at main-path depth LATE_DEPTH and beyond draw from
 -- `late`; an Elite room's first enemy always comes from `elite`.
 DungeonDefs.LATE_DEPTH = 3
+
+-- TEMPORARY: the Spitter is pulled from both pools, so it does not spawn.
+-- Everything else about it is intact -- its EnemyDefs entry, loot row, rig,
+-- animations and tests -- so putting it back is adding the two names below
+-- and nothing else.
 DungeonDefs.POOLS = {
-	early = { "Shambler", "Spitter" },
-	late = { "Shambler", "Spitter", "SkeletonWarrior" },
+	early = { "Shambler" },
+	late = { "Shambler", "SkeletonWarrior" },
 	elite = { "SkeletonWarrior" },
 } :: { [string]: { string } }
 
