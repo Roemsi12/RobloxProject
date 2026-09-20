@@ -8,6 +8,20 @@
 -- computes an outcome itself.
 --
 -- Laid out to stay clear of DebugHUD, which owns the top-left corner.
+--
+-- Every panel is built by a `build*` function that returns the closure which
+-- updates it, and `GameUI.start` at the bottom is the only place that talks to
+-- remotes. So a new piece of UI is a builder in the right section below, plus
+-- one subscription at the end -- and nothing in between needs to know about
+-- it. The sections, in order:
+--
+--   Widget helpers            panels, labels, flashes
+--   The inventory panel       (I)
+--   The dungeon HUD           run progress, boss bar, announcements
+--   The chest's loot menu
+--   Levels and the skill tree
+--   The combat HUD            posture and cooldowns
+--   Wiring it to the server
 
 local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
@@ -99,6 +113,11 @@ local NOTICE_COLORS: { [string]: Color3 } = {
 
 local PANEL_COLOR = Color3.fromRGB(18, 16, 22)
 local PANEL_EDGE = Color3.fromRGB(120, 100, 70)
+
+--[[ Widget helpers ]]
+
+-- The small shared pieces every panel below is built out of. Nothing here
+-- knows what it is showing.
 
 -- Rounded corners and a thin warm edge: one look for every panel.
 local function stylePanel(frame: GuiObject)
@@ -215,6 +234,8 @@ type Stack = {
 	-- picked things up in is the order they see them in.
 	order: number,
 }
+
+--[[ The inventory panel ]]
 
 local function stackItems(items: { any }): ({ Stack }, number)
 	local byKey: { [string]: Stack } = {}
@@ -445,6 +466,8 @@ local function buildInventory(parent: Instance): (Frame, ({ any }, number) -> ()
 
 	return panel, render, weaponRow
 end
+
+--[[ The dungeon HUD ]]
 
 -- The dungeon run on screen: progress at the top, the boss bar during the boss
 -- fight, big announcements for clears, and the countdown to the next dungeon.
@@ -1232,6 +1255,9 @@ local function buildLevelBar(gui: ScreenGui): (Progression) -> ()
 		TweenService:Create(fill, TweenInfo.new(0.25), { Size = UDim2.fromScale(fraction, 1) }):Play()
 	end
 end
+
+--[[ The combat HUD ]]
+
 -- Posture and cooldowns, low in the middle of the screen. The posture bar only
 -- shows while there's posture to show; it fills as blocks land and flashes
 -- when the guard breaks.
@@ -1338,6 +1364,12 @@ local function buildCombatHUD(gui: ScreenGui)
 		end
 	end)
 end
+
+--[[ Wiring it to the server ]]
+
+-- Everything above builds a panel and hands back the function that updates it.
+-- This is the only part that talks to remotes, so a new piece of UI is a
+-- builder above plus one subscription here.
 
 function GameUI.start()
 	local player = Players.LocalPlayer

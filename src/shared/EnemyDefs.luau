@@ -41,14 +41,18 @@ export type AttackDef = {
 	-- budget the player reads in, and it is the number to change when an
 	-- attack feels unreadable — never the telegraph.
 	--
-	-- Every parryable attack on a common enemy clears
-	-- AttackChoreography.REACTION_FLOOR, so it can be answered by reacting.
-	-- The Hollow King is exempt: the dungeon teaches the language, and the
-	-- boss is where you find out whether you learned it.
+	-- Held inside a band, not just above a floor: too long and the parry
+	-- window (anchored to impact) has not opened yet when the player reacts to
+	-- the tell, so reacting presses early and eats the cooldown. The spec
+	-- derives the band from the weapons' windows and enforces both ends.
 	leadTime: number,
 	-- DESIGN.md requires some attacks to be unparryable, so the answer to
 	-- every enemy is never just "parry everything".
 	parryable: boolean,
+	-- Only reachable as a chain link, never as an opener. A move that only
+	-- ever shows up part way through a flurry, so the fight opens the same
+	-- readable way and gets stranger the longer you stay in it.
+	chainOnly: boolean?,
 	damage: number,
 	-- Server-side hit-reg volume, checked against the character's server
 	-- position at the moment of impact. Also bounds who may parry it.
@@ -118,6 +122,18 @@ export type EnemyDef = {
 	-- A plain pose table rather than the exported type, so this module keeps
 	-- requiring nothing. The spec checks it.
 	accent: { [string]: { [string]: number } }?,
+	-- How many attacks this enemy may throw in one chain, counting the
+	-- opener. Defaults to 1, which is no chaining at all: the feature ships
+	-- dark and gets turned on one enemy at a time, because a chain that
+	-- reads badly is far worse than no chain.
+	--
+	-- AttackChain.MAX_LINKS caps this regardless.
+	maxChain: number?,
+	-- Chance of extending after each link, rolled per link. This is the
+	-- per-enemy personality dial: a Shambler that flurries often and a
+	-- SkeletonWarrior that only occasionally follows up read as different
+	-- fighters even when they share a moveset size.
+	chainChance: number?,
 	attacks: { [string]: AttackDef },
 }
 
@@ -134,11 +150,14 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		coinReward = 10,
 		crystalReward = 0,
 		xpReward = 12,
+		-- Always chains, because demonstrating one is what it is for.
+		maxChain = 2,
+		chainChance = 1,
 		attacks = {
 			Overhead = {
 				archetype = "Raise",
-				leadTime = 1.08,
-				telegraphDuration = 1.20,
+				leadTime = 0.33,
+				telegraphDuration = 0.45,
 				parryable = true,
 				damage = 15,
 				range = 10,
@@ -153,8 +172,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- where the language is meant to be learned.
 			Swipe = {
 				archetype = "WindBack",
-				leadTime = 1.14,
-				telegraphDuration = 1.26,
+				leadTime = 0.36,
+				telegraphDuration = 0.48,
 				parryable = true,
 				damage = 12,
 				range = 10,
@@ -168,8 +187,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			GroundSlam = {
 				hyperArmor = true,
 				archetype = "Plant",
-				leadTime = 1.68,
-				telegraphDuration = 1.80,
+				leadTime = 0.52,
+				telegraphDuration = 0.64,
 				parryable = false,
 				damage = 20,
 				range = 14,
@@ -205,6 +224,11 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			RightUpperLeg = { rx = 4, rz = -3 },
 			LeftUpperLeg = { rx = 4, rz = 3 },
 		},
+		-- Follows up occasionally rather than habitually. The restraint is
+		-- the read: a skeleton that mostly throws single attacks makes the
+		-- times it does not mean something.
+		maxChain = 2,
+		chainChance = 0.35,
 		attacks = {
 			-- Leads with a thrust. A disciplined swordsman squaring up and
 			-- driving forward is a different silhouette from the Shambler's
@@ -212,8 +236,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- which enemy you are fighting.
 			Thrust = {
 				archetype = "Coil",
-				leadTime = 0.48,
-				telegraphDuration = 0.60,
+				leadTime = 0.29,
+				telegraphDuration = 0.41,
 				parryable = true,
 				damage = 14,
 				range = 9,
@@ -225,8 +249,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			},
 			Slash = {
 				archetype = "WindBack",
-				leadTime = 0.42,
-				telegraphDuration = 0.54,
+				leadTime = 0.27,
+				telegraphDuration = 0.39,
 				parryable = true,
 				damage = 12,
 				range = 8,
@@ -240,8 +264,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- and still inside the band that keeps this enemy on one rhythm.
 			Overhead = {
 				archetype = "Raise",
-				leadTime = 0.56,
-				telegraphDuration = 0.68,
+				leadTime = 0.31,
+				telegraphDuration = 0.43,
 				parryable = true,
 				damage = 18,
 				range = 8,
@@ -254,8 +278,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			GroundSlam = {
 				hyperArmor = true,
 				archetype = "Plant",
-				leadTime = 0.78,
-				telegraphDuration = 0.90,
+				leadTime = 0.40,
+				telegraphDuration = 0.52,
 				parryable = false,
 				damage = 25,
 				range = 14,
@@ -296,11 +320,16 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			RightLowerLeg = { rx = 24 },
 			LeftLowerLeg = { rx = 8 },
 		},
+		-- The relentless one. Flurries more often than anything else, which
+		-- is where "busy" comes from -- its attacks are not faster than the
+		-- skeleton's, there are just fewer gaps between them.
+		maxChain = 3,
+		chainChance = 0.55,
 		attacks = {
 			Claw = {
 				archetype = "WindBack",
-				leadTime = 0.66,
-				telegraphDuration = 0.78,
+				leadTime = 0.33,
+				telegraphDuration = 0.45,
 				parryable = true,
 				damage = 10,
 				range = 9,
@@ -315,8 +344,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- band so the two can run into each other.
 			Backhand = {
 				archetype = "Raise",
-				leadTime = 0.62,
-				telegraphDuration = 0.74,
+				leadTime = 0.34,
+				telegraphDuration = 0.46,
 				parryable = true,
 				damage = 12,
 				range = 9,
@@ -332,8 +361,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			Maul = {
 				hyperArmor = true,
 				archetype = "Plant",
-				leadTime = 0.80,
-				telegraphDuration = 0.92,
+				leadTime = 0.45,
+				telegraphDuration = 0.57,
 				parryable = false,
 				damage = 18,
 				range = 11,
@@ -347,11 +376,16 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- rather than another melee swing. The Shambler doesn't move while
 			-- winding up, so maxRange must not exceed range — a lunge started
 			-- beyond its reach could only ever miss.
+			-- Deliberately not hyper-armoured, unlike Maul. Parrying staggers an
+			-- enemy whatever its armour, so the flag only decides whether the
+			-- player may *trade* with the attack instead of answering it
+			-- cleanly. Maul is the Shambler's one committed move and keeps it;
+			-- giving it to the Lunge as well left Lunge->Maul with no way in at
+			-- any point, which is a cutscene rather than a flurry.
 			Lunge = {
-				hyperArmor = true,
 				archetype = "Coil",
-				leadTime = 0.82,
-				telegraphDuration = 0.94,
+				leadTime = 0.36,
+				telegraphDuration = 0.48,
 				parryable = true,
 				damage = 16,
 				range = 18,
@@ -398,8 +432,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			-- animal from the melee enemies' swings.
 			Lob = {
 				archetype = "Raise",
-				leadTime = 1.22,
-				telegraphDuration = 1.34,
+				leadTime = 0.37,
+				telegraphDuration = 0.49,
 				parryable = true,
 				damage = 14,
 				range = 28,
@@ -412,8 +446,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			},
 			Spit = {
 				archetype = "Coil",
-				leadTime = 1.28,
-				telegraphDuration = 1.40,
+				leadTime = 0.38,
+				telegraphDuration = 0.50,
 				parryable = true,
 				damage = 12,
 				range = 28,
@@ -431,8 +465,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			Spray = {
 				hyperArmor = true,
 				archetype = "Plant",
-				leadTime = 0.88,
-				telegraphDuration = 1.00,
+				leadTime = 0.50,
+				telegraphDuration = 0.62,
 				parryable = false,
 				damage = 8,
 				range = 12,
@@ -477,11 +511,15 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			RightLowerLeg = { rx = -10 },
 			LeftLowerLeg = { rx = 16 },
 		},
+		-- Commits to long sequences, and cannot be staggered out of them.
+		-- Answering each link on its own terms is the fight.
+		maxChain = 3,
+		chainChance = 0.5,
 		attacks = {
 			Cleave = {
 				archetype = "WindBack",
-				leadTime = 0.53,
-				telegraphDuration = 0.65,
+				leadTime = 0.30,
+				telegraphDuration = 0.42,
 				parryable = true,
 				damage = 18,
 				range = 13,
@@ -494,8 +532,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			Overhead = {
 				hyperArmor = true,
 				archetype = "Raise",
-				leadTime = 0.98,
-				telegraphDuration = 1.10,
+				leadTime = 0.38,
+				telegraphDuration = 0.50,
 				parryable = true,
 				damage = 30,
 				range = 12,
@@ -508,8 +546,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			Shockwave = {
 				hyperArmor = true,
 				archetype = "Plant",
-				leadTime = 1.28,
-				telegraphDuration = 1.40,
+				leadTime = 0.50,
+				telegraphDuration = 0.62,
 				parryable = false,
 				damage = 26,
 				range = 20,
@@ -522,8 +560,8 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			},
 			BoneSpear = {
 				archetype = "Coil",
-				leadTime = 1.08,
-				telegraphDuration = 1.20,
+				leadTime = 0.36,
+				telegraphDuration = 0.48,
 				parryable = true,
 				damage = 18,
 				range = 34,

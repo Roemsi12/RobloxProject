@@ -10,8 +10,8 @@
 -- what it is hitting, parrying or dodging — the server works it out when each
 -- hit lands.
 --
--- How an enemy's hit on a player resolves, in order (runAttack, then
--- resolveParried or resolveLanded):
+-- How an enemy's hit on a player resolves, in order (runChain drives
+-- runStrike, which ends in resolveParried or resolveLanded):
 --   1. Dodging, with the hit inside the dodge's invulnerability: nothing lands.
 --   2. A parryable hit inside the frames of the player's last block press, from
 --      the front: parried. The attack is cancelled for everyone and the enemy
@@ -30,6 +30,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage.Shared
 local AbilityDefs = require(Shared.AbilityDefs)
+local AttackChain = require(Shared.AttackChain)
 local AttackSelector = require(Shared.AttackSelector)
 local CombatConstants = require(Shared.CombatConstants)
 local DamageMath = require(Shared.DamageMath)
@@ -136,6 +137,20 @@ local function getTarget(enemy: EnemyAI.Enemy): (Player?, number)
 end
 
 --[[ Enemy attacks ]]
+--
+-- The longest section in the file, so it is signposted. Reading order is also
+-- dependency order: each part uses the ones above it.
+--
+--   What a hit does to a player      bleeds, heals -- the effects themselves
+--   Who a strike reaches             server-side hit detection at impact
+--   Resolving a strike               parried, or landed. One or the other
+--   Timing and state helpers         waiting, staggering, throwing
+--   Throwing an attack               runStrike, runChain, and the AI loop
+
+--[[ What a hit does to a player ]]
+
+-- The effects a resolved strike applies, kept separate from deciding whether
+-- it resolved that way at all.
 
 -- Keeps ticking independently of the enemy, which may die, respawn or start
 -- another attack while the player is still bleeding. Stops early if the
@@ -192,6 +207,11 @@ local function applyBurstHeal(healer: Player, amount: number, radius: number)
 		end
 	end
 end
+
+--[[ Who a strike reaches, and who answered it ]]
+
+-- Hit detection is server-side and runs at the moment of impact, against
+-- server positions. The client never names what it hit.
 
 type Victim = {
 	player: Player,
@@ -286,6 +306,12 @@ end
 -- A strike that at least one player parried: nobody takes it, every parrier
 -- gets their class payoff, and the enemy staggers for the longest of them.
 -- Returns the stagger duration.
+--[[ Resolving a strike ]]
+
+-- Exactly one of these runs per strike: parried, or landed. Both are the end
+-- of the line for that attack -- the enemy state they leave behind is what the
+-- attack loop reads to decide whether a chain continues.
+
 local function resolveParried(enemy: EnemyAI.Enemy, attack: ActiveAttack, parriers: { Victim }, now: number): number
 	local staggerFor = 0
 
@@ -399,6 +425,10 @@ end
 
 -- Waits until `deadline`, returning early if the attack is interrupted or the
 -- enemy dies. Polled on Heartbeat because the wait has to be interruptible.
+--[[ Timing and state helpers ]]
+
+-- Waiting, staggering and throwing things, shared by every path above.
+
 local function waitUntilOrInterrupted(deadline: number, enemy: EnemyAI.Enemy, attack: ActiveAttack)
 	while Workspace:GetServerTimeNow() < deadline do
 		if attack.interrupted or not enemy.alive then
@@ -458,25 +488,91 @@ local function launchProjectile(enemy: EnemyAI.Enemy, attack: ActiveAttack, proj
 	return flight
 end
 
--- One whole enemy attack, from the telegraph to the hit landing.
+--[[ Throwing an attack ]]
+
+-- The loop itself: one strike, then however many links follow it. Everything
+-- above is what a strike *does*; this is when it happens.
+
+-- What a single strike did, so `runChain` can decide whether to keep going.
 --
--- Broadcasts the start with the impact time and a seed — the seed is the
--- entire shape of the swing, so every client builds the same attack
--- without a keyframe timeline going over the wire. Then waits out the
--- telegraph, plus a grace period so a parry or dodge sent just before the
--- hit still has time to arrive, and resolves it against everyone in range.
+-- `impactTime` and `seed` are the two things a follow-up needs: the first
+-- positions the link against the hitstun the player is in, the second is what
+-- lets every client rebuild the carry pose this strike ended on, since
+-- AttackChoreography is pure.
+type StrikeOutcome = "landed" | "parried" | "interrupted" | "gone"
+
+type StrikeResult = {
+	outcome: StrikeOutcome,
+	impactTime: number,
+	seed: number,
+}
+
+-- Where in a chain a strike sits. The opener is index 1 with no `from`.
+type StrikeContext = {
+	index: number,
+	-- Whether another link follows. Decided *before* the strike is thrown,
+	-- because it is what makes the animation end held in its carry pose
+	-- rather than standing back up -- and that unfinished silhouette is the
+	-- only cue a player gets that the flurry is not over.
+	carryOut: boolean,
+	from: StrikeResult?,
+	fromAttackId: string?,
+}
+
+-- One attack, from the start of its wind-up to the moment it resolves.
 --
--- Yields for the length of the attack. Interrupted by a flinch, and gives
--- up entirely if the enemy dies mid-windup.
-local function runAttack(enemy: EnemyAI.Enemy, attackId: string)
+-- Deliberately does not handle recovery: a chain pays one recovery at the
+-- end, not one per link, so that belongs to `runChain`.
+local function runStrike(enemy: EnemyAI.Enemy, attackId: string, context: StrikeContext): StrikeResult
 	local attackDef = enemy.def.attacks[attackId]
+	local isLink = context.from ~= nil
+	local seed = math.random(0, 65535)
+
+	-- A link settles faster than an attack from neutral, because the rig
+	-- starts already wound. Both sides derive this from the same lead time
+	-- rather than one sending the other a duration.
+	local telegraph = if isLink
+		then AttackChain.telegraphOf(attackDef.leadTime)
+		else attackDef.telegraphDuration
+
+	if isLink then
+		-- Hold the carry pose until the link is allowed to start. This is
+		-- where the hitstun clamp is actually paid: the link cannot land
+		-- before the player has had time to read it, and that is bought by
+		-- waiting here rather than by hoping the tell is long enough.
+		local timing = AttackChain.linkTiming(
+			(context.from :: StrikeResult).impactTime,
+			attackDef.leadTime,
+			attackDef.parryable
+		)
+		-- "carry", not "telegraph". The only difference between the two is
+		-- that an enemy may reposition during a carry: there is no tell on
+		-- screen to make unreadable yet, and a Shambler rooted for a whole
+		-- three-link flurry would make stepping back the answer to every
+		-- chain. It also keeps `runEnemyLoop` out, since that only starts an
+		-- attack on an idle enemy.
+		enemy.state = "carry"
+
+		local waitFor = timing.startsAt - Workspace:GetServerTimeNow()
+		if waitFor > 0 then
+			task.wait(waitFor)
+		end
+
+		-- Anything that moved the enemy off "carry" during the gap -- a flinch
+		-- from a player hitting into the flurry, a stagger, death -- ends the
+		-- chain here. That is what makes hitting into a chain break it.
+		if not enemy.alive or enemy.state ~= "carry" then
+			return { outcome = "gone", impactTime = 0, seed = seed }
+		end
+	end
+
 	local now = Workspace:GetServerTimeNow()
 
 	local attack: ActiveAttack = {
 		enemyId = enemy.id,
 		attackId = attackId,
 		def = attackDef,
-		impactTime = now + attackDef.telegraphDuration,
+		impactTime = now + telegraph,
 		interrupted = false,
 		landing = nil,
 	}
@@ -494,13 +590,23 @@ local function runAttack(enemy: EnemyAI.Enemy, attackId: string)
 	-- number on the wire rather than a keyframe timeline. The tell it wears
 	-- and how long that tell is held come from EnemyDefs, which every client
 	-- already has.
+	--
+	-- The chain fields are the same idea one level up: `fromAttackId` and
+	-- `fromSeed` are enough for a client to rebuild the exact carry pose the
+	-- previous strike ended on, because `AttackChoreography.carryPose` is
+	-- pure. Sending `chainIndex` rather than a computed duration means both
+	-- sides call the same `linkTiming` -- one less number that can drift.
 	Remotes.get("EnemyTelegraphStart"):FireAllClients({
 		enemyId = enemy.id,
 		attackId = attackId,
-		duration = attackDef.telegraphDuration,
+		duration = telegraph,
 		impactTime = attack.impactTime,
 		parryable = attackDef.parryable,
-		seed = math.random(0, 65535),
+		seed = seed,
+		chainIndex = context.index,
+		chainLast = not context.carryOut,
+		fromAttackId = context.fromAttackId,
+		fromSeed = if context.from then (context.from :: StrikeResult).seed else nil,
 	})
 
 	-- Held open past impact so a block press made just before the hit, or a
@@ -509,13 +615,13 @@ local function runAttack(enemy: EnemyAI.Enemy, attackId: string)
 
 	if not enemy.alive then
 		activeAttacks[enemy.id] = nil
-		return
+		return { outcome = "gone", impactTime = attack.impactTime, seed = seed }
 	end
 
 	if attack.interrupted then
 		activeAttacks[enemy.id] = nil
 		holdEnemyState(enemy, "flinched", "flinch", CombatConstants.ENEMY_FLINCH_DURATION)
-		return
+		return { outcome = "interrupted", impactTime = attack.impactTime, seed = seed }
 	end
 
 	-- A thrown attack leaves the enemy at the end of the telegraph and lands
@@ -526,7 +632,7 @@ local function runAttack(enemy: EnemyAI.Enemy, attackId: string)
 		local flight = launchProjectile(enemy, attack, projectile)
 		if flight <= 0 then
 			activeAttacks[enemy.id] = nil
-			return
+			return { outcome = "gone", impactTime = attack.impactTime, seed = seed }
 		end
 		-- The parry is judged against the moment it arrives, not the throw.
 		attack.impactTime += flight
@@ -534,7 +640,7 @@ local function runAttack(enemy: EnemyAI.Enemy, attackId: string)
 
 		if not enemy.alive then
 			activeAttacks[enemy.id] = nil
-			return
+			return { outcome = "gone", impactTime = attack.impactTime, seed = seed }
 		end
 	end
 
@@ -553,11 +659,77 @@ local function runAttack(enemy: EnemyAI.Enemy, attackId: string)
 	if #parriers > 0 then
 		local staggerFor = resolveParried(enemy, attack, parriers, resolvedAt)
 		holdEnemyState(enemy, "staggered", "stagger", staggerFor)
-		return
+		return { outcome = "parried", impactTime = attack.impactTime, seed = seed }
 	end
 
 	resolveLanded(enemy, attack, victims, resolvedAt)
-	task.wait(CombatConstants.RECOVER_DURATION)
+	return { outcome = "landed", impactTime = attack.impactTime, seed = seed }
+end
+
+-- An opener and however many links follow it.
+--
+-- The saving is structural: one RECOVER_DURATION and one attackInterval per
+-- *chain* rather than per attack. Without this an enemy spends 1.4-2.0s
+-- standing still between swings, which is where "slow and passive" came from.
+--
+-- The follow-up is chosen before the current strike is thrown, because that
+-- decision changes how the current strike *ends* -- held in its carry pose,
+-- or standing back up.
+local function runChain(enemy: EnemyAI.Enemy, openerId: string)
+	local maxLinks = AttackChain.maxLinks(enemy.def)
+	local attackId: string? = openerId
+	local previous: StrikeResult? = nil
+	local previousId: string? = nil
+	local index = 1
+
+	while attackId do
+		local _, distance = getTarget(enemy)
+		local now = Workspace:GetServerTimeNow()
+
+		-- Decide the follow-up first: `carryOut` depends on it.
+		local nextId: string? = nil
+		if index < maxLinks and AttackChain.wantsAnother(enemy.def) then
+			nextId = EnemyAI.chooseChainLink(enemy, attackId, distance, now)
+		end
+
+		local result = runStrike(enemy, attackId, {
+			index = index,
+			carryOut = nextId ~= nil,
+			from = previous,
+			fromAttackId = previousId,
+		})
+
+		-- A parry, a flinch or a death ends the chain, and each of those has
+		-- already put the enemy into the state it belongs in. Hitting into a
+		-- flurry to break it is the aggressive answer to one, and it only
+		-- works because this stops here.
+		if result.outcome ~= "landed" then
+			-- ...except "gone", which covers an attack abandoned rather than
+			-- answered -- a thrown attack whose target walked out of reach
+			-- before it let go. Nothing has moved the enemy out of
+			-- "telegraph" in that case, and `runEnemyLoop` only ever acts on
+			-- an idle enemy, so leaving it would freeze that enemy for good:
+			-- no attacks, no movement, until something killed it. Guarded, so
+			-- it cannot clobber a stagger or a flinch that did run.
+			if enemy.alive and enemy.state == "telegraph" then
+				enemy.state = "idle"
+			end
+			return
+		end
+
+		previous = result
+		previousId = attackId
+		attackId = nextId
+		index += 1
+	end
+
+	-- One recovery for the whole chain, lengthened by each extra link. That
+	-- bonus is what makes a chain a risk the enemy takes rather than a
+	-- straight buff: a long flurry leaves it open for longer afterwards, so
+	-- baiting one out is worth doing.
+	local links = index - 1
+	local recovery = CombatConstants.RECOVER_DURATION + math.max(0, links - 1) * AttackChain.RECOVER_BONUS
+	task.wait(recovery)
 
 	if enemy.alive and enemy.state == "telegraph" then
 		enemy.state = "idle"
@@ -587,7 +759,7 @@ local function runEnemyLoop(enemy: EnemyAI.Enemy)
 
 		local attackId = EnemyAI.chooseAttack(enemy, distance, Workspace:GetServerTimeNow())
 		if attackId then
-			runAttack(enemy, attackId)
+			runChain(enemy, attackId)
 		end
 	end
 end
@@ -627,11 +799,27 @@ local function flinch(enemy: EnemyAI.Enemy, now: number)
 
 	if enemy.state == "telegraph" then
 		local attack = activeAttacks[enemy.id]
-		if not attack or attack.def.hyperArmor then
-			return
+		if attack then
+			if attack.def.hyperArmor then
+				return
+			end
+			attack.interrupted = true
+		else
+			-- Still flagged "telegraph", but the attack has already resolved
+			-- and been cleared: the enemy is in its recovery. That is the
+			-- punish window, and it used to be the one place a hit did
+			-- nothing at all -- this branch read `activeAttacks`, found
+			-- nothing, and returned without even setting flinch immunity, so
+			-- enemies were unflinchable for RECOVER_DURATION after every
+			-- single attack. Hitting a recovering enemy now staggers it,
+			-- which is what makes baiting an attack out worth doing.
+			task.spawn(holdEnemyState, enemy, "flinched", "flinch", CombatConstants.ENEMY_FLINCH_DURATION)
 		end
-		attack.interrupted = true
-	elseif enemy.state == "idle" then
+	elseif enemy.state == "idle" or enemy.state == "carry" then
+		-- "carry" is the gap between two links of a chain. Breaking one by
+		-- hitting into it is the aggressive answer to a flurry, and it works
+		-- because the flinch moves the enemy off "carry", which is the exact
+		-- condition the next link checks before it fires.
 		task.spawn(holdEnemyState, enemy, "flinched", "flinch", CombatConstants.ENEMY_FLINCH_DURATION)
 	else
 		return

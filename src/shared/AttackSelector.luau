@@ -84,15 +84,20 @@ function AttackSelector.legalAttacks(
 	def: EnemyDefs.EnemyDef,
 	distance: number,
 	cooldowns: CooldownMap,
-	now: number
+	now: number,
+	-- Chain links may reach for attacks an opener cannot. Left out, an
+	-- attack marked `chainOnly` never starts a fight -- it only ever appears
+	-- part way through a flurry.
+	includeChainOnly: boolean?
 ): { string }
 	local legal = {}
 
 	for attackId, attack in def.attacks do
 		local inBand = distance >= attack.minRange and distance <= attack.maxRange
 		local ready = now >= (cooldowns[attackId] or 0)
+		local reachable = includeChainOnly or not attack.chainOnly
 
-		if inBand and ready then
+		if inBand and ready and reachable then
 			table.insert(legal, attackId)
 		end
 	end
@@ -107,14 +112,13 @@ export type Rng = () -> number
 -- nothing it can legally do, which the caller reads as "wait and reposition"
 -- rather than as an error — it's the normal state for a ranged enemy that has
 -- been walked down.
-function AttackSelector.chooseAttack(
-	def: EnemyDefs.EnemyDef,
-	distance: number,
-	cooldowns: CooldownMap,
-	now: number,
-	rng: Rng?
-): string?
-	local legal = AttackSelector.legalAttacks(def, distance, cooldowns, now)
+-- A weighted pick out of an already-legal list.
+--
+-- Split out of `chooseAttack` so chain links roll exactly the way openers do.
+-- Two weighted pickers would drift, and the difference would show up as an
+-- enemy whose flurries favour a different attack than its openers for no
+-- reason anybody chose.
+function AttackSelector.pickWeighted(def: EnemyDefs.EnemyDef, legal: { string }, rng: Rng?): string?
 	if #legal == 0 then
 		return nil
 	end
@@ -141,6 +145,16 @@ function AttackSelector.chooseAttack(
 	-- Only reachable through floating-point drift when roll lands on the very
 	-- top of the range; the last legal attack is the correct answer there.
 	return legal[#legal]
+end
+
+function AttackSelector.chooseAttack(
+	def: EnemyDefs.EnemyDef,
+	distance: number,
+	cooldowns: CooldownMap,
+	now: number,
+	rng: Rng?
+): string?
+	return AttackSelector.pickWeighted(def, AttackSelector.legalAttacks(def, distance, cooldowns, now), rng)
 end
 
 return AttackSelector

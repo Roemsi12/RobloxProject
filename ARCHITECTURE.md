@@ -288,7 +288,7 @@ All payloads are a single table.
 | `CombatStateChanged` | Server → Client | `{ posture, postureUpdatedAt, postureDamagedAt, maxPosture, postureRegen, stunnedUntil, dodgeReadyAt, abilityReadyAt, criticalReadyAt, riposteUntil }` | The player's own posture, stun and cooldowns, in server time, for the HUD and local prediction. The client drains posture forward with `PostureMath` between sends. `maxPosture` and `postureRegen` are sent rather than read from `CombatConstants`, because the skill tree can raise both |
 | `AttackRequest` | Client → Server | *(none)* | Player swings. Carries no timestamp — a swing isn't reactive, so the server resolves it on its own clock |
 | `EquipWeapon` | Client → Server | `{ weaponId }` | **Studio only** — the 1/2/3 debug swap. Ignored by a live server; weapon stands are the real equip path |
-| `EnemyTelegraphStart` | Server → Client | `{ enemyId, attackId, duration, impactTime, parryable, seed }` | Attack is winding up. `impactTime` is absolute so a delayed packet doesn't shift the cue. `seed` is the whole shape of the swing: every client builds the same attack from it through `AttackChoreography`, so an attack that is never the same twice costs one number rather than a keyframe timeline |
+| `EnemyTelegraphStart` | Server → Client | `{ enemyId, attackId, duration, impactTime, parryable, seed, chainIndex, chainLast, fromAttackId?, fromSeed? }` | Attack is winding up. `impactTime` is absolute so a delayed packet doesn't shift the cue. `seed` is the whole shape of the swing: every client builds the same attack from it through `AttackChoreography`, so an attack that is never the same twice costs one number rather than a keyframe timeline. The chain fields are the same idea one level up — `fromAttackId` and `fromSeed` are enough to rebuild the exact pose the previous strike ended on, because `carryPose` is pure, so the seam is never sent. `chainIndex` travels rather than a computed duration, so both sides call the same `AttackChain.linkTiming` |
 | `EnemyStaggered` | Server → Client | `{ enemyId, duration, kind }` | Enemy interrupted. `kind` `stagger`: a parry (`duration` already scaled by the parrier's class payoff). `kind` `flinch`: a player's hit |
 | `EnemyHealthChanged` | Server → Client | `{ enemyId, health, maxHealth, alive }` | Enemy spawn, damage, death and respawn |
 | `PlayerHit` | Server → Client | `{ amount, sourceId, attackId, bleed?, blocked?, guardBroken?, dodged? }` | A hit reaching the player. `sourceId` is an enemy id, or the attacker's name in a duel. `bleed` marks a damage-over-time tick. `blocked`: a guard took it (`amount` 0; posture filled). `guardBroken`: posture filled up, the guard broke and the hit landed. `dodged`: it passed through a dodge (`amount` 0) |
@@ -411,6 +411,42 @@ unparryable one. Each enemy carries an **accent**: a postural bias applied only
 to joints no archetype identifies itself by, so two enemies throwing the same
 tell look like different fighters without either becoming harder to read. Tests
 enforce that no two enemies share a rhythm band or a carriage.
+
+An enemy may **chain**: throw a second attack out of the first without
+returning to neutral. `maxChain` caps the links and `chainChance` is rolled per
+link, both per enemy, so frequency is personality rather than one global rate.
+A chained attack ends held in its carry pose instead of standing up, and that
+unfinished silhouette is the only cue a chain gets — nothing appears in the
+interface, because a chain that announces itself there is one players stop
+reading the body for.
+
+`AttackChain` owns the timing, and the link's start is computed from its
+deadline rather than placed at a fixed gap. The reason is a hitstun floor that
+is invisible from the animation layer: a parry press from a stunned player is
+*discarded*, not mistimed, so for `STRIKE_RESOLUTION_GRACE + PLAYER_HIT_STUN`
+(0.50s) after a hit lands a link is unparryable however clean its tell is.
+`effectiveLead` measures from whichever comes later — the tell landing, or the
+player regaining agency — and every link must clear the floor of the band for
+the answer it demands.
+
+Between two links the enemy sits in a **`carry`** state, which is "telegraph,
+except it may reposition". Enemy movement is otherwise gated on being idle,
+because an enemy sliding toward you while a tell is on screen makes the hit
+land somewhere other than where the tell said it would. A carry is the other
+half of that argument rather than an exception to it: no tell is on screen yet,
+so there is no beat to make unreadable — and an enemy rooted for a whole
+three-link flurry would make "step back after the first hit" the answer to
+every chain in the game. Hitting a carrying enemy flinches it, which moves it
+off `carry`, which is the exact condition the next link checks before it fires:
+that is what makes hitting into a flurry break one.
+
+| Enemy | `maxChain` | `chainChance` | Why |
+|---|---|---|---|
+| `Shambler` | 3 | 0.55 | The relentless one. Its attacks are not faster than the skeleton's; there are just fewer gaps between them |
+| `HollowKing` | 3 | 0.5 | Commits to long sequences and cannot be staggered out of them. Answering each link on its own terms is the fight |
+| `SkeletonWarrior` | 2 | 0.35 | Follows up occasionally rather than habitually — the restraint is itself the read |
+| `TrainingDummy` | 2 | 1.0 | Always chains, because demonstrating one is what it is for |
+| `Spitter` | — | — | Kites, and its two parryable attacks sit 0.01s apart, so a chain of them would read as one attack |
 
 | Enemy id | Role | Rewards | Attack id | Tell | Parryable | Notes |
 |---|---|---|---|---|---|---|
@@ -752,13 +788,34 @@ entry. Adding a class adds its crystal type for free — don't invent a parallel
   coinReward: number,      -- paid to whoever lands the killing blow
   crystalReward: number,   -- 0 for trash mobs; gates the higher upgrade tiers
   xpReward: number,        -- paid to every armed player, not just the killer
+  accent: {                -- optional; how this enemy carries itself. Applied
+    [part]: {              -- only to joints no archetype identifies itself by,
+      rx, ry, rz, px, py, pz  -- so it changes who is swinging, never which
+    },                     -- answer the swing asks for
+  }?,
+  maxChain: number?,       -- attacks per chain, counting the opener. Defaults
+                           -- to 1 (no chaining): a per-enemy opt-in, because a
+                           -- chain that reads badly is worse than no chain
+  chainChance: number?,    -- rolled per link. The personality dial — a
+                           -- relentless enemy and a restrained one differ here
+                           -- rather than in their movesets
   projectile: {            -- optional; a thrown attack that takes time to
     speed, radius, kind,   -- arrive and lands where it was aimed, not on
   }?,                      -- whoever is standing there when it lands
   attacks: {
     [attackId]: {
+      archetype: string,   -- which of the four tells it wears; must agree with
+                           -- `parryable`, since a pose means one answer
+      leadTime: number,    -- seconds the tell is held before impact. THE number
+                           -- to change when an attack reads badly. Held inside
+                           -- a band at both ends (AttackChoreography.readableLead)
       telegraphDuration: number,
+                           -- derived: leadTime + the beat the rig takes to snap
+                           -- into the tell. A test keeps the two in step
       parryable: boolean,  -- false = must-dodge; no timing blocks it
+      hyperArmor: boolean?,-- damage will not interrupt this attack. Parrying
+                           -- still staggers, so this only governs trading
+      chainOnly: boolean?, -- reachable as a link but never as an opener
       damage: number,
       range: number,       -- hit volume, and how close a player must be to parry it
       arcDegrees: number,

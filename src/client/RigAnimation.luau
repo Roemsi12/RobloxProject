@@ -105,6 +105,8 @@ export type Controller = {
 	twistShoulder: number,
 }
 
+--[[ Building a controller ]]
+
 -- The clock every layer's timing is measured on. `os.clock` rather than the
 -- server clock: this is playback on one machine, and it must not jump when
 -- the server time sync corrects itself mid-animation.
@@ -193,6 +195,10 @@ function RigAnimation.jointCount(controller: Controller): number
 	return count
 end
 
+--[[ Tracks, fades and time ]]
+
+-- The internals both layers share.
+
 -- The published version of an animation, loaded once, if it has one.
 local function publishedTrack(controller: Controller, name: string): AnimationTrack?
 	local id = AnimationIds.get(controller.rigId, name)
@@ -254,8 +260,11 @@ local function actionTime(layer: Layer, now: number): number
 	return elapsed * layer.timeScale
 end
 
--- Sets the looping base layer (an idle, a walk, a player's stance), at
--- `speed` times its authored tempo.
+--[[ The base layer ]]
+
+-- Sets the looping base layer — idle, walk, a player's stance — at `speed`
+-- times its authored tempo. Replaced rather than stacked: there is only ever
+-- one base.
 --
 -- Safe to call every frame: naming the base that is already playing only
 -- updates its speed, and does not restart it. Changing to a different
@@ -330,8 +339,11 @@ function RigAnimation.currentBase(controller: Controller): string?
 	return base and base.name
 end
 
+--[[ The action layer ]]
+
 -- Plays a one-shot action over the base: an attack, a stagger, a roll, a
--- death. Replaces whatever action was playing.
+-- death. Replaces whatever action was playing, and poses only the parts it
+-- animates — the base keeps moving everything else.
 --
 -- `options.windup` stretches a strike to the server's timing,
 -- `options.elapsed` starts it part-way in (a telegraph that arrived late),
@@ -433,6 +445,8 @@ local function canHold(layer: Layer, now: number): boolean
 	return not (windup and layer.anim.impact and now - layer.startedAt < windup)
 end
 
+--[[ Poses to CFrames ]]
+
 -- One pose as a CFrame: offsets in studs scaled to the rig's size, then
 -- rotations in degrees. Exactly the formula the workbench uses when it
 -- writes KeyframeSequences, so what plays here and what opens in the
@@ -476,6 +490,15 @@ function RigAnimation.setTwist(controller: Controller, hip: number, shoulder: nu
 	controller.twistHip = hip
 	controller.twistShoulder = shoulder
 end
+
+--[[ The frame ]]
+
+-- Where the two layers actually become a pose. This is the seam anything
+-- layering on top of animation hooks into: `controller.lastPose` below is the
+-- composed result, after base, action and crossfade, before it becomes
+-- CFrames. Note there are two application branches -- an external rig blends
+-- over what the Animator already wrote, an owned one is posed directly -- so
+-- anything overriding a joint has to do it in both.
 
 -- Advance one frame and pose the rig. Call from PreSimulation.
 function RigAnimation.step(controller: Controller, deltaTime: number)

@@ -36,6 +36,9 @@ local AnimationDefs = shared.AnimationDefs
 local KeyframeMath = shared.KeyframeMath
 local RigAssembly = shared.RigAssembly
 local RigDefs = shared.RigDefs
+local AttackChoreography = shared.AttackChoreography
+local CombatConstants = shared.CombatConstants
+local EnemyDefs = shared.EnemyDefs
 
 local api = {
 	Instance = Instance,
@@ -332,6 +335,10 @@ local SAMPLES = 96
 
 local FEET = { "RightFoot", "LeftFoot" }
 
+-- A handful of seeds per generated attack. The pose variation is a hash of
+-- the seed, so this samples the space rather than trusting one point in it.
+local GENERATED_SEEDS = { 1, 7, 29, 257, 4099 }
+
 local function lowestPoint(cframe: any, size: any): number
 	local lowest = math.huge
 	for _, x in { -0.5, 0.5 } do
@@ -407,6 +414,51 @@ for _, rigId in rigIds do
 			local torsoHeight = final.LowerTorso.Position.Y
 			if torsoHeight > lyingMaxHeight then
 				problem(string.format("%s/death: ends with the hips %.2f off the floor", rigId, torsoHeight))
+			end
+		end
+	end
+
+	-- Generated attacks are not in `AnimationDefs.BY_RIG`. They are built at
+	-- the moment they are thrown, from an archetype and a seed, so nothing
+	-- above has ever seen one -- every enemy attack in the game was outside
+	-- this check.
+	--
+	-- That did not matter while the generator barely posed legs. It matters a
+	-- great deal now that the archetypes author crouches: hand-posing in
+	-- Studio with a fixed root looks right and then ships a rig standing in
+	-- the floor, because hip height has to be solved against the leg angles
+	-- and that is exactly the sum nobody does by eye.
+	--
+	-- Both ends of a chain are checked. `carryOut` changes the final pose and
+	-- therefore the whole tail of the animation.
+	local enemyDef = EnemyDefs[rigId]
+	if enemyDef then
+		for attackId, attack in enemyDef.attacks do
+			for _, seed in GENERATED_SEEDS do
+				for _, carryOut in { false, true } do
+					local anim = AttackChoreography.generate({
+						archetype = attack.archetype,
+						leadTime = attack.leadTime,
+						recovery = CombatConstants.RECOVER_DURATION,
+						seed = seed,
+						accent = enemyDef.accent,
+						carryOut = carryOut,
+					})
+
+					local label = string.format("%s/%s seed %d%s", rigId, attackId, seed, if carryOut then " (chained)" else "")
+					for sample = 0, SAMPLES do
+						local t = anim.length * sample / SAMPLES
+						local world = solve(KeyframeMath.sample(anim, t))
+						for partName, cframe in world do
+							if partName ~= "HumanoidRootPart" then
+								local bottom = lowestPoint(cframe, partsByName[partName].Size)
+								if bottom < FLOOR_Y - sinkTolerance then
+									problem(string.format("%s: %s sinks to y=%.2f at t=%.2f", label, partName, bottom, t))
+								end
+							end
+						end
+					end
+				end
 			end
 		end
 	end

@@ -171,16 +171,46 @@ function EnemyAnimation.start()
 		-- own reckoning of it. The tell inside it is fixed by the archetype,
 		-- so the player reads something they already know however the rest of
 		-- the arc happens to fall this time.
-		local attackDef = EnemyDefs[entry.defId] and EnemyDefs[entry.defId].attacks[payload.attackId]
-		local generated = if attackDef and typeof(payload.seed) == "number"
-			then AttackChoreography.generate({
-				archetype = attackDef.archetype :: AttackChoreography.Archetype,
-				leadTime = attackDef.leadTime,
-				recovery = CombatConstants.RECOVER_DURATION,
-				seed = payload.seed,
-				accent = EnemyDefs[entry.defId].accent :: AttackChoreography.Accent?,
-			})
-			else nil
+		--
+		-- A chained link is the same attack re-cut to start from where the
+		-- last one finished. `fromAttackId` and `fromSeed` are all that takes,
+		-- because `AttackChoreography.carryPose` is pure -- the client rebuilds
+		-- the exact pose the previous strike ended on rather than being sent
+		-- it. `chainLast` decides whether this one stands back up or ends held,
+		-- and that held silhouette is the only cue the player gets that the
+		-- flurry is still running.
+		local enemyDef = EnemyDefs[entry.defId]
+		local attackDef = enemyDef and enemyDef.attacks[payload.attackId]
+		local accent = if enemyDef then enemyDef.accent :: AttackChoreography.Accent? else nil
+		local generated = nil
+
+		if attackDef and typeof(payload.seed) == "number" then
+			local fromDef = if typeof(payload.fromAttackId) == "string"
+				then enemyDef.attacks[payload.fromAttackId]
+				else nil
+
+			if fromDef and typeof(payload.fromSeed) == "number" then
+				generated = AttackChoreography.generateLink({
+					archetype = attackDef.archetype :: AttackChoreography.Archetype,
+					leadTime = attackDef.leadTime,
+					recovery = CombatConstants.RECOVER_DURATION,
+					seed = payload.seed,
+					accent = accent,
+					from = fromDef.archetype :: AttackChoreography.Archetype,
+					fromSeed = payload.fromSeed,
+					carryOut = payload.chainLast == false,
+				})
+			else
+				generated = AttackChoreography.generate({
+					archetype = attackDef.archetype :: AttackChoreography.Archetype,
+					leadTime = attackDef.leadTime,
+					recovery = CombatConstants.RECOVER_DURATION,
+					seed = payload.seed,
+					accent = accent,
+					carryOut = payload.chainLast == false,
+				})
+			end
+		end
 
 		RigAnimation.playAction(entry.controller, AnimationDefs.attack(payload.attackId), {
 			windup = payload.duration,
