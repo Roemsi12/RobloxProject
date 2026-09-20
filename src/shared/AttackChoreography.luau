@@ -32,9 +32,8 @@
 -- from the same body.
 
 local AnimationDefs = require(script.Parent.AnimationDefs)
-local CombatConstants = require(script.Parent.CombatConstants)
-local WeaponDefs = require(script.Parent.WeaponDefs)
 local KeyframeMath = require(script.Parent.KeyframeMath)
+local ParryMath = require(script.Parent.ParryMath)
 
 local AttackChoreography = {}
 
@@ -69,8 +68,9 @@ AttackChoreography.ARCHETYPES = { "WindBack", "Raise", "Coil", "Plant" } :: { Ar
 -- parry windows and the dodge's invulnerability rather than being chosen: see
 -- `readableLead` in AttackChoreography.spec, which derives it and enforces it
 -- against every attack in the game.
-AttackChoreography.REACTION_FAST = 0.22
-AttackChoreography.REACTION_SLOW = 0.32
+-- Both now live in ParryMath, beside the window they are reasoned against.
+AttackChoreography.REACTION_FAST = ParryMath.REACTION_FAST
+AttackChoreography.REACTION_SLOW = ParryMath.REACTION_SLOW
 
 -- How long after the tell lands the player is still deciding. Divergence
 -- between two archetypes is measured here — the moment the answer is chosen,
@@ -563,7 +563,7 @@ export type AttackSpec = {
 -- How long the rig takes to snap into the tell from rest. The tell is only
 -- "on screen" once it has arrived, so this sits before leadTime rather than
 -- inside it — an attack whose windup is still moving is not yet readable.
-local SETTLE = 0.12
+local SETTLE = ParryMath.SETTLE
 AttackChoreography.SETTLE = SETTLE
 
 -- The same beat for a link, and shorter, because the rig is not starting
@@ -587,42 +587,10 @@ function AttackChoreography.isParryable(archetype: Archetype): boolean
 	return AttackChoreography.get(archetype).parryable
 end
 
--- The band of lead times a player can actually answer by reacting to what
--- they saw. Returns the lowest and highest lead that works.
---
--- Both ends matter, and the upper one is the less obvious of the two:
---
---   too short   a slower player never arrives. The floor is REACTION_SLOW
---               minus the class's slack for a late press.
---   too long    a player who reacts to the tell presses *early*, before the
---               window has opened, whiffs, and eats the cooldown. The ceiling
---               is REACTION_FAST plus the class's slack for an early press.
---
--- The second one is not a theoretical concern: it is what "the enemies are
--- too slow after they show their tell, I get punished for reacting" turned
--- out to mean. Enforcing only a floor made every attack slow enough to fail
--- that way.
---
--- The band is the intersection across every class, so no class is ever asked
--- to answer something it structurally cannot. Class identity lives in how
--- *wide* a window is, not in whether the attack can be read at all: a class
--- with tight frames has to be precise, and should never be the class that
--- simply cannot answer.
-function AttackChoreography.readableLead(parryable: boolean): (number, number)
-	if not parryable then
-		-- Unparryable attacks are answered by moving. The i-frames cover the
-		-- impact rather than opening a window around it, so the arithmetic is
-		-- not the same shape.
-		return AttackChoreography.REACTION_SLOW, AttackChoreography.REACTION_FAST + CombatConstants.DODGE_IFRAMES
-	end
-
-	local lowest, highest = 0, math.huge
-	for _, weapon in WeaponDefs do
-		lowest = math.max(lowest, AttackChoreography.REACTION_SLOW - weapon.parry.lateTolerance)
-		highest = math.min(highest, AttackChoreography.REACTION_FAST + weapon.parry.earlyTolerance)
-	end
-	return lowest, highest
-end
+-- Moved to ParryMath, which already owns the relationship between an impact
+-- and the window around it, and already requires exactly the two modules this
+-- derivation needs. Kept here as an alias only until the generator goes.
+AttackChoreography.readableLead = ParryMath.readableLead
 
 -- Which archetypes flow out of this one without a trip back through neutral.
 function AttackChoreography.follows(archetype: Archetype): { Archetype }

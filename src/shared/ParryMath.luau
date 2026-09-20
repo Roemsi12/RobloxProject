@@ -189,4 +189,66 @@ function ParryMath.withinWindow(startTime: number?, duration: number, t: number)
 	return t >= startTime - BOUNDARY_EPSILON and t <= startTime + duration + BOUNDARY_EPSILON
 end
 
+
+--[[ What a player can react to ]]
+
+-- The span of reaction times the game is built to serve: from a quick player
+-- to an ordinary one, measured from the tell landing to the key going down.
+--
+-- These two numbers are the whole basis of what a readable attack is, and they
+-- give a *band*, not a floor. That distinction was got wrong once and it is
+-- worth spelling out, because a floor alone reads as obviously sufficient and
+-- is not:
+--
+--   The parry window is anchored to impact — [impact - early, impact + late],
+--   which is `catches` above. Measured from the tell landing, it opens at
+--   `leadTime - early`. So a tell that is on screen *too long* pushes the
+--   window away from the moment the player reacted to it, and reacting to the
+--   tell presses early, whiffs, and eats the parry cooldown.
+--
+--   A player is punished for doing exactly the thing the tell exists to make
+--   them do. Too slow is as unreadable as too fast, and rather more insulting.
+ParryMath.REACTION_FAST = 0.22
+ParryMath.REACTION_SLOW = 0.32
+
+-- The beat a rig takes to arrive in its tell. A wind-up that is still moving
+-- is not yet readable, so this sits *before* the lead time rather than inside
+-- it: an attack's full telegraph is SETTLE + leadTime.
+ParryMath.SETTLE = 0.12
+
+-- The band of lead times a player can actually answer by reacting to what they
+-- saw. Returns the lowest and highest lead that works.
+--
+-- Both ends matter, and the upper one is the less obvious of the two:
+--
+--   too short   a slower player never arrives. The floor is REACTION_SLOW
+--               minus the class's slack for a late press.
+--   too long    a player who reacts to the tell presses *early*, before the
+--               window has opened, whiffs, and eats the cooldown. The ceiling
+--               is REACTION_FAST plus the class's slack for an early press.
+--
+-- The band is the intersection across every class, so no class is ever asked
+-- to answer something it structurally cannot. Class identity lives in how
+-- *wide* a window is, not in whether the attack can be read at all: a class
+-- with tight frames has to be precise, and should never be the class that
+-- simply cannot answer.
+--
+-- Which class is narrowest is deliberately not named here. It is a tuning
+-- decision that has already moved once, and a comment naming one goes stale
+-- silently. The loop finds it.
+function ParryMath.readableLead(parryable: boolean): (number, number)
+	if not parryable then
+		-- Unparryable attacks are answered by moving. The i-frames cover the
+		-- impact rather than opening a window around it, so the arithmetic is
+		-- not the same shape.
+		return ParryMath.REACTION_SLOW, ParryMath.REACTION_FAST + CombatConstants.DODGE_IFRAMES
+	end
+
+	local lowest, highest = 0, math.huge
+	for _, weapon in WeaponDefs do
+		lowest = math.max(lowest, ParryMath.REACTION_SLOW - weapon.parry.lateTolerance)
+		highest = math.min(highest, ParryMath.REACTION_FAST + weapon.parry.earlyTolerance)
+	end
+	return lowest, highest
+end
 return ParryMath
