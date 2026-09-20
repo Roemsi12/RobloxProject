@@ -130,10 +130,14 @@ local bloom: BloomEffect?
 local current: Look = table.clone(DUNGEON)
 local hubBounds: Bounds? = nil
 
+-- Straight linear interpolation between two numbers.
 local function lerp(from: number, to: number, alpha: number): number
 	return from + (to - from) * alpha
 end
 
+-- Eases one look toward another in place, component by component. What
+-- makes the change between the hub's grade and the dungeon's read as eyes
+-- adjusting rather than as a cut.
 local function blend(into: Look, target: Look, alpha: number)
 	into.brightness = lerp(into.brightness, target.brightness, alpha)
 	into.contrast = lerp(into.contrast, target.contrast, alpha)
@@ -152,6 +156,8 @@ local function blend(into: Look, target: Look, alpha: number)
 	into.exposure = lerp(into.exposure, target.exposure, alpha)
 end
 
+-- Writes a look onto the actual lighting effects: grade, atmosphere,
+-- bloom and depth of field.
 local function apply(look: Look)
 	grade.Brightness = look.brightness
 	grade.Contrast = look.contrast
@@ -196,6 +202,9 @@ local function readHubBounds(lobby: Instance): Bounds?
 	return { minX = minX, maxX = maxX, minZ = minZ, maxZ = maxZ }
 end
 
+-- Whether a position is inside the hub, from the bounds the server put on
+-- the Lobby model. False until those attributes have arrived, so a
+-- joining player starts on the dungeon grade and eases into the hub's.
 local function inHub(position: Vector3): boolean
 	local bounds = hubBounds
 	if not bounds then
@@ -207,6 +216,8 @@ local function inHub(position: Vector3): boolean
 		and position.Z <= bounds.maxZ
 end
 
+-- Builds the lighting effects this module owns and begins easing between
+-- the hub's look and the dungeon's as the player moves between them.
 function AtmosphereFX.start()
 	grade = Instance.new("ColorCorrectionEffect")
 	grade.Name = "WorldGrade"

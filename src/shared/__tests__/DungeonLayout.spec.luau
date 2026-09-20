@@ -18,6 +18,8 @@ local it = JestGlobals.it
 
 local SEEDS = 300
 
+-- expect() on a { label, value } pair, so a failure names what failed
+-- rather than just saying false was not true.
 local function check(label: string, value: boolean)
 	expect({ label, value }).toEqual({ label, true })
 end
@@ -27,12 +29,15 @@ for seed = 1, SEEDS do
 	layouts[seed] = DungeonLayout.generate(seed * 7919)
 end
 
+-- Runs a check against every pre-generated layout, labelled by seed — so
+-- a failure names the seed that reproduces it.
 local function eachLayout(callback: (label: string, layout: DungeonLayout.Layout) -> ())
 	for index, layout in layouts do
 		callback(`seed #{index}`, layout)
 	end
 end
 
+-- How many of a layout's rooms satisfy a predicate.
 local function countWhere(layout: DungeonLayout.Layout, predicate: (DungeonLayout.RoomNode) -> boolean): number
 	local count = 0
 	for _, room in layout.rooms do
@@ -43,12 +48,15 @@ local function countWhere(layout: DungeonLayout.Layout, predicate: (DungeonLayou
 	return count
 end
 
+-- How many rooms have a given purpose, optionally counting only those on
+-- the main path.
 local function countPurpose(layout: DungeonLayout.Layout, purpose: string, mainPathOnly: boolean): number
 	return countWhere(layout, function(room)
 		return room.purpose == purpose and (room.mainPath or not mainPathOnly)
 	end)
 end
 
+-- How many doors a room has.
 local function doorCount(room: DungeonLayout.RoomNode): number
 	local count = 0
 	for _ in room.doors do
@@ -313,6 +321,8 @@ describe("DungeonDefs", function()
 	-- against a wall.
 	it("fits every enemy's preferred range inside the smallest room it can appear in", function()
 		local smallestForEnemy: { [string]: number } = {}
+		-- Records the smallest room this enemy was ever placed in, so the test
+		-- can check nothing big is ever put somewhere it would not fit.
 		local function note(enemyId: string, size: number)
 			smallestForEnemy[enemyId] = math.min(smallestForEnemy[enemyId] or math.huge, size)
 		end

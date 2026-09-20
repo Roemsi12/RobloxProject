@@ -54,6 +54,7 @@ type Record = {
 
 local records: { [Player]: Record } = {}
 
+-- This player's XP and skill record, created empty on first use.
 local function getRecord(player: Player): Record
 	local record = records[player]
 	if not record then
@@ -63,6 +64,8 @@ local function getRecord(player: Player): Record
 	return record
 end
 
+-- The points this player has spent in one weapon's tree, created empty on
+-- first use. Per weapon, because your weapon is your class.
 local function allocationFor(record: Record, weaponId: string): SkillTreeDefs.Allocation
 	local allocation = record.skills[weaponId]
 	if not allocation then
@@ -113,6 +116,9 @@ local function applyToCharacter(player: Player)
 	humanoid.WalkSpeed = speed
 end
 
+-- Throws away the cached modifiers for a player, so the next read
+-- recomputes them. Called whenever anything that feeds them changes:
+-- spending a point, gaining a level, or switching weapon.
 local function invalidate(player: Player)
 	local record = records[player]
 	if record then
@@ -293,6 +299,8 @@ function ProgressionService.release(player: Player)
 	records[player] = nil
 end
 
+-- Listens for skill points being spent, and for the XP awards the dungeon
+-- registers on every enemy it spawns.
 function ProgressionService.start()
 	Remotes.get("SpendSkillPoint").OnServerEvent:Connect(function(player, payload)
 		if type(payload) ~= "table" then

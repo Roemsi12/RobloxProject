@@ -41,6 +41,9 @@ local activeDuel: Duel? = nil
 local originReturnCFrame = CFrame.new()
 local arenaBaseCFrame = CFrame.new()
 
+-- Tells one duelist where they stand: queued, duelling, or done. Checks
+-- they are still in the game first, since a duel can end because someone
+-- left.
 local function publishStatus(player: Player, status: string, opponentName: string?, message: string?)
 	if player.Parent then
 		Remotes.get("PvPStatusChanged"):FireClient(player, {
@@ -51,6 +54,7 @@ local function publishStatus(player: Player, status: string, opponentName: strin
 	end
 end
 
+-- Puts a player's character somewhere, if they have one.
 local function teleportTo(player: Player, cframe: CFrame)
 	local character = player.Character
 	if character and character:FindFirstChild("HumanoidRootPart") then
@@ -58,6 +62,8 @@ local function teleportTo(player: Player, cframe: CFrame)
 	end
 end
 
+-- Sends both duelists' health to both of them. Called after anything that
+-- changes either.
 function ArenaService.publishHealth()
 	local duel = activeDuel
 	if not duel then
@@ -75,6 +81,9 @@ function ArenaService.publishHealth()
 	end
 end
 
+-- Starts duels while there are two people waiting and no duel running.
+-- A loop rather than a single check: the pair it pulls may have left, in
+-- which case it should go straight on to the next pair.
 local function tryStartNextDuel()
 	while activeDuel == nil and #queue >= 2 do
 		local a = table.remove(queue, 1) :: Player
@@ -107,6 +116,9 @@ local function tryStartNextDuel()
 	end
 end
 
+-- Ends the current duel, sends both duelists home and starts the next.
+-- Ignores a loser who is not in this duel, so a late report from a duel
+-- already over cannot end the one that replaced it.
 local function endDuel(loser: Player, message: string?)
 	local duel = activeDuel
 	if not duel or not duel.duelists[loser] then

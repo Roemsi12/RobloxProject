@@ -31,14 +31,22 @@ local Duelist = require(script.Parent.Duelist)
 
 local PvPCombatServer = {}
 
+-- Whether this player is in a duel right now. The branch every combat
+-- entry point takes first, since duels resolve on their own rules.
 function PvPCombatServer.isDueling(player: Player): boolean
 	return ArenaService.getDuelist(player) ~= nil
 end
 
+-- Reports a swing's outcome back to whoever threw it.
 local function attackResult(player: Player, payload: { [string]: any })
 	Remotes.get("AttackResult"):FireClient(player, payload)
 end
 
+-- Resolves a duel swing when its telegraph ends.
+--
+-- Guarded the same way PvE swings are: a newer swing, or a parry that
+-- already staggered this one, owns the duelist's state, and this call
+-- finds it is no longer the current swing and does nothing.
 local function resolveSwing(attacker: Player, attackerDuelist: Duelist.Duelist, swing: Duelist.Swing, swingId: number)
 	-- A newer swing, or a parry that already staggered this one, owns the
 	-- duelist's state now.
@@ -196,6 +204,8 @@ local function resolveSwing(attacker: Player, attackerDuelist: Duelist.Duelist, 
 	end
 end
 
+-- A duelist's attack press. Duels use one telegraphed swing rather than
+-- the combo, so there is no step to pick.
 function PvPCombatServer.handleAttack(attacker: Player)
 	local attackerDuelist = ArenaService.getDuelist(attacker)
 	local _, opponent = ArenaService.getOpponent(attacker)

@@ -26,6 +26,7 @@ local upgradeLevels: { [Player]: { [string]: number } } = {}
 export type ChangedCallback = (player: Player, weaponId: string, upgradeLevel: number) -> ()
 local changedCallbacks: { ChangedCallback } = {}
 
+-- Tells a player what they are now carrying, and at what upgrade level.
 local function publish(player: Player, weaponId: string)
 	local level = EquipService.getUpgradeLevel(player, weaponId)
 
@@ -58,6 +59,8 @@ function EquipService.getWeaponId(player: Player): string?
 	return equipped[player]
 end
 
+-- How far this player has upgraded one weapon. Zero for a weapon they
+-- have never taken to the forge.
 function EquipService.getUpgradeLevel(player: Player, weaponId: string): number
 	local levels = upgradeLevels[player]
 	if not levels then

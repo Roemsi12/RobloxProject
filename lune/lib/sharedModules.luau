@@ -21,6 +21,9 @@ local function passThroughRequire(module: any): any
 	return module
 end
 
+-- A stand-in global that errors on any use, naming the rule it broke.
+-- How `game`, `workspace` and `Instance` are made unavailable: a module
+-- that reaches for one fails here rather than quietly becoming untestable.
 local function robloxTrap(globalName: string): any
 	local message = `{globalName} used by a shared module — pure modules must not call the Roblox API`
 	return setmetatable({}, {
@@ -33,6 +36,11 @@ local function robloxTrap(globalName: string): any
 	})
 end
 
+-- Loads every module in a directory into a table, lazily, in a sandbox
+-- with the Roblox globals trapped.
+--
+-- Sources are read up front because `fs.readFile` yields, and yielding is
+-- not allowed inside the metamethod that resolves `script.Parent.X`.
 function SharedModules.load(dir: string): any
 	if not fs.isDir(dir) then
 		error(`Can't find {dir}. Run Lune scripts from the repository root.`, 2)
@@ -52,6 +60,8 @@ function SharedModules.load(dir: string): any
 	local loading: { [string]: boolean } = {}
 	local folder = {}
 
+	-- One module by name, compiled and cached on first use. Recurses through
+	-- whatever it requires, so asking for one module pulls in its dependencies.
 	local function loadModule(name: string): any
 		if loaded[name] ~= nil then
 			return loaded[name]

@@ -27,6 +27,7 @@ export type Balance = {
 
 local balances: { [Player]: Balance } = {}
 
+-- This player's coins and crystals, created empty on first use.
 local function getBalance(player: Player): Balance
 	local balance = balances[player]
 	if not balance then
@@ -37,6 +38,7 @@ local function getBalance(player: Player): Balance
 	return balance
 end
 
+-- Sends a player their balance, after it changed.
 local function publish(player: Player, balance: Balance)
 	Remotes.get("CurrencyUpdated"):FireClient(player, {
 		coins = balance.coins,
@@ -44,6 +46,8 @@ local function publish(player: Player, balance: Balance)
 	})
 end
 
+-- This player's balance. The read every other service goes through, so
+-- none of them has to know whether the player has been seen before.
 function CurrencyService.getBalance(player: Player): Balance
 	return getBalance(player)
 end

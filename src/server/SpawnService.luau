@@ -22,6 +22,9 @@ local ready: { [Player]: boolean } = {}
 -- twice.
 local watched: { [Player]: boolean } = {}
 
+-- Puts a new character on the hub dais and arranges for its death to
+-- respawn it there. The respawn is guarded: it only fires if the player is
+-- still in the game and this is still their current character.
 local function watchCharacter(player: Player, character: Model)
 	if character:WaitForChild("HumanoidRootPart", 5) then
 		character:PivotTo(spawnCFrame)
@@ -43,6 +46,8 @@ local function watchCharacter(player: Player, character: Model)
 	end)
 end
 
+-- Follows one player's characters. Guarded against running twice, which
+-- happens for a player already in the game as the server starts.
 local function onPlayerAdded(player: Player)
 	if watched[player] then
 		return
@@ -60,6 +65,10 @@ local function onPlayerAdded(player: Player)
 	end
 end
 
+-- Sets where characters appear and begins watching players. Characters do
+-- not auto-load: a player gets a body only once DataService says their
+-- profile is ready, so nothing can change a profile that has not been
+-- read yet.
 function SpawnService.start(cframe: CFrame)
 	spawnCFrame = cframe
 

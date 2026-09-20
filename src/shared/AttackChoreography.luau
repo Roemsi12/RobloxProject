@@ -573,12 +573,16 @@ AttackChoreography.SETTLE = SETTLE
 local LINK_SETTLE = 0.06
 AttackChoreography.LINK_SETTLE = LINK_SETTLE
 
+-- One archetype's definition. Asserts: the four are fixed, so a miss is a
+-- typo rather than missing content.
 function AttackChoreography.get(archetype: Archetype): ArchetypeDef
 	local def = ARCHETYPE_DEFS[archetype]
 	assert(def, `No archetype "{archetype}"`)
 	return def
 end
 
+-- Whether this archetype's tell means "parry" or "move". The single
+-- source for that, so an attack's pose and its answer can never disagree.
 function AttackChoreography.isParryable(archetype: Archetype): boolean
 	return AttackChoreography.get(archetype).parryable
 end

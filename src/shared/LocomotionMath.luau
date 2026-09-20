@@ -63,6 +63,7 @@ export type Twist = {
 	shoulder: number,
 }
 
+-- Clamps to +/- `limit`, for angles that may be negative.
 local function clamp(value: number, limit: number): number
 	return math.clamp(value, -limit, limit)
 end
@@ -145,6 +146,9 @@ LocomotionMath.FULL_PACE = 16
 LocomotionMath.PLANT_BELOW = 0.6
 LocomotionMath.UNPLANT_ABOVE = 2.2
 
+-- Whether the feet should be planted at this speed, given whether they
+-- were last frame. Two thresholds rather than one, so a character
+-- drifting at the boundary cannot flicker between the two.
 function LocomotionMath.planted(speed: number, wasPlanted: boolean): boolean
 	if wasPlanted then
 		return speed < LocomotionMath.UNPLANT_ABOVE

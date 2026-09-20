@@ -30,6 +30,8 @@ local function publish(player: Player, inventory: { ItemInstance })
 	})
 end
 
+-- A deep copy of an item list, so what is handed out or saved can never
+-- alias the live inventory.
 local function copyItems(items: { ItemInstance }): { ItemInstance }
 	local copy = {}
 	for _, item in items do

@@ -52,6 +52,8 @@ local function notice(text: string, tone: string)
 	Remotes.get("DungeonNotice"):FireAllClients({ text = text, tone = tone })
 end
 
+-- How many living players are standing inside these bounds. What decides
+-- whether an ambush springs, and whether it has been abandoned.
 local function livingPlayersIn(bounds: RoomTemplates.Bounds): number
 	local count = 0
 	for _, player in Players:GetPlayers() do

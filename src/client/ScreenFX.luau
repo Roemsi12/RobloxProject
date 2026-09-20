@@ -68,12 +68,14 @@ local function makeVignette(parent: Instance, color: Color3): Vignette
 	return { frames = frames }
 end
 
+-- Sets a vignette's strength immediately, with no tween. 0 is invisible.
 local function setVignette(vignette: Vignette, strength: number)
 	for _, frame in vignette.frames do
 		frame.BackgroundTransparency = 1 - math.clamp(strength, 0, 1)
 	end
 end
 
+-- Flashes a vignette to `strength` and fades it out over `seconds`.
 local function pulseVignette(vignette: Vignette, strength: number, seconds: number)
 	for _, frame in vignette.frames do
 		frame.BackgroundTransparency = 1 - math.clamp(strength, 0, 1)
@@ -111,6 +113,9 @@ function ScreenFX.fovKick(amount: number, seconds: number)
 	}):Play()
 end
 
+-- The parry flash: a cold, bright grade and a short field-of-view kick.
+-- Deliberately not a colour wash over the screen — DESIGN.md took those
+-- out; a parry is felt through the clang, the sparks and the freeze.
 function ScreenFX.parry()
 	gradeFlash(0.22, 0.3, -0.55, Color3.fromRGB(235, 245, 255), 0.35)
 	ScreenFX.fovKick(6, 0.4)
@@ -122,10 +127,15 @@ function ScreenFX.hurt(strength: number)
 	gradeFlash(0, 0.1 * strength, -0.25 * strength, Color3.fromRGB(255, 215, 215), 0.3)
 end
 
+-- The green pulse when healing lands on the local player.
 function ScreenFX.heal()
 	pulseVignette(healVignette, 0.45, 0.7)
 end
 
+-- Builds the vignettes and the colour-correction effect this module
+-- drives. Its own grade, separate from the place file's art direction and
+-- from AtmosphereFX's world grade: three reasons to tint the screen, none
+-- overwriting the others.
 function ScreenFX.start()
 	local player = Players.LocalPlayer
 

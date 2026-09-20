@@ -13,6 +13,8 @@ local it = JestGlobals.it
 
 local CURRENT = PlayerDataSchema.CURRENT_VERSION
 
+-- A complete, current-version profile. The fixture every test starts
+-- from, so a case is one field changed rather than a record rebuilt.
 local function validRecord(): { [string]: any }
 	return {
 		version = CURRENT,

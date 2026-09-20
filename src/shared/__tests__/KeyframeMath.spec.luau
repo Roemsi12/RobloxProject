@@ -9,6 +9,8 @@ local describe = JestGlobals.describe
 local expect = JestGlobals.expect
 local it = JestGlobals.it
 
+-- A two-keyframe animation to sample: one second long, from an empty
+-- pose to a posed one, with the given easing.
 local function anim(looped: boolean, easing: any?): KeyframeMath.AnimationDef
 	return {
 		length = 1,

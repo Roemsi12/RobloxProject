@@ -23,6 +23,9 @@ local CLEANUP_AFTER = 8
 
 local warned: { [string]: boolean } = {}
 
+-- A sound definition by name, warning once if there is none. Once rather
+-- than every time: a missing sound on a swing would otherwise fill the
+-- output with the same line several times a second.
 local function defFor(name: string): SoundDefs.SoundDef?
 	local def = SoundDefs.get(name)
 	if not def and not warned[name] then
@@ -32,6 +35,8 @@ local function defFor(name: string): SoundDefs.SoundDef?
 	return def
 end
 
+-- A Sound instance from a definition, with its pitch rolled inside the
+-- definition's range so repeats never sound identical.
 local function newSound(def: SoundDefs.SoundDef): Sound
 	local sound = Instance.new("Sound")
 	sound.SoundId = def.id
@@ -43,6 +48,8 @@ local function newSound(def: SoundDefs.SoundDef): Sound
 	return sound
 end
 
+-- Plays a sound and destroys its holder when it ends, so nothing
+-- accumulates in Workspace over a long session.
 local function playAndClean(sound: Sound, holder: Instance)
 	sound.Ended:Once(function()
 		holder:Destroy()
@@ -86,6 +93,8 @@ function SoundFX.playAt(name: string, position: Vector3)
 	playAndClean(sound, holder)
 end
 
+-- Preloads every clip in the background, so the first parry is not silent
+-- while its sound is still downloading.
 function SoundFX.start()
 	-- Load every clip up front so the first parry isn't silent while its sound
 	-- downloads. In the background: nothing waits on it.

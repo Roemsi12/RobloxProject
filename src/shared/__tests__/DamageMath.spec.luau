@@ -25,6 +25,8 @@ describe("DamageMath.resolveIncoming", function()
 end)
 
 describe("DamageMath.resolveOutgoing", function()
+	-- Outgoing damage for one combination of stagger, riposte and
+	-- multiplier, so the tests read as a table of cases.
 	local function outgoing(base: number, staggered: boolean, riposte: boolean, multiplier: number): number
 		return DamageMath.resolveOutgoing(base, {
 			targetStaggered = staggered,
@@ -93,6 +95,8 @@ describe("DamageMath.applyHealing", function()
 end)
 
 describe("DamageMath.isInHitVolume range", function()
+	-- Whether a target at (x, z) is inside a hit volume of this range and
+	-- arc, measured from the origin.
 	local function hitAt(x: number, z: number, range: number, arcDegrees: number): boolean
 		return DamageMath.isInHitVolume({
 			attackerPos = ORIGIN,
@@ -123,6 +127,8 @@ describe("DamageMath.isInHitVolume range", function()
 end)
 
 describe("DamageMath.isInHitVolume arc", function()
+	-- Whether a target at (x, z) is inside an arc of this width, at a fixed
+	-- range.
 	local function hitAt(x: number, z: number, arcDegrees: number): boolean
 		return DamageMath.isInHitVolume({
 			attackerPos = ORIGIN,

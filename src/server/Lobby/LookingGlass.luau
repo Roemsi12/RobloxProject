@@ -28,10 +28,14 @@ local GLASS_HEIGHT = 9
 local GLASS_WIDTH = 5
 local FRAME = 0.55
 
+-- A palette colour ({0-255, 0-255, 0-255}) as a Color3.
 local function rgb(values: { number }): Color3
 	return Color3.fromRGB(values[1], values[2], values[3])
 end
 
+-- Builds the mirror and its prompt. The prompt opens the character editor
+-- on that player's client, and refuses outside the hub — nothing that
+-- edits a profile happens mid-run.
 function LookingGlass.start(anchor: CFrame)
 	local model = Instance.new("Model")
 	model.Name = "LookingGlass"

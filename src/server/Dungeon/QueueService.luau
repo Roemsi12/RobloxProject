@@ -78,6 +78,9 @@ local gates: { Gate } = {}
 -- search all three.
 local waitingAt: { [Player]: Gate } = {}
 
+-- One accent colour per gate, in the order they stand across the north
+-- wall. The hub takes these so the portal in the wall and the prompt in
+-- front of it agree about which gate is which.
 function QueueService.gateColors(): { Color3 }
 	local colors = {}
 	for _, def in GATES do
@@ -86,6 +89,7 @@ function QueueService.gateColors(): { Color3 }
 	return colors
 end
 
+-- Tells one player their place in a gate's queue.
 local function publish(gate: Gate, player: Player, queued: boolean)
 	if player.Parent then
 		Remotes.get("DungeonQueueChanged"):FireClient(player, {
@@ -97,12 +101,14 @@ local function publish(gate: Gate, player: Player, queued: boolean)
 	end
 end
 
+-- Tells everyone in a gate's queue their place, after it changed.
 local function publishAll(gate: Gate)
 	for _, player in gate.queue do
 		publish(gate, player, true)
 	end
 end
 
+-- A one-line banner for one player. `tone` picks its colour.
 local function notice(player: Player, text: string, tone: string)
 	if player.Parent then
 		Remotes.get("DungeonNotice"):FireClient(player, { text = text, tone = tone })
@@ -123,6 +129,8 @@ local function setLit(gate: Gate, lit: boolean)
 	end
 end
 
+-- Takes a player out of a gate's queue, returning whether they were in
+-- it. Used both for leaving on purpose and for leaving the game.
 local function removeFromQueue(gate: Gate, player: Player): boolean
 	local index = table.find(gate.queue, player)
 	if not index then
@@ -138,6 +146,8 @@ local function removeFromQueue(gate: Gate, player: Player): boolean
 	return true
 end
 
+-- Sends a gate's queue into the dungeon. Holds and retries if the dungeon
+-- is mid-rebuild, rather than dropping the group into nothing.
 local function sendIn(gate: Gate)
 	local entry = DungeonService.entryCFrame()
 	if not entry then

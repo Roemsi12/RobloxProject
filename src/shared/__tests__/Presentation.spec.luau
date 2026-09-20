@@ -30,10 +30,13 @@ local MATERIALS = {
 }
 local SHAPES = { "Block", "Ball", "Cylinder" }
 
+-- expect() on a { label, value } pair, so a failure names what failed
+-- rather than just saying false was not true.
 local function check(label: string, value: boolean)
 	expect({ label, value }).toEqual({ label, true })
 end
 
+-- Whether a colour is three channels, each in 0-255.
 local function validColor(rgb: { number }): boolean
 	if #rgb ~= 3 then
 		return false

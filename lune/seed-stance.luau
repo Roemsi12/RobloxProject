@@ -104,6 +104,8 @@ local function under(base: any, stance: any): any
 	return out
 end
 
+-- One pose as the Luau table literal that would produce it, with zero
+-- components left out so the output reads like hand-written source.
 local function literal(pose: any): string
 	local parts = {}
 	for _, axis in COMPONENTS do
@@ -125,6 +127,8 @@ local function literal(pose: any): string
 	return "{ " .. table.concat(parts, ", ") .. " }"
 end
 
+-- Prints a named pose table ready to paste into AnimationDefs, its parts
+-- in the given order so successive runs produce comparable output.
 local function emit(name: string, poses: any, order: { string })
 	print(string.format("\t\t%s = {", name))
 	for _, part in order do

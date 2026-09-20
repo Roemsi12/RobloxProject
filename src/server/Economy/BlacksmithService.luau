@@ -32,6 +32,10 @@ export type UpgradeOutcome = {
 	newLevel: number?,
 }
 
+-- Attempts one upgrade of whatever the player is carrying, and says what
+-- happened. Charges only on success; every refusal — nothing equipped,
+-- already maxed, not enough materials — comes back as its own outcome so
+-- the client can say which.
 function BlacksmithService.tryUpgrade(player: Player): UpgradeOutcome
 	local weaponId = EquipService.getWeaponId(player)
 	if not weaponId then
@@ -56,6 +60,7 @@ function BlacksmithService.tryUpgrade(player: Player): UpgradeOutcome
 	return { success = true, newLevel = EquipService.applyUpgrade(player, weaponId) }
 end
 
+-- A palette colour ({0-255, 0-255, 0-255}) as a Color3.
 local function rgb(values: { number }): Color3
 	return Color3.fromRGB(values[1], values[2], values[3])
 end
@@ -69,6 +74,7 @@ local DARK_TIMBER = rgb(Palette.shade(Palette.OAK, 0.6))
 local THATCH = rgb(Palette.shade(Palette.ROPE, 0.75))
 local EMBER = rgb(Palette.TORCH_EMBER)
 
+-- One anchored, non-colliding part of the forge's structure.
 local function piece(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material): Part
 	local part = Instance.new("Part")
 	part.Name = name

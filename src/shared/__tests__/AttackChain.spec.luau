@@ -34,6 +34,8 @@ local it = JestGlobals.it
 
 local NOW = 100.0
 
+-- expect() on a { label, value } pair, so a failure names what failed
+-- rather than just saying false was not true.
 local function check(label: string, value: boolean)
 	expect({ label, value }).toEqual({ label, true })
 end

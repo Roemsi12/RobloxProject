@@ -147,6 +147,12 @@ function AttackSelector.pickWeighted(def: EnemyDefs.EnemyDef, legal: { string },
 	return legal[#legal]
 end
 
+-- Which attack an enemy throws now, or nil if none is legal.
+--
+-- Weighted among the attacks that are in range and off cooldown. `roll`
+-- is injectable, which is what makes the weighting testable — and the
+-- legal list is sorted first, so the same roll always picks the same
+-- attack rather than depending on table order.
 function AttackSelector.chooseAttack(
 	def: EnemyDefs.EnemyDef,
 	distance: number,

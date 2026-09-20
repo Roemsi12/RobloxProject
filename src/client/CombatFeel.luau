@@ -52,6 +52,8 @@ local lastWeaponId: string? = nil
 local profileReady = false
 local lastCoins: number? = nil
 
+-- The model for an enemy id, by tag. By tag rather than by scanning
+-- Workspace: dungeon enemies live inside a folder, not at the top level.
 local function findEnemyModel(enemyId: string): Model?
 	for _, tagged in CollectionService:GetTagged(ENEMY_TAG) do
 		if tagged:IsA("Model") and tagged:GetAttribute("EnemyId") == enemyId then
@@ -61,16 +63,21 @@ local function findEnemyModel(enemyId: string): Model?
 	return nil
 end
 
+-- An enemy's hitbox part, or nil if its rig is gone or not yet arrived.
 local function enemyRoot(enemyId: string): BasePart?
 	local model = findEnemyModel(enemyId)
 	return model and model.PrimaryPart
 end
 
+-- The local character's root, or nil between characters.
 local function localRoot(): BasePart?
 	local character = localPlayer.Character
 	return character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
+-- Calls off a scheduled ground-slam shake. Used when the attack that
+-- would have caused it is interrupted, so the room does not shake for a
+-- blow that never landed.
 local function cancelSlam(enemyId: string)
 	local pending = pendingSlams[enemyId]
 	if pending then
@@ -79,6 +86,9 @@ local function cancelSlam(enemyId: string)
 	end
 end
 
+-- Queues the shake for a ground slam to fire at its impact time, with a
+-- strength that falls off with distance. Replaces any slam already queued
+-- for that enemy.
 local function scheduleSlam(enemyId: string, root: BasePart, radius: number, impactTime: number)
 	cancelSlam(enemyId)
 
@@ -96,6 +106,12 @@ local function scheduleSlam(enemyId: string, root: BasePart, radius: number, imp
 	end)
 end
 
+-- Wires every combat event to how hard it should feel: shake, hit-stop,
+-- sound and screen effects.
+--
+-- The one place that decides the weight of a moment, so the relative size
+-- of a parry against a hit against a slam can be read off in one file
+-- rather than reconstructed from five.
 function CombatFeel.start()
 	-- Your blow landing.
 	Remotes.get("AttackResult").OnClientEvent:Connect(function(payload)

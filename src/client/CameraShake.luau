@@ -54,11 +54,18 @@ function CameraShake.addAt(amount: number, position: Vector3, near: number, far:
 	end
 end
 
+-- A smooth -1..1 wobble on its own channel, so the shake's axes never
+-- move together and it reads as shake rather than as a slide.
 local function noise(channel: number, t: number): number
 	-- math.noise stays roughly within ±0.5; doubled to use the full range.
 	return math.noise(seed + channel * 17.3, t) * 2
 end
 
+-- Begins the shake, and the step that undoes it.
+--
+-- Bound just before the camera's own render step so the offset is applied
+-- and then removed every frame — the camera is never left displaced, which
+-- is what stops repeated shakes drifting the view.
 function CameraShake.start()
 	RunService:BindToRenderStep(UNDO_STEP, Enum.RenderPriority.Camera.Value - 1, function()
 		local camera = Workspace.CurrentCamera

@@ -18,6 +18,7 @@ local ShrineService = {}
 local STONE = Color3.fromRGB(150, 146, 140)
 local WATER = Color3.fromRGB(80, 230, 210)
 
+-- One anchored part of a shrine.
 local function part(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material, shape: Enum.PartType?): Part
 	local p = Instance.new("Part")
 	p.Name = name

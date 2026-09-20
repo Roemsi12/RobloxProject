@@ -38,6 +38,8 @@ local function offset(api: Api, from: { number }, to: { number }, scale: number?
 	return api.CFrame.new((to[1] - from[1]) * s, (to[2] - from[2]) * s, (to[3] - from[3]) * s)
 end
 
+-- A palette colour as a Color3, through the API this module was handed —
+-- never a global, which is what lets it run under Lune as well as in game.
 local function color(api: Api, rgb: { number }): any
 	return api.Color3.fromRGB(rgb[1], rgb[2], rgb[3])
 end
@@ -54,6 +56,8 @@ local function rotationOf(api: Api, degrees: { number }?): any
 	return api.CFrame.Angles(math.rad(degrees[1]), math.rad(degrees[2]), math.rad(degrees[3]))
 end
 
+-- One part of a rig, with the size, colour, material and shape a style
+-- asked for. Non-colliding: an enemy's collisions are its hitbox alone.
 local function makePart(api: Api, name: string, size: any, rgb: { number }, material: string?, shape: string?): any
 	local part = api.Instance.new("Part")
 	part.Name = name

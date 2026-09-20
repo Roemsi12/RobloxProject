@@ -93,6 +93,8 @@ function SoundDefs.swingSound(weaponId: string): string
 	return `swing_{weaponId}`
 end
 
+-- One sound definition by name, or nil if there is none. Callers warn
+-- rather than error: a missing sound should not stop a swing.
 function SoundDefs.get(name: string): SoundDef?
 	return SoundDefs.SOUNDS[name]
 end

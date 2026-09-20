@@ -36,10 +36,13 @@ local R15_JOINTS = {
 	LeftUpperLeg = "LeftHip", LeftLowerLeg = "LeftKnee", LeftFoot = "LeftAnkle",
 }
 
+-- Whether a name is one of the fifteen R15 parts.
 local function isPart(name: string): boolean
 	return table.find(R15_PARTS, name) ~= nil
 end
 
+-- Runs a check against every animation of every rig, labelled
+-- "rig/name" so a failure says which one.
 local function eachAnimation(callback: (label: string, anim: KeyframeMath.AnimationDef) -> ())
 	for rigId, animations in AnimationDefs.BY_RIG do
 		for name, anim in animations do
@@ -167,6 +170,7 @@ describe("RigDefs styles", function()
 	end)
 
 	it("gives every colour three channels in range", function()
+		-- Whether a colour is three channels, each in 0-255.
 		local function validColor(rgb: { number }): boolean
 			if #rgb ~= 3 then
 				return false
@@ -218,6 +222,7 @@ describe("Animation coverage", function()
 	end)
 
 	it("animates every weapon's combo, critical, guard and stance, and every roll", function()
+		-- Asserts the player rig has an animation under this name.
 		local function has(name: string)
 			check(name, AnimationDefs.get(RigDefs.PLAYER_RIG, name) ~= nil)
 		end

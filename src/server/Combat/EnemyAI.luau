@@ -61,6 +61,11 @@ export type Enemy = {
 
 local nextInstanceId = 0
 
+-- Builds one enemy: its rig, its hitbox, its state, and the tag every
+-- client watches for. Returns the record combat reasons about.
+--
+-- The hitbox is the only part hit-reg reads, so its position is the
+-- enemy's position as far as the rest of the game is concerned.
 function EnemyAI.spawn(
 	defId: string,
 	position: Vector3,
@@ -133,6 +138,8 @@ function EnemyAI.onDeath(enemy: Enemy, callback: DeathCallback)
 	table.insert(enemy.deathCallbacks, callback)
 end
 
+-- Runs every death callback registered on this enemy, each guarded, so a
+-- chest that fails to unlock cannot stop the room being marked cleared.
 function EnemyAI.fireDeath(enemy: Enemy, killer: Player?)
 	for _, callback in enemy.deathCallbacks do
 		-- One misbehaving listener must not stop the others (a chest failing to
@@ -233,6 +240,9 @@ function EnemyAI.chooseChainLink(enemy: Enemy, fromAttackId: string, distance: n
 	return AttackChain.chooseNext(enemy.def, fromAttackId, distance, enemy.cooldowns, now)
 end
 
+-- Puts one attack on its cooldown from `now`. Called when the attack
+-- starts, not when it lands, so a long telegraph does not also delay the
+-- cooldown.
 function EnemyAI.markAttackUsed(enemy: Enemy, attackId: string, now: number)
 	local attack = enemy.def.attacks[attackId]
 	enemy.cooldowns[attackId] = now + attack.cooldown

@@ -34,6 +34,7 @@ export type Duelist = {
 	swing: Swing?,
 }
 
+-- A fresh duelist record: full health, no swing, nothing parried yet.
 function Duelist.new(player: Player): Duelist
 	return {
 		player = player,

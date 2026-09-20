@@ -392,6 +392,10 @@ local function bindPress(name: string, title: string, touchButton: boolean, call
 	end
 end
 
+-- Binds every combat input and starts listening for the server's answers.
+--
+-- The whole control scheme is in this one function, in the order the
+-- README lists it — the place to look when a key does nothing.
 function CombatClient.start()
 	bindPress("Attack", "Attack", true, attack, Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2)
 	bindPress("Critical", "Critical", true, critical, Enum.KeyCode.R, Enum.KeyCode.ButtonR1)

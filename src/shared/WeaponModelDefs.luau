@@ -97,6 +97,8 @@ local function inlay(name: string, attachTo: string, size: Vec3, at: Vec3, color
 	return { name = name, attachTo = attachTo, size = size, offset = at, rotation = rotation, color = color, material = "Neon" }
 end
 
+-- Several piece lists flattened into one, for a weapon built from more
+-- than one part — a sword and its shield, a bow and its limbs.
 local function concat(...: { PieceDef }): { PieceDef }
 	local out = {}
 	for _, list in { ... } do
@@ -340,6 +342,9 @@ end
 -- scale the eye reads the kink as a recurve and nothing is lost.
 local function longbow(): { PieceDef }
 	local hand = "LeftHand"
+	-- One limb of the bow, upper or lower. `sign` mirrors it: +1 above the
+	-- grip, -1 below. Three straight segments rather than a curve — at this
+	-- size the eye reads the kink as a recurve.
 	local function limb(name: string, sign: number): { PieceDef }
 		return {
 			{ name = `Bow{name}Inner`, attachTo = hand, size = { 0.2, 1.5, 0.3 }, offset = { 0, sign * 0.9, -0.1 }, rotation = { sign * 6, 0, 0 }, color = Palette.shade(OAK, 0.9), material = "Wood" },

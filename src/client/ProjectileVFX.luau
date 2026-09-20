@@ -53,10 +53,14 @@ local FALLBACK: Look = LOOKS.bone
 -- How long the mark where it will land stays after the hit.
 local MARK_LINGER = 0.15
 
+-- A palette colour ({0-255, 0-255, 0-255}) as a Color3.
 local function rgb(values: { number }): Color3
 	return Color3.fromRGB(values[1], values[2], values[3])
 end
 
+-- The Workspace folder every projectile effect is parented to, created on
+-- first use. Keeps them out of the top level, where they would be mistaken
+-- for part of the world.
 local function effectFolder(): Instance
 	local existing = Workspace:FindFirstChild("ProjectileVFX")
 	if existing then
@@ -93,6 +97,7 @@ local function markLanding(parent: Instance, landing: Vector3, radius: number, l
 	Debris:AddItem(mark, flight + MARK_LINGER)
 end
 
+-- The flash and sparks where a projectile lands.
 local function burst(parent: Instance, at: Vector3, look: Look)
 	local flash = Instance.new("Part")
 	flash.Name = "Impact"
@@ -115,6 +120,11 @@ local function burst(parent: Instance, at: Vector3, look: Look)
 	Debris:AddItem(flash, 0.35)
 end
 
+-- Flies one projectile from the server's launch message: a moving part
+-- over the flight time the server gave, then a burst at the landing.
+--
+-- Cosmetic only. The server has already decided where and when this lands
+-- — nothing here can change what it hits.
 local function launch(payload: { [string]: any })
 	local origin = payload.origin
 	local landing = payload.landing
@@ -182,6 +192,7 @@ local function launch(payload: { [string]: any })
 	Debris:AddItem(shot, flight + 1)
 end
 
+-- Listens for projectile launches.
 function ProjectileVFX.start()
 	Remotes.get("ProjectileLaunched").OnClientEvent:Connect(launch)
 end

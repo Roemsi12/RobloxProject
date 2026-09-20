@@ -15,16 +15,21 @@ local describe = JestGlobals.describe
 local expect = JestGlobals.expect
 local it = JestGlobals.it
 
+-- expect() on a { label, value } pair, so a failure names what failed
+-- rather than just saying false was not true.
 local function check(label: string, value: boolean)
 	expect({ label, value }).toEqual({ label, true })
 end
 
 local R15_PARTS = RigDefs.partNames()
 
+-- Whether a name is one of the fifteen R15 parts.
 local function isPart(name: string): boolean
 	return table.find(R15_PARTS, name) ~= nil
 end
 
+-- Runs a check against every piece of every look option, labelled
+-- "option/piece".
 local function eachPiece(callback: (label: string, piece: AppearanceDefs.Piece) -> ())
 	for _, list in { AppearanceDefs.HAIR, AppearanceDefs.FACES, AppearanceDefs.MARKINGS, AppearanceDefs.GARB } do
 		for _, option in list do

@@ -46,6 +46,8 @@ local bars: { [string]: Bar } = {}
 local healthById: { [string]: Health } = {}
 local guiParent: Instance
 
+-- The model for an enemy id, by tag. By tag rather than by scanning
+-- Workspace: dungeon enemies live inside a folder, not at the top level.
 local function findEnemyModel(enemyId: string): Model?
 	for _, tagged in CollectionService:GetTagged(ENEMY_TAG) do
 		if tagged:IsA("Model") and tagged:GetAttribute("EnemyId") == enemyId then
@@ -64,6 +66,8 @@ local function applyHealth(bar: Bar, health: Health)
 	bar.gui.Enabled = health.alive
 end
 
+-- The floating health bar over one enemy, or nil if its rig has no root
+-- to hang from yet.
 local function buildBar(model: Model, enemyId: string): Bar?
 	local root = model.PrimaryPart
 	if not root then
@@ -117,6 +121,7 @@ local function buildBar(model: Model, enemyId: string): Bar?
 	return bar
 end
 
+-- Gives a newly spawned enemy its health bar.
 local function onEnemyAdded(instance: Instance)
 	if not instance:IsA("Model") then
 		return
@@ -140,6 +145,7 @@ local function onEnemyAdded(instance: Instance)
 	end
 end
 
+-- Takes an enemy's health bar away with its model.
 local function onEnemyRemoved(instance: Instance)
 	local enemyId = instance:GetAttribute("EnemyId")
 	local bar = if typeof(enemyId) == "string" then bars[enemyId] else nil
@@ -412,6 +418,9 @@ function WorldFeedback.healMotes(root: BasePart)
 	lightFlash(attachment, Color3.fromRGB(120, 255, 160), 3, 14, 0.6)
 end
 
+-- Starts the world-space feedback: health bars, damage numbers, hit and
+-- parry sparks, shockwaves, death bursts and heal motes. All of it is
+-- this client's own view; none of it is replicated.
 function WorldFeedback.start()
 	guiParent = Players.LocalPlayer:WaitForChild("PlayerGui")
 

@@ -44,6 +44,7 @@ type Results = { passed: number, failed: number, failures: { string } }
 local results: Results = { passed = 0, failed = 0, failures = {} }
 local scope: { string } = {}
 
+-- Structural equality, recursing into tables. What `toEqual` is built on.
 local function deepEqual(a: any, b: any): boolean
 	if a == b then
 		return true
@@ -64,6 +65,9 @@ local function deepEqual(a: any, b: any): boolean
 	return true
 end
 
+-- A value as a readable string for a failure message. Tables are printed
+-- one level deep, which is enough to see which field differs without
+-- burying the line.
 local function show(value: any): string
 	if type(value) ~= "table" then
 		return tostring(value)
@@ -77,11 +81,18 @@ local function show(value: any): string
 	return `\{ {table.concat(parts, ", ")} \}`
 end
 
+-- Fails loudly for a matcher the shim does not implement.
+--
+-- Deliberately an error rather than a silent pass: a matcher that quietly
+-- did nothing would let a spec claim to check something it never checked.
 local function unsupported(kind: string, name: string)
 	error(`{kind} "{name}" isn't implemented by lune/test.luau — extend the shim, or run this spec under Jest in Studio`, 3)
 end
 
+-- The matcher table for one value. `negated` builds the `.never` variant,
+-- which is the same matchers with every result inverted.
 local function makeMatchers(actual: any, negated: boolean)
+	-- Records one assertion's result, inverted first if this is a `.never`.
 	local function check(pass: boolean, message: string)
 		if negated then
 			pass = not pass
@@ -133,18 +144,22 @@ local function makeMatchers(actual: any, negated: boolean)
 	})
 end
 
+-- Starts an assertion, with `.never` hung off it for the negated form.
 local function expect(actual: any)
 	local matchers = makeMatchers(actual, false)
 	rawset(matchers, "never", makeMatchers(actual, true))
 	return matchers
 end
 
+-- Groups specs under a name, so a failure reads as the full path to it.
 local function describe(name: string, body: () -> ())
 	table.insert(scope, name)
 	body()
 	table.remove(scope)
 end
 
+-- Runs one spec and records whether it passed. Catches errors, so one
+-- spec blowing up does not stop the rest of the file.
 local function it(name: string, body: () -> ())
 	local fullName = `{table.concat(scope, " > ")} > {name}`
 	local ok, err = pcall(body)
@@ -178,6 +193,9 @@ local replicatedStorage = {
 	DevPackages = { JestGlobals = JEST_GLOBALS_MARKER },
 }
 
+-- Stands in for the real WaitForChild. Never actually waits — everything
+-- is loaded up front here — and errors rather than yielding forever if a
+-- spec asks for something that is not there.
 function replicatedStorage.WaitForChild(self: any, childName: string): any
 	local child = self[childName]
 	if child == nil then
@@ -188,6 +206,9 @@ end
 
 local fakeGame = {}
 
+-- Stands in for game:GetService, and allows only ReplicatedStorage.
+-- Anything else is a spec reaching for the Roblox API, which is exactly
+-- what this runner exists to catch.
 function fakeGame.GetService(_: any, serviceName: string): any
 	if serviceName ~= "ReplicatedStorage" then
 		error(`spec asked for {serviceName}; specs may only touch ReplicatedStorage`, 2)
@@ -195,6 +216,8 @@ function fakeGame.GetService(_: any, serviceName: string): any
 	return replicatedStorage
 end
 
+-- The `require` a spec sees: resolves JestGlobals to the shim and
+-- everything else to the sandboxed shared modules.
 local function specRequire(target: any): any
 	if target == JEST_GLOBALS_MARKER then
 		return jestGlobals

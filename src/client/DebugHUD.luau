@@ -60,6 +60,7 @@ local state: State = {
 	lastHitGood = false,
 }
 
+-- One monospaced line of the debug readout.
 local function makeLabel(parent: Instance, order: number, size: number): TextLabel
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
@@ -73,11 +74,14 @@ local function makeLabel(parent: Instance, order: number, size: number): TextLab
 	return label
 end
 
+-- A cooldown as text: "1.4s" while it is running, "ready" once it is not.
 local function remaining(until_: number, now: number): string
 	local left = until_ - now
 	return if left > 0 then string.format("%.1fs", left) else "ready"
 end
 
+-- Builds the combat debug readout and binds F2 to it. Studio only:
+-- returns immediately in a live game, so nothing is built at all.
 function DebugHUD.start()
 	if not RunService:IsStudio() then
 		return

@@ -29,6 +29,9 @@ AnimationIds.PUBLISHED = {
 	R15Player = {},
 } :: { [string]: { [string]: string } }
 
+-- The published asset id for an animation, or nil if it has not been
+-- refined yet — in which case the rough version in AnimationDefs plays.
+-- An empty string counts as nil, so a half-filled row is not a broken id.
 function AnimationIds.get(rigId: string, name: string): string?
 	local rig = AnimationIds.PUBLISHED[rigId]
 	local id = rig and rig[name]

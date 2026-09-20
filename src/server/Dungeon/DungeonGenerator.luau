@@ -62,6 +62,8 @@ function DungeonGenerator.onRoomCleared(built: BuiltRoom, callback: () -> ())
 	table.insert(built.clearedCallbacks, callback)
 end
 
+-- Marks a room cleared, once, and tells whoever is listening. Guarded,
+-- because the last enemy dying and a late death report can both arrive.
 local function markCleared(built: BuiltRoom)
 	if built.cleared then
 		return
@@ -94,6 +96,7 @@ local function trackClear(built: BuiltRoom)
 	end
 end
 
+-- A palette colour ({0-255, 0-255, 0-255}) as a Color3.
 local function rgb(values: { number }): Color3
 	return Color3.fromRGB(values[1], values[2], values[3])
 end
@@ -126,6 +129,8 @@ local function enemyOffsets(count: number, size: number): { Vector3 }
 	return offsets
 end
 
+-- Spawns a room's enemies, spread across its floor rather than stacked on
+-- its centre.
 local function spawnEnemies(built: BuiltRoom, folder: Folder)
 	local node = built.node
 	local offsets = enemyOffsets(#node.enemies, node.size)
@@ -202,6 +207,9 @@ local function addHoard(built: BuiltRoom, folder: Folder)
 	end
 end
 
+-- Builds a whole dungeon from a layout: every room, every corridor, the
+-- chests, the ambushes and the enemies, under one folder named for the
+-- seed. Returns the handles the dungeon service needs to run it.
 function DungeonGenerator.build(layout: DungeonLayout.Layout, origin: CFrame, parent: Instance): BuiltDungeon
 	local folder = Instance.new("Folder")
 	folder.Name = `Dungeon_{layout.seed}`

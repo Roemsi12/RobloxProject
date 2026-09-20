@@ -211,6 +211,8 @@ function AttackChain.maxLinks(def: any): number
 	return math.min(def.maxChain or 1, AttackChain.MAX_LINKS)
 end
 
+-- Whether this attack chains into another link. `roll` is injectable so
+-- tests can force both answers; left out, it uses math.random.
 function AttackChain.wantsAnother(def: any, roll: (() -> number)?): boolean
 	local chance = def.chainChance or 0
 	if chance <= 0 then

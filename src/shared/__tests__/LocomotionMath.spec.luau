@@ -54,6 +54,9 @@ describe("LocomotionMath.resolve", function()
 	end)
 
 	it("leaves the gap once past either edge", function()
+		-- Whether travel at this angle reads as reversed, given last frame's
+		-- answer. Degrees rather than a vector, so the hysteresis cases read as
+		-- the angles they are about.
 		local function at(degrees: number, wasReversed: boolean): boolean
 			local radians = math.rad(degrees)
 			return LocomotionMath.resolve(math.cos(radians), math.sin(radians), wasReversed).reversed

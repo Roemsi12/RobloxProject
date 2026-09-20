@@ -108,6 +108,9 @@ for _, rig in bench:GetChildren() do
 	if not last then continue end
 
 	local lines = {}
+	-- Walks a keyframe's Pose tree, collecting every joint that carries a
+	-- weight — which is how a pose set by hand in the Animation Editor is
+	-- read back out.
 	local function walk(pose)
 		for _, child in pose:GetChildren() do
 			if child:IsA("Pose") then
@@ -160,6 +163,8 @@ for _, part in RigDefs.SKELETON do
 	table.insert(childrenOf[part.parent], part.name)
 end
 
+-- One pose as a CFrame, scaled to the rig. Same formula as the game and
+-- the animation workbench, so all three agree.
 local function poseCFrame(values: any, scale: number): any
 	return CFrame.new(values.px * scale, values.py * scale, values.pz * scale)
 		* CFrame.Angles(math.rad(values.rx), math.rad(values.ry), math.rad(values.rz))
@@ -175,6 +180,10 @@ local function buildTellSequence(name: string, tell: any, scale: number): any
 	end
 
 	local leadsToAnimated: { [string]: boolean } = {}
+	-- Whether this part, or anything hanging below it, is posed by the
+	-- animation. Recursive: the Animation Editor needs the whole chain down
+	-- to a posed joint, so a hand that moves drags its arm and shoulder in
+	-- with it even though neither is posed itself.
 	local function mark(part: string): boolean
 		local result = animated[part] == true
 		for _, child in childrenOf[part] or {} do
@@ -198,6 +207,9 @@ local function buildTellSequence(name: string, tell: any, scale: number): any
 		frame.Name = "Keyframe"
 		frame.Parent = sequence
 
+		-- Adds one Pose to the keyframe, then its children under it, mirroring
+		-- the skeleton's own hierarchy — which is the shape the Animation
+		-- Editor expects to find.
 		local function addPose(part: string, parent: any)
 			local pose = Instance.new("Pose")
 			pose.Name = part
@@ -356,6 +368,8 @@ local function extractTell(rig: any): { [string]: { rx: number, ry: number, rz: 
 	end
 
 	local found = {}
+	-- Walks a reloaded Pose tree, for the round-trip check: what was written
+	-- is read back and compared against what went in.
 	local function walk(pose: any)
 		for _, child in pose:GetChildren() do
 			if child.ClassName == "Pose" then

@@ -68,6 +68,13 @@ function ParryMath.plausibleSendWindow(serverNow: number, halfPing: number): (nu
 	return earliest, latest
 end
 
+-- Whether the client's claimed press time is plausible, or the rejection
+-- verdict saying why not.
+--
+-- The anti-cheat half of a parry. A client that knows impactTime — and it
+-- must, to draw the telegraph — could otherwise claim a perfect press at
+-- any moment; this bounds the claim to when it could honestly have been
+-- sent, allowing for their ping.
 local function checkTimestamp(attemptTime: number, serverNow: number, halfPing: number): Verdict?
 	local earliest, latest = ParryMath.plausibleSendWindow(serverNow, halfPing)
 
@@ -84,6 +91,12 @@ local function checkTimestamp(attemptTime: number, serverNow: number, halfPing: 
 	return nil
 end
 
+-- Judges one parry press: whether it is trusted, whether it caught the
+-- hit, and how far off it was in milliseconds.
+--
+-- The timestamp check runs first — a press that cannot be trusted is
+-- rejected without ever being compared against the window, so a spoofed
+-- time can never read as a perfect parry.
 function ParryMath.evaluate(params: EvaluateParams): Evaluation
 	local deltaSeconds = params.attemptTime - params.impactTime
 	local deltaMs = deltaSeconds * 1000

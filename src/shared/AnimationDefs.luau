@@ -530,6 +530,8 @@ AnimationDefs.carryOf = carryOf
 local SETTLE_UPPER = 0.45
 local SETTLE_LOWER = 0.6
 
+-- The recovery pose for a carry: the same shape, mostly released but
+-- still low.
 local function settleOf(carry: Poses): Poses
 	return exaggerate(carry, SETTLE_UPPER, SETTLE_LOWER)
 end
@@ -1340,6 +1342,9 @@ local function idleLoop(pose: Poses, front: number, back: number, twist: number)
 	local drop = (footing.LowerTorso :: any).py or 0
 	local hipTurn = (footing.LowerTorso :: any).ry or 0
 
+	-- One frame of a planted idle, at a given point in each of its three
+	-- clocks. Unlike the walking stance's version this also moves the legs,
+	-- softening and straightening the knees as the weight shifts.
 	local function at(breath: number, lag: number, sway: number): Poses
 		local poses = merge(footing, pose)
 		-- Restated: merge replaces a part's whole pose, and the upper-body
@@ -2443,6 +2448,9 @@ AnimationDefs.BY_RIG = {
 	[RigDefs.PLAYER_RIG] = R15Player,
 }
 
+-- One animation by rig and name, or nil if that rig has none. Nil is a
+-- normal answer — not every rig has every animation — and every caller
+-- treats it as "keep doing what you were doing".
 function AnimationDefs.get(rigId: string, name: string): AnimationDef?
 	local rig = AnimationDefs.BY_RIG[rigId]
 	return rig and rig[name]

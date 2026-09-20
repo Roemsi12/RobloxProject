@@ -35,6 +35,8 @@ local it = JestGlobals.it
 
 local SEEDS = 2000
 
+-- expect() on a { label, value } pair, so a failure names what failed
+-- rather than just saying false was not true.
 local function check(label: string, value: boolean)
 	expect({ label, value }).toEqual({ label, true })
 end
@@ -314,6 +316,9 @@ end)
 -- players fall back to button-timing and the whole system becomes decoration.
 -- These are the tests that keep enemies apart.
 describe("Enemy identity", function()
+	-- The nearest and furthest range at which this enemy has a parryable
+	-- attack. Used to check there is no distance where it can only throw
+	-- things you cannot parry.
 	local function parryableBand(def: any): (number, number)
 		local lo, hi = math.huge, 0
 		for _, attack in def.attacks do
@@ -571,6 +576,7 @@ describe("Chain links", function()
 		return true
 	end
 
+	-- Whether a pose table poses nothing at all.
 	local function isEmpty(poses: AttackChoreography.Poses): boolean
 		for _ in poses do
 			return false
@@ -578,6 +584,9 @@ describe("Chain links", function()
 		return true
 	end
 
+	-- Generates the follow-up link from one archetype to another, for the
+	-- chain tests: the pose a second strike starts from depends on where the
+	-- first one ended.
 	local function linkOf(
 		from: AttackChoreography.Archetype,
 		to: AttackChoreography.Archetype,
@@ -801,6 +810,8 @@ describe("Attack weight", function()
 	local LEAD = 0.3
 	local RECOVERY = 0.6
 
+	-- Just the hips and legs of a pose, for checking a generated swing has a
+	-- lower body under it at all.
 	local function lowerOnly(poses: any): any
 		local out: any = {}
 		for _, part in LOWER do
@@ -809,6 +820,7 @@ describe("Attack weight", function()
 		return out
 	end
 
+	-- Every part a pose table touches, as a list.
 	local function partNames(poses: any): { string }
 		local names = {}
 		for part in poses do
@@ -969,6 +981,8 @@ describe("Attack weight", function()
 	it("keeps the joints that identify an archetype far apart", function()
 		local SILHOUETTE = 25
 
+		-- Only the joints that identify an archetype. These are what the player
+		-- reads, and what must never vary between two attacks of the same kind.
 		local function diagnosticPose(archetype: string, seed: number): any
 			local def = AttackChoreography.get(archetype)
 			local pose = AttackChoreography.tellPose(archetype :: any, seed)

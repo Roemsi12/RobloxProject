@@ -21,6 +21,7 @@ local Palette = require(ReplicatedStorage.Shared.Palette)
 
 local Stonework = {}
 
+-- A palette colour ({0-255, 0-255, 0-255}) as a Color3.
 local function rgb(values: { number }): Color3
 	return Color3.fromRGB(values[1], values[2], values[3])
 end
@@ -450,9 +451,12 @@ end
 -- so the plinth is the only part of it anyone can walk into anyway.
 function Stonework.statue(parent: Instance, base: CFrame, scale: number?)
 	local s = scale or 1
+	-- A Vector3 scaled by the statue's size, so one set of numbers carves a
+	-- statue at any scale.
 	local function v(x: number, y: number, z: number): Vector3
 		return Vector3.new(x * s, y * s, z * s)
 	end
+	-- A CFrame offset scaled by the statue's size.
 	local function at(x: number, y: number, z: number): CFrame
 		return CFrame.new(x * s, y * s, z * s)
 	end
@@ -528,6 +532,7 @@ function Stonework.barrel(parent: Instance, base: CFrame)
 	end
 end
 
+-- A wooden crate of a randomised size, standing on `base`.
 function Stonework.crate(parent: Instance, base: CFrame)
 	local side = 1.6 + math.random() * 0.7
 	decor(parent, "Crate", Vector3.new(side, side, side), base * CFrame.new(0, side / 2, 0), Stonework.WOOD, Enum.Material.WoodPlanks)

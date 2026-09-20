@@ -501,6 +501,8 @@ RigDefs.STYLES = {
 	R15Player = playerStyle(),
 } :: { [string]: RigStyle }
 
+-- A rig's style. Asserts rather than returning nil: every rig id comes
+-- from EnemyDefs or is the player rig, so a miss is a typo.
 function RigDefs.styleOf(rigId: string): RigStyle
 	local style = RigDefs.STYLES[rigId]
 	assert(style, `No rig style for "{rigId}"`)
@@ -519,6 +521,8 @@ function RigDefs.rootSize(rigId: string): { number }
 	return { RigDefs.ROOT_SIZE[1] * scale, RigDefs.ROOT_SIZE[2] * scale, RigDefs.ROOT_SIZE[3] * scale }
 end
 
+-- How one part of a rig is styled, falling back to the rig's default for
+-- any part that does not name its own.
 function RigDefs.partStyle(style: RigStyle, partName: string): PartStyle
 	return style.parts[partName] or style.default
 end
@@ -536,6 +540,11 @@ end
 -- Ordered, so two clients showing the same enemy walk the same parts.
 RigDefs.HANDS = { "RightHand", "LeftHand" }
 
+-- The parts that do the hitting: every decoration hanging off a hand, or
+-- the hands themselves for a rig that fights with nothing in them.
+--
+-- Sorted, so two clients showing the same enemy walk them in the same
+-- order. What the parry glint plays on.
 function RigDefs.weaponParts(rigId: string): { string }
 	local style = RigDefs.STYLES[rigId]
 	if not style then

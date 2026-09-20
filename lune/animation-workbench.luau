@@ -91,6 +91,12 @@ local function poseCFrame(values: any, scale: number): any
 		* CFrame.Angles(math.rad(values.rx), math.rad(values.ry), math.rad(values.rz))
 end
 
+-- One animation as a KeyframeSequence the Animation Editor can open.
+--
+-- Poses use the same formula the game plays them with, so what opens in
+-- the editor and what plays in game are the same animation. A strike's
+-- impact keyframe is named "Impact": that name is how a refined version
+-- keeps its timing when it is published.
 local function buildSequence(name: string, anim: any, scale: number): any
 	local animated: { [string]: boolean } = {}
 	for _, part in KeyframeMath.partsOf(anim) do
@@ -99,6 +105,10 @@ local function buildSequence(name: string, anim: any, scale: number): any
 
 	-- Only branches that lead to an animated part get poses at all.
 	local leadsToAnimated: { [string]: boolean } = {}
+	-- Whether this part, or anything hanging below it, is posed by the
+	-- animation. Recursive: the Animation Editor needs the whole chain down
+	-- to a posed joint, so a hand that moves drags its arm and shoulder in
+	-- with it even though neither is posed itself.
 	local function mark(part: string): boolean
 		local result = animated[part] == true
 		for _, child in childrenOf[part] or {} do
@@ -126,6 +136,9 @@ local function buildSequence(name: string, anim: any, scale: number): any
 		local style = EASING[keyframe.easing or "Smooth"]
 		local direction = EASING_DIRECTION[keyframe.easing or "Smooth"]
 
+		-- Adds one Pose to the keyframe, then its children under it, mirroring
+		-- the skeleton's own hierarchy — which is the shape the Animation
+		-- Editor expects to find.
 		local function addPose(part: string, parent: any)
 			local pose = Instance.new("Pose")
 			pose.Name = part
@@ -220,6 +233,8 @@ end
 --[[ Check what was built, from the written file ]]
 
 local problems: { string } = {}
+-- Records a check failure. Collected rather than thrown, so one run
+-- reports every problem instead of stopping at the first.
 local function problem(message: string)
 	table.insert(problems, message)
 end
@@ -339,6 +354,9 @@ local FEET = { "RightFoot", "LeftFoot" }
 -- the seed, so this samples the space rather than trusting one point in it.
 local GENERATED_SEEDS = { 1, 7, 29, 257, 4099 }
 
+-- The lowest of a part's eight corners in world space. What the floor
+-- check measures: a part can be above the floor at its centre and still
+-- have a corner through it.
 local function lowestPoint(cframe: any, size: any): number
 	local lowest = math.huge
 	for _, x in { -0.5, 0.5 } do
@@ -371,6 +389,12 @@ for _, rigId in rigIds do
 	local plantedTolerance = PLANTED_TOLERANCE * scale
 	local lyingMaxHeight = LYING_MAX_HEIGHT * scale
 
+	-- Every part's world CFrame for one pose, solved the way the engine does
+	-- it (Part1 = Part0 * C0 * Transform * C1:Inverse()).
+	--
+	-- This is what makes the floor check trustworthy: it is not an
+	-- approximation of where a limb ends up, it is the same arithmetic
+	-- Roblox will do.
 	local function solve(pose: any): { [string]: any }
 		local world: { [string]: any } = { HumanoidRootPart = root.CFrame }
 		for _, def in RigDefs.SKELETON do

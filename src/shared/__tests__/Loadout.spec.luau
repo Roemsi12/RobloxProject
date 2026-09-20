@@ -219,6 +219,8 @@ describe("melee pacing", function()
 	-- The class pass added weapons at both ends of this: the Berserker is
 	-- slower than the Tank now, and nothing is faster than the Assassin.
 	it("keeps the Assassin the fastest and the Berserker the slowest", function()
+		-- How long one full swing-and-recover takes for a weapon, which is what
+		-- the class pacing order is measured on.
 		local function cycle(weaponId: string): number
 			return Loadout.swingTiming(WeaponDefs[weaponId].attack, 1).readyAfter
 		end

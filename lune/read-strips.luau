@@ -66,6 +66,9 @@ if mode and not AttackChoreography.isParryable then
 	error("AttackChoreography did not load")
 end
 
+-- The pose an archetype is in `beforeImpact` seconds before its hit
+-- lands. What the strips photograph: the same moment for every
+-- archetype, so four tells can be compared side by side.
 local function poseAt(archetype: string, beforeImpact: number): KeyframeMath.PoseMap
 	local anim = AttackChoreography.generate({
 		archetype = archetype,
