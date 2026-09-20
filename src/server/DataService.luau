@@ -91,10 +91,14 @@ local profiles: { [Player]: Profile } = {}
 -- twice.
 local started: { [Player]: boolean } = {}
 
+-- The DataStore key for a player. Their UserId, so it survives a rename.
 local function keyFor(player: Player): string
 	return `player_{player.UserId}`
 end
 
+-- Blocks until Roblox will accept another DataStore write, or until
+-- BUDGET_WAIT_LIMIT gives up. Every save goes through here: without it a
+-- busy server spends its requests and starts failing them.
 local function waitForBudget()
 	local waited = 0
 	while
@@ -157,6 +161,13 @@ local function tryClaim(player: Player, dataStore: DataStore): (PlayerDataSchema
 	return claimed, outcome
 end
 
+-- Reads a player's profile and takes the session lock on it, retrying.
+--
+-- Retries two different problems: a DataStore error (transient, worth
+-- another go) and a lock still held by another server (their last server
+-- has not released it yet). Gives up separately on each, and returns nil
+-- with an outcome saying which — the caller must not treat a lock it could
+-- not take as a new player, or it would overwrite their progress.
 local function loadProfile(player: Player, dataStore: DataStore): (PlayerDataSchema.PlayerData?, LoadOutcome)
 	local failures = 0
 	local lockWaits = 0
@@ -212,6 +223,10 @@ end
 
 type SaveOutcome = "saved" | "lost" | "error"
 
+-- One write attempt. Checks this server still owns the lock inside the
+-- update, so a server that lost ownership stops writing rather than
+-- clobbering whoever took over. `release` drops the lock as it writes,
+-- for a player who is leaving.
 local function trySave(player: Player, dataStore: DataStore, data: PlayerDataSchema.PlayerData, release: boolean): SaveOutcome
 	local outcome: SaveOutcome = "error"
 
@@ -310,6 +325,8 @@ local function hydrate(player: Player, data: PlayerDataSchema.PlayerData)
 	AppearanceService.hydrate(player, data.appearance)
 end
 
+-- Drops the player's live state from every service that holds some, once
+-- their profile is saved and released.
 local function releaseServices(player: Player)
 	EquipService.release(player)
 	CurrencyService.release(player)
@@ -318,6 +335,10 @@ local function releaseServices(player: Player)
 	AppearanceService.release(player)
 end
 
+-- Starts a loaded player playing: hands their data to every service, tells
+-- their client the profile is ready, and asks SpawnService for a body.
+-- `persistent` is false when the profile could not be loaded and this
+-- session will not be saved.
 local function begin(player: Player, data: PlayerDataSchema.PlayerData, persistent: boolean)
 	profiles[player] = {
 		persistent = persistent,
@@ -331,6 +352,9 @@ local function begin(player: Player, data: PlayerDataSchema.PlayerData, persiste
 	SpawnService.spawn(player)
 end
 
+-- Loads a joining player's profile and starts them. Guarded against
+-- running twice for the same player, which happens when a player is
+-- already in the game as the server starts up.
 local function onPlayerAdded(player: Player)
 	if started[player] then
 		return
@@ -374,6 +398,8 @@ local function onPlayerAdded(player: Player)
 	player:Kick(KICK_MESSAGES[outcome] or KICK_MESSAGES.error)
 end
 
+-- Final save and lock release for a leaving player. The one save that
+-- must not be skipped, so it runs even when an autosave is in flight.
 local function onPlayerRemoving(player: Player)
 	started[player] = nil
 
@@ -414,6 +440,8 @@ local function onClose()
 	end
 end
 
+-- Saves every loaded profile every AUTOSAVE_INTERVAL, forever. Insurance
+-- against a crash, which never runs PlayerRemoving.
 local function autosaveLoop()
 	while true do
 		task.wait(AUTOSAVE_INTERVAL)
@@ -426,6 +454,11 @@ local function autosaveLoop()
 	end
 end
 
+-- Opens the DataStore and begins loading profiles. Last in the server
+-- bootstrap, so everything a loaded player can touch already exists.
+--
+-- If the DataStore cannot be opened at all — Studio with API access off —
+-- players still get in, with profiles that are never saved.
 function DataService.start()
 	local ok, result = pcall(function()
 		return DataStoreService:GetDataStore(STORE_NAME)

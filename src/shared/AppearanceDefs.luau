@@ -245,6 +245,9 @@ local function eyes(name: string, size: Vec3, y: number, spread: number, color: 
 	}
 end
 
+-- A matched pair of eyebrows at height `y`, each tilted `tilt` degrees
+-- (positive angles them inward, into a scowl). Tinted with the hair
+-- colour, so brows always match the head they sit under.
 local function brows(y: number, tilt: number): { Piece }
 	return {
 		{ name = "BrowRight", attachTo = "Head", size = { 0.34, 0.09, 0.06 }, offset = { 0.26, y, -0.6 }, rotation = { 0, 0, -tilt }, tint = "hair" },
@@ -252,6 +255,8 @@ local function brows(y: number, tilt: number): { Piece }
 	}
 end
 
+-- Several piece lists flattened into one, for a face or a garb built out
+-- of more than one helper.
 local function join(...: { Piece }): { Piece }
 	local out: { Piece } = {}
 	for _, list in { ... } do
@@ -502,6 +507,8 @@ export type Look = {
 	trimColor: string,
 }
 
+-- The look a brand-new character starts with, and the fallback every
+-- unrecognised field falls back to. Always a fresh table.
 function AppearanceDefs.default(): Look
 	return {
 		build = "standard",
@@ -538,14 +545,21 @@ local function firstOf(list: { any }): any
 	return list[1]
 end
 
+-- The choice with this id, or the list's first entry when the id is
+-- unknown. Every list is ordered so its first entry is a safe fallback:
+-- no marking, a plain face, a standard build.
 function AppearanceDefs.option(list: { any }, id: unknown): any
 	return findById(list, id) or firstOf(list)
 end
 
+-- The build with this id, falling back to "standard" (BUILDS[2]) rather
+-- than to the first entry, because the first is "lean" and an unknown
+-- build should come back at exactly 1.0 on every axis.
 function AppearanceDefs.buildOf(id: unknown): BuildDef
 	return findById(AppearanceDefs.BUILDS, id) or AppearanceDefs.BUILDS[2]
 end
 
+-- The RGB of a swatch by id, falling back to the list's first colour.
 function AppearanceDefs.colorOf(list: { any }, id: unknown): RGB
 	local entry = findById(list, id) or firstOf(list)
 	return entry.rgb
@@ -594,6 +608,13 @@ export type ResolvedPiece = {
 	color: RGB,
 }
 
+-- Every welded piece a look is made of, each with its colour already
+-- resolved from the look's four tints.
+--
+-- This is the whole translation from "what the player chose" to "what the
+-- server welds on". Face, hair, markings and garb in that order; a piece
+-- with its own `color` keeps it, one with a `tint` takes that colour, and
+-- anything with neither falls back to skin.
 function AppearanceDefs.piecesFor(look: Look): { ResolvedPiece }
 	local tints: { [string]: RGB } = {
 		skin = AppearanceDefs.colorOf(AppearanceDefs.SKIN_TONES, look.skin),

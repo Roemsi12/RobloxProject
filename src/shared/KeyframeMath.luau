@@ -62,6 +62,9 @@ KeyframeMath.REST = table.freeze({ rx = 0, ry = 0, rz = 0, px = 0, py = 0, pz = 
 
 local COMPONENTS = { "rx", "ry", "rz", "px", "py", "pz" }
 
+-- A sparse pose filled out: every component the spec left out becomes 0.
+-- `nil` gives a copy of REST, so a part an animation stopped posing reads
+-- as at-rest rather than as missing.
 function KeyframeMath.resolve(spec: PoseSpec?): PoseValues
 	if not spec then
 		return table.clone(KeyframeMath.REST) :: any
@@ -77,6 +80,9 @@ function KeyframeMath.resolve(spec: PoseSpec?): PoseValues
 	}
 end
 
+-- Where a keyframe's easing curve has got to at `alpha` (0 at this
+-- keyframe, 1 at the next). Returns the blend factor to interpolate with,
+-- clamped to 0..1. Smooth is the default when `easing` is nil.
 function KeyframeMath.ease(easing: Easing?, alpha: number): number
 	local a = math.clamp(alpha, 0, 1)
 
@@ -137,6 +143,7 @@ function KeyframeMath.localTime(anim: AnimationDef, t: number): number
 	return math.clamp(t, 0, anim.length)
 end
 
+-- Straight linear interpolation between two numbers.
 local function lerp(a: number, b: number, alpha: number): number
 	return a + (b - a) * alpha
 end

@@ -57,14 +57,20 @@ local looks: { [Player]: AppearanceDefs.Look } = {}
 -- (or a look change racing a respawn) doesn't build the pieces twice.
 local dressed: { [Player]: Model } = {}
 
+-- A palette colour ({0-255, 0-255, 0-255}) as a Color3. Every colour in the
+-- data files is a plain table so those files stay Roblox-free.
 local function rgb(values: { number }): Color3
 	return Color3.fromRGB(values[1], values[2], values[3])
 end
 
+-- A three-number table as a Vector3, for sizes and offsets out of data files.
 local function vec(values: { number }): Vector3
 	return Vector3.new(values[1], values[2], values[3])
 end
 
+-- Where a look's piece sits relative to the part it hangs on: the offset
+-- first, then its own rotation. Same order as RigDefs decorations, which
+-- is what lets a hood sweep back or a pauldron slope off a shoulder.
 local function pieceOffset(piece: AppearanceDefs.Piece): CFrame
 	local rotation = piece.rotation or { 0, 0, 0 }
 	return CFrame.new(vec(piece.offset))
@@ -112,6 +118,13 @@ local function stripLook(character: Model)
 	end
 end
 
+-- Builds and welds every piece of a look onto a character, replacing
+-- whatever was there.
+--
+-- Pieces are massless, non-colliding and non-querying, so nothing here
+-- changes how the character moves or what combat hit-reg reads — that
+-- resolves against the HumanoidRootPart alone. A piece whose part is
+-- missing is skipped rather than fatal.
 local function dress(character: Model, look: AppearanceDefs.Look)
 	stripLook(character)
 
@@ -193,6 +206,8 @@ local function apply(player: Player, character: Model)
 	dressed[player] = character
 end
 
+-- Rebuilds the player's body and look on their current character, if they
+-- have one. Spawned rather than called, because applying yields.
 local function reapply(player: Player)
 	local character = player.Character
 	if character and character.Parent then
@@ -200,6 +215,8 @@ local function reapply(player: Player)
 	end
 end
 
+-- Tells one player their own look, so the editor shows what the server
+-- actually stored rather than what the client last asked for.
 local function publish(player: Player)
 	local look = looks[player]
 	if look then
@@ -233,10 +250,14 @@ function AppearanceService.hydrate(player: Player, look: AppearanceDefs.Look?)
 	reapply(player)
 end
 
+-- The look to write to the profile. Sanitised on the way out as well as
+-- in, so a look can never be saved in a shape the loader would reject.
 function AppearanceService.snapshot(player: Player): AppearanceDefs.Look
 	return AppearanceDefs.sanitize(looks[player])
 end
 
+-- Forgets a player, on leave. Their character goes with them, so there is
+-- nothing to undress.
 function AppearanceService.release(player: Player)
 	looks[player] = nil
 	dressed[player] = nil
@@ -251,9 +272,15 @@ function AppearanceService.openEditor(player: Player)
 	end
 end
 
+-- Listens for edits and for characters appearing. Called from the server
+-- bootstrap before any profile loads, so no character can ever be seen in
+-- the avatar its player arrived wearing.
 function AppearanceService.start()
 	Remotes.get("SetAppearance").OnServerEvent:Connect(onSetAppearance)
 
+	-- Follows one player's characters, dressing each as it appears. Does
+	-- nothing until their profile has loaded: until then there is no look to
+	-- apply, and `hydrate` does it when there is.
 	local function watch(player: Player)
 		player.CharacterAdded:Connect(function(character)
 			-- Only once the profile has loaded. Until then there is no look to

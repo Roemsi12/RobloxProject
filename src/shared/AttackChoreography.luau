@@ -244,6 +244,13 @@ local COMPONENTS = { "rx", "ry", "rz", "px", "py", "pz" }
 local HASH_MOD = 2147483647
 local HASH_MULTIPLIER = 48271
 
+-- A deterministic 0..1 number from a seed and a channel.
+--
+-- The whole point is that the server and every client get the same answer:
+-- one attack's shape travels the wire as a single seed, and each joint and
+-- axis asks this for its own variation on its own channel. Two rounds of a
+-- Lehmer generator, with every intermediate kept under 2^48 so a double
+-- holds it exactly and no two machines can drift apart.
 local function vary(seed: number, channel: number): number
 	local x = (math.floor(math.abs(seed)) % 65536) * 127 + (channel % 64) * 977 + 1
 	x = (x * HASH_MULTIPLIER) % HASH_MOD
@@ -274,6 +281,8 @@ local LEAN_RANGE = 9
 local HEAD_RANGE = 7
 local STANCE_RANGE = 11
 
+-- A deep copy of a pose table, so varying an archetype's poses never
+-- writes back into the shared ARCHETYPE_DEFS entry.
 local function copyPoses(poses: Poses): Poses
 	local out: Poses = {}
 	for part, pose in poses do
@@ -282,6 +291,9 @@ local function copyPoses(poses: Poses): Poses
 	return out
 end
 
+-- Whether this joint is one of the ones that identify the archetype.
+-- Diagnostic joints are never varied, by anything, for any reason: they
+-- are the silhouette the player learns to read.
 local function isDiagnostic(def: ArchetypeDef, part: string): boolean
 	return table.find(def.diagnostic, part) ~= nil
 end

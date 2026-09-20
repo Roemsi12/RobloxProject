@@ -37,14 +37,26 @@ export type Bounds = {
 	maxZ: number,
 }
 
+-- Whether a point is inside a room's rectangle. Used to keep an enemy
+-- leashed: movement and aggro both stop at its own room's walls.
 function AttackSelector.isWithinBounds(bounds: Bounds, x: number, z: number): boolean
 	return x >= bounds.minX and x <= bounds.maxX and z >= bounds.minZ and z <= bounds.maxZ
 end
 
+-- The nearest point inside the rectangle, per axis. Where an enemy that
+-- tried to walk out of its room is actually put.
 function AttackSelector.clampToBounds(bounds: Bounds, x: number, z: number): (number, number)
 	return math.clamp(x, bounds.minX, bounds.maxX), math.clamp(z, bounds.minZ, bounds.maxZ)
 end
 
+-- What an enemy wants to do about its distance to the player, before any
+-- attack is considered.
+--
+-- Four answers, in priority order: "idle" beyond aggro range, "hold" if it
+-- cannot move at all, then "approach" or "retreat" to get back to
+-- `preferredRange`. HOLD_TOLERANCE is the dead band around that range —
+-- without it an enemy sitting exactly at its preferred distance jitters
+-- between approaching and retreating every frame.
 function AttackSelector.movementIntent(def: EnemyDefs.EnemyDef, distance: number): MovementIntent
 	if distance > def.aggroRange then
 		return "idle"

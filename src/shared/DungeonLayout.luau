@@ -108,6 +108,9 @@ export type Rng = { state: number }
 local MODULUS = 2147483647
 local MULTIPLIER = 48271
 
+-- A generator seeded from one number. Its own rather than Roblox's
+-- `Random`, so this module stays pure and a seed produces the same dungeon
+-- on the server, in a test and under Lune.
 function DungeonLayout.newRng(seed: number): Rng
 	local state = math.floor(math.abs(seed)) % (MODULUS - 1) + 1
 	return { state = state }
@@ -127,14 +130,20 @@ function DungeonLayout.nextInt(rng: Rng, min: number, max: number): number
 	return math.min(min + math.floor(DungeonLayout.nextNumber(rng) * (max - min + 1)), max)
 end
 
+-- True with the given probability. Advances the generator either way, so
+-- adding a coin flip shifts every later roll — which is why tuning a
+-- probability changes the whole layout for a seed, not just that decision.
 local function chance(rng: Rng, probability: number): boolean
 	return DungeonLayout.nextNumber(rng) < probability
 end
 
+-- One entry of a list, uniformly.
 local function pick<T>(rng: Rng, list: { T }): T
 	return list[DungeonLayout.nextInt(rng, 1, #list)]
 end
 
+-- A shuffled copy, Fisher-Yates. A copy rather than in place: the lists
+-- passed in are shared definition tables that must not be reordered.
 local function shuffled<T>(rng: Rng, list: { T }): { T }
 	local out = table.clone(list)
 	for i = #out, 2, -1 do
@@ -168,6 +177,9 @@ local function corridorBetween(parent: RoomNode, side: Side, childId: number): C
 	}
 end
 
+-- The footprint a corridor occupies, including its walls, grown by `grow`
+-- studs on every side. Used for overlap tests, where `grow` is the gap to
+-- insist on between two pieces of dungeon.
 function DungeonLayout.corridorRect(corridor: Corridor, grow: number): Rect
 	-- Walls included: the corridor is its floor plus a wall each side.
 	local halfWidth = DungeonDefs.CORRIDOR_WIDTH / 2 + 1 + grow
@@ -188,6 +200,7 @@ function DungeonLayout.corridorRect(corridor: Corridor, grow: number): Rect
 	}
 end
 
+-- The footprint a room occupies, grown by `grow` studs on every side.
 function DungeonLayout.roomRect(room: RoomNode, grow: number): Rect
 	return roomRect(room.x, room.z, room.size, grow)
 end
@@ -206,6 +219,8 @@ type Draft = {
 	startRect: Rect,
 }
 
+-- A size class for a room of this purpose, and the studs that class means.
+-- Purposes list which sizes they allow, so a Boss room is never small.
 local function sizeFor(rng: Rng, purpose: DungeonDefs.RoomPurpose): (DungeonDefs.SizeClass, number)
 	local def = DungeonDefs.PURPOSES[purpose]
 	local sizeClass = pick(rng, def.sizes)
@@ -326,10 +341,15 @@ local function middlePurposes(rng: Rng, count: number): { DungeonDefs.RoomPurpos
 	return purposes
 end
 
+-- Which enemy pool a room at this depth draws from. Rooms past
+-- LATE_DEPTH pull from the harder list.
 local function poolFor(depth: number): { string }
 	return if depth >= DungeonDefs.LATE_DEPTH then DungeonDefs.POOLS.late else DungeonDefs.POOLS.early
 end
 
+-- Fills a room's enemy list. The Boss room gets exactly the boss and
+-- nothing else; everything else draws a count and rolls that many from its
+-- depth's pool.
 local function populate(rng: Rng, room: RoomNode)
 	if room.purpose == "Boss" then
 		room.enemies = { DungeonDefs.BOSS }
@@ -375,6 +395,13 @@ local function populate(rng: Rng, room: RoomNode)
 	room.enemies = enemies
 end
 
+-- One attempt at a whole layout, or nil if it painted itself into a
+-- corner.
+--
+-- Grows rooms outward from the Start, refusing any that would overlap
+-- something already placed. Returning nil is normal and expected — see
+-- `generate`, which simply tries again with the generator where this
+-- attempt left it.
 local function tryGenerate(rng: Rng): Layout?
 	-- The Start is always at the origin, with its only door to the north.
 	local startClass, startSize = sizeFor(rng, "Start")
@@ -471,6 +498,11 @@ local function tryGenerate(rng: Rng): Layout?
 	}
 end
 
+-- The layout for a seed. Retries `tryGenerate` up to MAX_ATTEMPTS, since
+-- a failed attempt is a normal outcome rather than an error.
+--
+-- Deterministic: the same seed always gives the same dungeon, which is
+-- what lets a bad layout be reproduced from the seed alone.
 function DungeonLayout.generate(seed: number): Layout
 	local rng = DungeonLayout.newRng(seed)
 	for _ = 1, MAX_ATTEMPTS do
@@ -483,6 +515,8 @@ function DungeonLayout.generate(seed: number): Layout
 	error(`DungeonLayout couldn't fit a dungeon for seed {seed} in {MAX_ATTEMPTS} attempts`)
 end
 
+-- A room by id. Asserts rather than returning nil: every id in a layout
+-- comes from that same layout, so a miss is a bug in the caller.
 function DungeonLayout.getRoom(layout: Layout, id: number): RoomNode
 	local room = layout.rooms[id]
 	assert(room and room.id == id, `No room {id} in layout`)

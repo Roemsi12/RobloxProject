@@ -72,6 +72,7 @@ AnimationDefs.ABILITY = "ability"
 -- A flinch from a hit that didn't stagger. Enemies and players both have one.
 AnimationDefs.HURT = "hurt"
 
+-- Enemies: the animation name for one attack id, as EnemyDefs names it.
 function AnimationDefs.attack(attackId: string): string
 	return `attack_{attackId}`
 end
@@ -88,6 +89,7 @@ end
 -- way the character is sliding.
 AnimationDefs.ROLL_DIRECTIONS = { "forward", "back", "left", "right" }
 
+-- Players: the animation name for one roll direction.
 function AnimationDefs.roll(direction: string): string
 	return `roll_{direction}`
 end
@@ -98,6 +100,13 @@ local function kf(time: number, poses: Poses, easing: KeyframeMath.Easing?): Key
 	return { time = time, poses = poses, easing = easing or "Smooth" }
 end
 
+-- Several pose tables combined left to right, later ones winning.
+--
+-- Replaces a part's *whole* pose rather than merging its components, which
+-- is the single easiest thing to get wrong in this file: laying a pose
+-- carrying only `ry` over a crouch drops the crouch's `py` and drives the
+-- feet through the floor. Poses are cloned, so the shared tables the
+-- builders return are never written back into.
 local function merge(...: Poses): Poses
 	local out: Poses = {}
 	for _, poses in { ... } do
@@ -108,6 +117,8 @@ local function merge(...: Poses): Poses
 	return out
 end
 
+-- The name of the part on the other side: Right<->Left, anything else
+-- unchanged.
 local function mirrorName(name: string): string
 	if string.sub(name, 1, 5) == "Right" then
 		return "Left" .. string.sub(name, 6)
@@ -185,6 +196,9 @@ local function idle(p: IdleParams): AnimationDef
 	local crouched = crouch(p.knee)
 	local drop = (crouched.LowerTorso :: any).py or 0
 
+	-- One frame of the idle, at a given point in each of its three clocks.
+	-- `breath` is the chest rising, `lag` the same motion reaching the head
+	-- and arms late, and `weight` the slow lean from one foot to the other.
 	local function pose(breath: number, lag: number, weight: number): Poses
 		return merge(crouched, {
 			-- Re-stating py: merge replaces a part's whole pose, so a hips
@@ -522,6 +536,9 @@ local function hurt(idleAnim: AnimationDef?, intensity: number): AnimationDef
 		end
 	end
 
+	-- The flinch pose at strength `k`, added on top of the rig's own resting
+	-- posture — so a hunched zombie flinches from its hunch rather than
+	-- straightening up to do it.
 	local function jolt(k: number): Poses
 		local poses = merge(rest)
 		nudge(poses, "UpperTorso", 14 * k, 8 * k, 0)
@@ -1040,6 +1057,9 @@ end
 local FORWARD_HIPS = { -0.62, -1.32, -1.08 }
 local BACK_HIPS = { -1.05, -1.12, -0.34 }
 
+-- One of the four rolls. `turn` aims the body before it goes over (0
+-- forward and back, positive to the rig's left for a shoulder roll) and
+-- `sign` picks which way it tumbles: -1 over the front, +1 over the back.
 local function roll(turn: number, sign: number): AnimationDef
 	local hips = if sign > 0 then BACK_HIPS else FORWARD_HIPS
 	-- The turn, completed. Every pose after the tumble carries it, and so does

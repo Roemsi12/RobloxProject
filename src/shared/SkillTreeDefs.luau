@@ -521,6 +521,8 @@ function SkillTreeDefs.columns(tree: Tree): number
 	return widest + 1
 end
 
+-- How many rows deep a tree goes, from its deepest node. The panel sizes
+-- itself from this rather than assuming four.
 function SkillTreeDefs.tiers(tree: Tree): number
 	local deepest = 0
 	for _, entry in tree.nodes do
@@ -529,10 +531,13 @@ function SkillTreeDefs.tiers(tree: Tree): number
 	return deepest
 end
 
+-- The tree for a weapon, or nil if that weapon has none. A weapon with no
+-- tree can still be fought with; it just has nothing to spend points on.
 function SkillTreeDefs.treeFor(weaponId: string): Tree?
 	return trees[weaponId]
 end
 
+-- Every weapon that has a tree, sorted for a stable walk order.
 function SkillTreeDefs.weaponIds(): { string }
 	local ids = {}
 	for weaponId in trees do
@@ -542,6 +547,9 @@ function SkillTreeDefs.weaponIds(): { string }
 	return ids
 end
 
+-- One node by weapon and node id, or nil. Returns nil both when the weapon
+-- has no tree and when the tree has no such node, which is what a stored
+-- allocation naming a node that has since been renamed looks like.
 function SkillTreeDefs.findNode(weaponId: string, nodeId: string): Node?
 	local tree = trees[weaponId]
 	if not tree then

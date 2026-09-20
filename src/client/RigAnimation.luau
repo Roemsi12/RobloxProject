@@ -105,6 +105,9 @@ export type Controller = {
 	twistShoulder: number,
 }
 
+-- The clock every layer's timing is measured on. `os.clock` rather than the
+-- server clock: this is playback on one machine, and it must not jump when
+-- the server time sync corrects itself mid-animation.
 local function clock(): number
 	return os.clock()
 end
@@ -146,6 +149,14 @@ function RigAnimation.countJoints(model: Model): number
 	return count
 end
 
+-- A controller for one rig. `external` means someone else owns the base
+-- pose — a player's avatar, driven by Roblox's Animate script — in which
+-- case everything here is blended over the joints rather than replacing
+-- them. Enemy rigs built by RigAssembly pass false.
+--
+-- Finds the joints once, here. A rig whose joints arrive late (replication)
+-- gives a controller that animates nothing, which is what `jointCount` is
+-- for: callers wait for the rig to be whole before constructing.
 function RigAnimation.new(model: Model, rigId: string, external: boolean): Controller
 	return {
 		model = model,
@@ -228,6 +239,12 @@ local function beginFade(controller: Controller)
 	controller.fadeStart = clock()
 end
 
+-- How far into its animation the current action is, in animation time.
+--
+-- For a strike this is not simply elapsed seconds: everything before the
+-- impact keyframe is stretched to fit the server's real windup, so the
+-- visible hit lands when the server says it did. Anything else just runs
+-- at `timeScale`.
 local function actionTime(layer: Layer, now: number): number
 	local elapsed = now - layer.startedAt
 	local impact = layer.anim.impact
@@ -237,6 +254,14 @@ local function actionTime(layer: Layer, now: number): number
 	return elapsed * layer.timeScale
 end
 
+-- Sets the looping base layer (an idle, a walk, a player's stance), at
+-- `speed` times its authored tempo.
+--
+-- Safe to call every frame: naming the base that is already playing only
+-- updates its speed, and does not restart it. Changing to a different
+-- animation cross-fades. Does nothing at all if the rig has no animation
+-- under that name, which is what a typo'd name looks like — the rig keeps
+-- whatever it was doing.
 function RigAnimation.setBase(controller: Controller, name: string, speed: number?)
 	controller.baseSpeed = speed or 1
 
@@ -305,6 +330,16 @@ function RigAnimation.currentBase(controller: Controller): string?
 	return base and base.name
 end
 
+-- Plays a one-shot action over the base: an attack, a stagger, a roll, a
+-- death. Replaces whatever action was playing.
+--
+-- `options.windup` stretches a strike to the server's timing,
+-- `options.elapsed` starts it part-way in (a telegraph that arrived late),
+-- `options.duration` stretches anything else, `options.hold` freezes the
+-- last frame, and `options.def` plays a generated animation instead of
+-- looking the name up. Hands off to Roblox's Animator instead if the
+-- animation has a published id — unless `def` is set, since a generated
+-- attack has no published version by definition.
 function RigAnimation.playAction(controller: Controller, name: string, options: ActionOptions?)
 	local opts: ActionOptions = options or {}
 	local anim = opts.def or AnimationDefs.get(controller.rigId, name)
@@ -361,6 +396,8 @@ function RigAnimation.playAction(controller: Controller, name: string, options: 
 	controller.action = layer
 end
 
+-- Ends the current action early and fades back to the base. Used to drop a
+-- held pose (a guard being released, a death being undone by a respawn).
 function RigAnimation.stopAction(controller: Controller)
 	local action = controller.action
 	if not action then
@@ -375,6 +412,9 @@ function RigAnimation.stopAction(controller: Controller)
 	beginFade(controller)
 end
 
+-- The name of the action playing, or nil if only the base is. Callers use
+-- it to avoid interrupting something more important than what they want to
+-- play — a flinch never cuts off an attack's timing.
 function RigAnimation.currentAction(controller: Controller): string?
 	local action = controller.action
 	return action and action.name
@@ -393,6 +433,10 @@ local function canHold(layer: Layer, now: number): boolean
 	return not (windup and layer.anim.impact and now - layer.startedAt < windup)
 end
 
+-- One pose as a CFrame: offsets in studs scaled to the rig's size, then
+-- rotations in degrees. Exactly the formula the workbench uses when it
+-- writes KeyframeSequences, so what plays here and what opens in the
+-- Animation Editor are the same pose.
 local function toCFrame(values: KeyframeMath.PoseValues, scale: number): CFrame
 	return CFrame.new(values.px * scale, values.py * scale, values.pz * scale)
 		* CFrame.Angles(math.rad(values.rx), math.rad(values.ry), math.rad(values.rz))
@@ -409,6 +453,9 @@ end
 local HIP_JOINT = "LowerTorso"
 local CHEST_JOINT = "UpperTorso"
 
+-- The strafe twist for one joint, or nil if this joint doesn't take one.
+-- Only the hips and the chest do; everything else gets nil and is left
+-- alone.
 local function twistOf(controller: Controller, part: string): CFrame?
 	local degrees = if part == HIP_JOINT
 		then controller.twistHip
@@ -567,6 +614,8 @@ function RigAnimation.step(controller: Controller, deltaTime: number)
 	end
 end
 
+-- Releases every published track this controller loaded and forgets its
+-- layers. Call when the rig goes, or the Animator keeps the tracks alive.
 function RigAnimation.destroy(controller: Controller)
 	for _, track in controller.tracks do
 		track:Stop(0)

@@ -57,6 +57,7 @@ local guardingPlayers: { [Player]: string } = {}
 -- Motor6Ds or AnimationConstraints, whichever this avatar was built with.
 local countJoints = RigAnimation.countJoints
 
+-- A character's HumanoidRootPart, or nil while it is being assembled.
 local function rootOf(character: Model): BasePart?
 	return character:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
@@ -76,6 +77,9 @@ local function baseFor(entry: Tracked): string?
 	return if entry.planted then AnimationDefs.idle(weaponId) else AnimationDefs.stance(weaponId)
 end
 
+-- Puts the character on the base it should be holding right now, or takes
+-- the base away entirely when they are carrying nothing — which hands the
+-- arms back to Roblox's Animate script.
 local function refreshStance(entry: Tracked)
 	local wanted = baseFor(entry)
 	if wanted then
@@ -85,6 +89,12 @@ local function refreshStance(entry: Tracked)
 	end
 end
 
+-- Starts animating a player's new character, once it is whole.
+--
+-- Waits for the Humanoid and for all fifteen joints to replicate, then
+-- checks the character is still the current one — a player can die and
+-- respawn inside that wait. R6 avatars are skipped outright: every
+-- animation in the game is authored for R15 joints.
 local function onCharacterAdded(player: Player, character: Model)
 	local previous = tracked[player]
 	if previous then
@@ -235,6 +245,8 @@ local function updateStrafe(player: Player, entry: Tracked, deltaTime: number)
 	end
 end
 
+-- Follows one player's characters from now on, including the one they
+-- already have if this runs after they spawned.
 local function watchPlayer(player: Player)
 	player.CharacterAdded:Connect(function(character)
 		onCharacterAdded(player, character)
@@ -246,6 +258,9 @@ local function watchPlayer(player: Player)
 	end
 end
 
+-- Plays a weapon's guard and freezes on its last frame, so it stays up
+-- until something stops it. `fromStart` false skips the snap, for a guard
+-- settling back in after a flinch interrupted it.
 local function holdGuard(entry: Tracked, weaponId: string, fromStart: boolean)
 	RigAnimation.playAction(entry.controller, AnimationDefs.guard(weaponId), {
 		hold = true,
@@ -254,10 +269,15 @@ local function holdGuard(entry: Tracked, weaponId: string, fromStart: boolean)
 	})
 end
 
+-- Whether an action name is a swing or a critical. These are the only
+-- actions a flinch is allowed to interrupt.
 local function isStrike(name: string?): boolean
 	return name ~= nil and (string.sub(name, 1, 6) == "swing_" or string.sub(name, 1, 9) == "critical_")
 end
 
+-- Schedules the blade's whoosh for partway through the windup, where the
+-- swing is actually travelling, rather than on the press. Checks the root
+-- still exists when it fires: the character may be gone by then.
 local function whooshLater(entry: Tracked, weaponId: string, windup: number)
 	local root = rootOf(entry.character)
 	task.delay(windup * WHOOSH_AT, function()
@@ -267,6 +287,12 @@ local function whooshLater(entry: Tracked, weaponId: string, windup: number)
 	end)
 end
 
+-- Plays one combat action on one player's avatar.
+--
+-- The single place every player action is turned into an animation, for
+-- the local player (called on the press, before the server answers) and
+-- for everyone else (called from the server's broadcast). Ignores the call
+-- if the character has been replaced since it was tracked.
 local function play(player: Player, action: string, weaponId: string, windup: number?, step: number?, direction: string?)
 	local entry = tracked[player]
 	if not entry or entry.character ~= player.Character then
@@ -348,6 +374,8 @@ function PlayerAnimation.playLocalHurt()
 	end
 end
 
+-- The local player's guard shattering. Clears the held guard first, so it
+-- doesn't settle straight back in when the break animation finishes.
 function PlayerAnimation.playLocalGuardBreak()
 	local entry = tracked[localPlayer]
 	guardingPlayers[localPlayer] = nil
@@ -356,6 +384,12 @@ function PlayerAnimation.playLocalGuardBreak()
 	end
 end
 
+-- Starts animating every player, now and as they join, and begins the
+-- per-frame step.
+--
+-- The frame step runs on PreSimulation: after Roblox's Animate script has
+-- posed each avatar and before joints are applied, which is the point where
+-- a script's pose wins.
 function PlayerAnimation.start()
 	Players.PlayerAdded:Connect(watchPlayer)
 	for _, player in Players:GetPlayers() do

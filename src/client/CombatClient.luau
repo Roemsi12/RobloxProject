@@ -80,10 +80,15 @@ local abilities: { [number]: string } = {}
 
 local baseWalkSpeed = 16
 
+-- The synchronised server clock. Every time value in this file is on it,
+-- so a local prediction and the server's answer can be compared directly.
 local function now(): number
 	return Workspace:GetServerTimeNow()
 end
 
+-- The local character's Humanoid and HumanoidRootPart, or nils while it is
+-- dead or still being built. Every caller has to handle the nils: a player
+-- can press a key on the frame their character is replaced.
 local function character(): (Humanoid?, BasePart?)
 	local model = localPlayer.Character
 	if not model then
@@ -92,14 +97,21 @@ local function character(): (Humanoid?, BasePart?)
 	return model:FindFirstChildOfClass("Humanoid"), model:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
+-- Whether the local prediction thinks the player is stunned. Mirrors the
+-- server's rule, and is only ever used to decide what to animate — if the
+-- two disagree the server wins.
 local function stunned(): boolean
 	return now() < stunnedUntil
 end
 
+-- Whether a predicted swing is still in its windup.
 local function swinging(): boolean
 	return now() < swingEndsAt
 end
 
+-- A vector flattened to the ground plane and normalised, or nil if there
+-- was no horizontal component worth using. Guards every direction this
+-- file derives, so a straight-up look vector never becomes a NaN dash.
 local function flat(vector: Vector3): Vector3?
 	local horizontal = Vector3.new(vector.X, 0, vector.Z)
 	if horizontal.Magnitude < 1e-3 then
@@ -136,6 +148,8 @@ local function push(root: BasePart, direction: Vector3, speed: number, duration:
 	end
 end
 
+-- Drops the local swing prediction and the combo, for a feint or a
+-- dodge-cancel. Sends nothing; the caller tells the server separately.
 local function cancelPredictedSwing()
 	swingEndsAt = 0
 	comboStep = 0
@@ -143,10 +157,15 @@ end
 
 --[[ Attacking ]]
 
+-- Whether a swing may start right now: armed, not stunned, not guarding,
+-- not already mid-swing, and past the recovery of the last one.
+-- The first thing to check when an attack press seems to do nothing.
 local function canAttack(): boolean
 	return weaponId ~= nil and not stunned() and not guarding and not swinging() and now() >= attackReadyAt
 end
 
+-- Records a swing as started, so `swinging`, the walk slowdown and the
+-- feint window all know about it. Does not animate or send anything.
 local function beginSwing(windup: number)
 	local t = now()
 	swingStartedAt = t
@@ -155,6 +174,9 @@ local function beginSwing(windup: number)
 	attackSlowUntil = t + windup + ATTACK_SLOW_AFTER
 end
 
+-- The short forward step on a swing, along where the character faces.
+-- Purely visual: the server resolves the hit from wherever the player
+-- actually is when it runs.
 local function lunge(speed: number)
 	local _, root = character()
 	local look = root and flat(root.CFrame.LookVector)
@@ -163,6 +185,9 @@ local function lunge(speed: number)
 	end
 end
 
+-- The attack press. Picks the next combo step (or the duel's single
+-- telegraphed swing), plays it locally at once, steps the lunge, and tells
+-- the server. Everything it sets is a prediction the server may override.
 local function attack()
 	if not canAttack() then
 		return
@@ -190,6 +215,8 @@ local function attack()
 	lunge(profile.lunge)
 end
 
+-- The heavy attack, on its own cooldown. Never in a duel — duels keep to
+-- the opening swing.
 local function critical()
 	if dueling or not canAttack() or now() < criticalReadyAt then
 		return
@@ -242,6 +269,9 @@ local function raiseGuard()
 	PlayerAnimation.playLocal("parry", weaponId :: string)
 end
 
+-- The block key coming up: drops the guard and tells the server. Does
+-- nothing if no guard was up, so a stray release can't clear a state the
+-- server never opened.
 local function lowerGuard()
 	if not guarding then
 		return
@@ -251,6 +281,8 @@ local function lowerGuard()
 	PlayerAnimation.playLocal("guard_end", weaponId or "")
 end
 
+-- The dodge press. Rolls the way the character is travelling, pushes them
+-- along it, and cancels a swing that is still early enough in its windup.
 local function dodge()
 	local t = now()
 	if not weaponId or stunned() or t < dodgeReadyAt then

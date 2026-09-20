@@ -16,6 +16,9 @@ export type Vec2 = { x: number, z: number }
 -- first.
 local PARRIED_DAMAGE_MULTIPLIER = 0
 
+-- Damage after a parry is taken into account: a parried hit is scaled by
+-- PARRIED_DAMAGE_MULTIPLIER, anything else passes through untouched.
+-- Blocking is not handled here — see `resolveBlock`.
 function DamageMath.resolveIncoming(baseDamage: number, wasParried: boolean): number
 	if wasParried then
 		return baseDamage * PARRIED_DAMAGE_MULTIPLIER
@@ -95,6 +98,8 @@ function DamageMath.staggerDuration(baseDuration: number, staggerMultiplier: num
 	return baseDuration * staggerMultiplier
 end
 
+-- Health after healing, clamped so it can neither exceed the maximum nor
+-- revive something already at zero.
 function DamageMath.applyHealing(currentHealth: number, maxHealth: number, healing: number): number
 	return math.clamp(currentHealth + healing, 0, maxHealth)
 end

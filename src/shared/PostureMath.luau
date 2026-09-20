@@ -20,6 +20,9 @@ export type Limits = {
 	parryRestore: number,
 }
 
+-- The unmodified posture limits from CombatConstants. Callers that have a
+-- player's skill tree use `limitsFor` instead; this is for everything that
+-- has no player, such as tests and enemies.
 function PostureMath.defaults(): Limits
 	return {
 		max = CombatConstants.MAX_POSTURE,
@@ -60,6 +63,8 @@ function PostureMath.block(posture: number, damage: number, maxPosture: number?)
 	return { posture = filled, broken = false }
 end
 
+-- Posture left after a clean parry takes its chunk off, floored at zero.
+-- `restore` overrides the default for weapons whose tree raised it.
 function PostureMath.afterParry(posture: number, restore: number?): number
 	return math.max(posture - (restore or CombatConstants.PARRY_POSTURE_RESTORE), 0)
 end

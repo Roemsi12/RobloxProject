@@ -401,10 +401,14 @@ local ABILITIES: { [string]: AbilityDef } = {
 
 }
 
+-- One ability by id, or nil if this server has never heard of it — which
+-- is what a skill node granting a misspelt ability looks like.
 function AbilityDefs.get(abilityId: string): AbilityDef?
 	return ABILITIES[abilityId]
 end
 
+-- Every ability id, sorted. Sorted so anything walking the list (tests,
+-- tooling) reads them in the same order every run.
 function AbilityDefs.ids(): { string }
 	local ids = {}
 	for id in ABILITIES do
@@ -423,6 +427,12 @@ export type Resolved = {
 	duration: number,
 }
 
+-- What an ability is actually worth to one player, after their skill
+-- tree's `abilityCooldown` and `abilityPower` are applied.
+--
+-- Read this when an ability's numbers on the HUD disagree with the ones in
+-- ABILITIES: the difference is here, and wards are the special case —
+-- their reduction is capped and power buys duration instead.
 function AbilityDefs.resolve(def: AbilityDef, abilityCooldown: number, abilityPower: number): Resolved
 	local ward = def.kind == "ward"
 	return {

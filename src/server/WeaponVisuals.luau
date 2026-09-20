@@ -34,10 +34,13 @@ local GRIP_ATTACHMENT: { [string]: string } = {
 	LeftHand = "LeftGripAttachment",
 }
 
+-- A palette colour ({0-255, 0-255, 0-255}) as a Color3. Every colour in the
+-- data files is a plain table so those files stay Roblox-free.
 local function rgb(values: { number }): Color3
 	return Color3.fromRGB(values[1], values[2], values[3])
 end
 
+-- A three-number table as a Vector3, for sizes and offsets out of data files.
 local function vec(values: { number }): Vector3
 	return Vector3.new(values[1], values[2], values[3])
 end
@@ -49,6 +52,8 @@ local function pieceOffset(piece: WeaponModelDefs.PieceDef): CFrame
 		* CFrame.Angles(math.rad(rotation[1]), math.rad(rotation[2]), math.rad(rotation[3]))
 end
 
+-- One piece of a weapon as a Part, including its upgrade glow: a light, a
+-- sparkle emitter and eventually Neon, from the weapon's level.
 local function makePiece(piece: WeaponModelDefs.PieceDef, def: WeaponModelDefs.WeaponModelDef, level: number): Part
 	local part = Instance.new("Part")
 	part.Name = piece.name
@@ -134,6 +139,9 @@ function WeaponVisuals.buildDisplay(weaponId: string, cframe: CFrame): Model?
 	return model
 end
 
+-- The part a piece should hang on, and whether it is an R6 stand-in.
+-- R6 avatars have no hands, forearms or split torso, so the nearest whole
+-- part is used and the caller adjusts.
 local function bodyPart(character: Model, name: string): (BasePart?, boolean)
 	local part = character:FindFirstChild(name)
 	if part and part:IsA("BasePart") then
@@ -149,6 +157,10 @@ local function bodyPart(character: Model, name: string): (BasePart?, boolean)
 	return nil, false
 end
 
+-- Removes the weapon model and clears the character's weapon attribute.
+-- Clearing the attribute matters: every client picks a player's stance
+-- from it, and a stale one leaves them posed around a weapon they no
+-- longer hold.
 local function detach(character: Model)
 	local existing = character:FindFirstChild(WeaponModelDefs.MODEL_NAME)
 	if existing then
@@ -157,6 +169,9 @@ local function detach(character: Model)
 	character:SetAttribute(WeaponModelDefs.WEAPON_ATTRIBUTE, nil)
 end
 
+-- Builds a weapon onto a character and marks what they are carrying.
+-- Replaces whatever was there. A weapon with no model in WeaponModelDefs
+-- still sets the attribute, so the stance is right even with nothing drawn.
 local function attach(character: Model, weaponId: string, level: number)
 	detach(character)
 	character:SetAttribute(WeaponModelDefs.WEAPON_ATTRIBUTE, weaponId)
@@ -206,6 +221,8 @@ local function attach(character: Model, weaponId: string, level: number)
 	model.Parent = character
 end
 
+-- Redraws whatever the player is currently equipped with, at its current
+-- upgrade level. Called on equip, on upgrade and on respawn.
 local function refresh(player: Player)
 	local character = player.Character
 	if not character then
@@ -220,6 +237,9 @@ local function refresh(player: Player)
 	end
 end
 
+-- Redraws a player's weapon on every new character. Waits for the arm
+-- parts first — they can arrive a moment after the character itself, and
+-- welding to a part that is not there yet silently drops the piece.
 local function watchPlayer(player: Player)
 	player.CharacterAdded:Connect(function(character)
 		-- Body parts can arrive a moment after the character itself.
@@ -231,6 +251,9 @@ local function watchPlayer(player: Player)
 	end)
 end
 
+-- Keeps every player's drawn weapon in step with what they have equipped.
+-- Started before any profile loads, so a saved weapon is in hand from the
+-- first frame.
 function WeaponVisuals.start()
 	EquipService.onChanged(function(player)
 		refresh(player)

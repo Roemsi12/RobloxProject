@@ -96,6 +96,9 @@ local activeAttacks: { [string]: ActiveAttack } = {}
 local flinchImmuneUntil: { [string]: number } = {}
 local running = false
 
+-- Tells every client an enemy's health and whether it is still alive.
+-- Sent to all, not just whoever hit it: health bars, death animations and
+-- the grey tint are everyone's view of the same enemy.
 local function broadcastEnemyHealth(enemy: EnemyAI.Enemy)
 	Remotes.get("EnemyHealthChanged"):FireAllClients({
 		enemyId = enemy.id,
@@ -252,6 +255,17 @@ local function collectVictims(enemy: EnemyAI.Enemy, attack: ActiveAttack, now: n
 	return victims
 end
 
+-- Whether this player's last block press actually parries this hit.
+--
+-- Every condition that can deny a parry, in one place — which makes this
+-- the first thing to read when a parry "should have worked":
+--   the attack has to be parryable at all,
+--   the player has to be facing it,
+--   their parry frames have to be open (a press on cooldown only blocks),
+--   they must not be stunned when it lands,
+--   they must be holding a weapon,
+--   and the press has to fall inside that weapon's window, widened by
+--   whatever their skill tree bought (ParryMath.catches).
 local function parries(victim: Victim, attack: ActiveAttack): boolean
 	local pressAt = victim.state.parryPressAt
 	if not attack.def.parryable or not victim.facing or not victim.state.parryFramesOpen or not pressAt then
@@ -394,6 +408,10 @@ local function waitUntilOrInterrupted(deadline: number, enemy: EnemyAI.Enemy, at
 	end
 end
 
+-- Puts an enemy into a state it cannot act out of for `duration`, and
+-- tells every client so they can play it. `kind` is "stagger" (a parry,
+-- which tints and opens the punish window) or "flinch" (a hit, which only
+-- plays the hurt animation).
 local function holdEnemyState(enemy: EnemyAI.Enemy, state: EnemyAI.EnemyState, kind: string, duration: number)
 	enemy.state = state
 	Remotes.get("EnemyStaggered"):FireAllClients({
@@ -440,6 +458,16 @@ local function launchProjectile(enemy: EnemyAI.Enemy, attack: ActiveAttack, proj
 	return flight
 end
 
+-- One whole enemy attack, from the telegraph to the hit landing.
+--
+-- Broadcasts the start with the impact time and a seed — the seed is the
+-- entire shape of the swing, so every client builds the same attack
+-- without a keyframe timeline going over the wire. Then waits out the
+-- telegraph, plus a grace period so a parry or dodge sent just before the
+-- hit still has time to arrive, and resolves it against everyone in range.
+--
+-- Yields for the length of the attack. Interrupted by a flinch, and gives
+-- up entirely if the enemy dies mid-windup.
 local function runAttack(enemy: EnemyAI.Enemy, attackId: string)
 	local attackDef = enemy.def.attacks[attackId]
 	local now = Workspace:GetServerTimeNow()
@@ -650,6 +678,12 @@ local function findSwingTarget(root: BasePart, profile: SwingProfile): EnemyAI.E
 	return best
 end
 
+-- Resolves a player's swing when its windup ends: finds what was in range
+-- and in arc, applies damage, and reports the outcome back.
+--
+-- `swingId` is the guard against a stale swing landing. A feint, a dodge
+-- or a hit bumps the player's id, so this call finds the numbers no longer
+-- match and does nothing — which is how a cancelled swing is cancelled.
 local function resolveSwing(player: Player, weaponId: string, profile: SwingProfile, swingId: number)
 	-- Left during the windup. Touching their state now would re-create a record
 	-- that PlayerRemoving has already cleared.
@@ -751,6 +785,8 @@ local function canAttack(player: Player, state: PlayerCombatState.State, now: nu
 	return weaponId
 end
 
+-- Marks a swing as begun and gives it a fresh id, which is what makes it
+-- cancellable. Sets the timing every later check reads.
 local function startSwing(player: Player, state: PlayerCombatState.State, weaponId: string, windup: number, profile: SwingProfile, now: number)
 	state.swingId += 1
 	state.swinging = true
@@ -762,6 +798,13 @@ local function startSwing(player: Player, state: PlayerCombatState.State, weapon
 	task.delay(windup, resolveSwing, player, weaponId, profile, state.swingId)
 end
 
+-- The attack press, from the client. Hands duels to PvPCombatServer, then
+-- checks the swing is legal (armed, unstunned, off cooldown), picks the
+-- combo step and schedules `resolveSwing` for when it lands.
+--
+-- Carries no client timestamp, deliberately: unlike a parry, an attack is
+-- not reacting to a server-driven telegraph, so there is nothing to
+-- compensate for and the server resolves it on its own clock.
 local function onAttackRequest(player: Player)
 	if PvPCombatServer.isDueling(player) then
 		PvPCombatServer.handleAttack(player)
@@ -791,6 +834,8 @@ local function onAttackRequest(player: Player)
 	}, now)
 end
 
+-- The heavy attack press. Same path as a swing but on its own cooldown,
+-- and refused outright in a duel.
 local function onCriticalRequest(player: Player)
 	-- Criticals are a dungeon move for now; duels keep to the opening swing.
 	if PvPCombatServer.isDueling(player) then
@@ -888,6 +933,8 @@ local function onParryAttempt(player: Player, payload: unknown)
 	PlayerCombatState.announce(player, "parry", weaponId)
 end
 
+-- The block key coming up: drops the guard and tells every client so the
+-- held guard animation ends on their screens too.
 local function onGuardReleased(player: Player)
 	local state = PlayerCombatState.peek(player)
 	if not state.guarding then
@@ -964,6 +1011,9 @@ local function enemiesAround(origin: Vector3, facing: Vector3, radius: number, a
 	return found
 end
 
+-- Applies one ability's damage and stagger to one enemy, and handles the
+-- kill if it was one. Split out because three ability kinds all land
+-- damage the same way and only differ in what they hit.
 local function hitWithAbility(player: Player, enemy: EnemyAI.Enemy, damage: number, stagger: number)
 	local killed = EnemyAI.applyDamage(enemy, damage)
 	broadcastEnemyHealth(enemy)
@@ -1048,6 +1098,12 @@ local function abilityInSlot(player: Player, slot: number): AbilityDefs.AbilityD
 	return if abilityId then AbilityDefs.get(abilityId) else nil
 end
 
+-- An ability press. Checks the slot really holds an unlocked ability for
+-- the player's weapon, that it is off cooldown, and that they can act —
+-- then runs whichever of the four kinds it is after its windup.
+--
+-- The slot comes from the client and is never trusted: what is in it is
+-- read from the player's own skill tree on this side.
 local function onAbilityRequest(player: Player, payload: unknown)
 	if type(payload) ~= "table" or PvPCombatServer.isDueling(player) then
 		return
@@ -1175,6 +1231,9 @@ function CombatServer.despawnEnemy(enemy: EnemyAI.Enemy)
 	enemy.model:Destroy()
 end
 
+-- Wires every combat remote to its handler and starts the enemy loop.
+-- Called once from the server bootstrap, before the dungeon spawns
+-- anything for it to run.
 function CombatServer.start()
 	assert(not running, "CombatServer.start called twice")
 	running = true
