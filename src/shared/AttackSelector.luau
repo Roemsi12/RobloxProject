@@ -84,20 +84,15 @@ function AttackSelector.legalAttacks(
 	def: EnemyDefs.EnemyDef,
 	distance: number,
 	cooldowns: CooldownMap,
-	now: number,
-	-- Chain links may reach for attacks an opener cannot. Left out, an
-	-- attack marked `chainOnly` never starts a fight -- it only ever appears
-	-- part way through a flurry.
-	includeChainOnly: boolean?
+	now: number
 ): { string }
 	local legal = {}
 
 	for attackId, attack in def.attacks do
 		local inBand = distance >= attack.minRange and distance <= attack.maxRange
 		local ready = now >= (cooldowns[attackId] or 0)
-		local reachable = includeChainOnly or not attack.chainOnly
 
-		if inBand and ready and reachable then
+		if inBand and ready then
 			table.insert(legal, attackId)
 		end
 	end

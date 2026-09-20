@@ -49,10 +49,6 @@ export type AttackDef = {
 	-- DESIGN.md requires some attacks to be unparryable, so the answer to
 	-- every enemy is never just "parry everything".
 	parryable: boolean,
-	-- Only reachable as a chain link, never as an opener. A move that only
-	-- ever shows up part way through a flurry, so the fight opens the same
-	-- readable way and gets stranger the longer you stay in it.
-	chainOnly: boolean?,
 	damage: number,
 	-- Server-side hit-reg volume, checked against the character's server
 	-- position at the moment of impact. Also bounds who may parry it.
@@ -122,18 +118,6 @@ export type EnemyDef = {
 	-- A plain pose table rather than the exported type, so this module keeps
 	-- requiring nothing. The spec checks it.
 	accent: { [string]: { [string]: number } }?,
-	-- How many attacks this enemy may throw in one chain, counting the
-	-- opener. Defaults to 1, which is no chaining at all: the feature ships
-	-- dark and gets turned on one enemy at a time, because a chain that
-	-- reads badly is far worse than no chain.
-	--
-	-- AttackChain.MAX_LINKS caps this regardless.
-	maxChain: number?,
-	-- Chance of extending after each link, rolled per link. This is the
-	-- per-enemy personality dial: a Shambler that flurries often and a
-	-- SkeletonWarrior that only occasionally follows up read as different
-	-- fighters even when they share a moveset size.
-	chainChance: number?,
 	attacks: { [string]: AttackDef },
 }
 
@@ -150,9 +134,6 @@ local EnemyDefs: { [string]: EnemyDef } = {
 		coinReward = 10,
 		crystalReward = 0,
 		xpReward = 12,
-		-- Always chains, because demonstrating one is what it is for.
-		maxChain = 2,
-		chainChance = 1,
 		attacks = {
 			Overhead = {
 				archetype = "Raise",
@@ -224,11 +205,6 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			RightUpperLeg = { rx = 4, rz = -3 },
 			LeftUpperLeg = { rx = 4, rz = 3 },
 		},
-		-- Follows up occasionally rather than habitually. The restraint is
-		-- the read: a skeleton that mostly throws single attacks makes the
-		-- times it does not mean something.
-		maxChain = 2,
-		chainChance = 0.35,
 		attacks = {
 			-- Leads with a thrust. A disciplined swordsman squaring up and
 			-- driving forward is a different silhouette from the Shambler's
@@ -320,11 +296,6 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			RightLowerLeg = { rx = 24 },
 			LeftLowerLeg = { rx = 8 },
 		},
-		-- The relentless one. Flurries more often than anything else, which
-		-- is where "busy" comes from -- its attacks are not faster than the
-		-- skeleton's, there are just fewer gaps between them.
-		maxChain = 3,
-		chainChance = 0.55,
 		attacks = {
 			Claw = {
 				archetype = "WindBack",
@@ -511,10 +482,6 @@ local EnemyDefs: { [string]: EnemyDef } = {
 			RightLowerLeg = { rx = -10 },
 			LeftLowerLeg = { rx = 16 },
 		},
-		-- Commits to long sequences, and cannot be staggered out of them.
-		-- Answering each link on its own terms is the fight.
-		maxChain = 3,
-		chainChance = 0.5,
 		attacks = {
 			Cleave = {
 				archetype = "WindBack",

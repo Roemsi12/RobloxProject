@@ -190,6 +190,21 @@ function ParryMath.withinWindow(startTime: number?, duration: number, t: number)
 end
 
 
+-- When a player hit by an attack landing at `impactTime` can act again.
+--
+-- Before this moment a parry press is not merely mistimed, it is *discarded*:
+-- `CombatServer.onParryAttempt` returns early on a stunned victim and the
+-- guard does not even rise. So an attack whose impact lands inside this window
+-- is unanswerable by construction, however clean its tell is.
+--
+-- This came from the chain module and outlived it. Chaining was where the
+-- problem was first noticed -- a follow-up landing too soon after the first
+-- hit -- but the floor is a property of hitstun, not of chains, and any
+-- decision about when an enemy may next commit has to respect it.
+function ParryMath.agencyRegainedAt(impactTime: number): number
+	return impactTime + CombatConstants.STRIKE_RESOLUTION_GRACE + CombatConstants.PLAYER_HIT_STUN
+end
+
 --[[ What a player can react to ]]
 
 -- The span of reaction times the game is built to serve: from a quick player
