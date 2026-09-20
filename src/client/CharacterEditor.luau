@@ -49,6 +49,8 @@ local refreshers: { [string]: () -> () } = {}
 local panel: Frame? = nil
 local open = false
 
+-- The one look every panel and button in this file shares: rounded
+-- corners and a thin warm edge, matching GameUI's panels.
 local function stylePanel(frame: GuiObject, radius: number?)
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, radius or 8)
@@ -62,6 +64,7 @@ local function stylePanel(frame: GuiObject, radius: number?)
 	stroke.Parent = frame
 end
 
+-- A palette colour ({0-255, 0-255, 0-255}) as a Color3.
 local function rgb(values: { number }): Color3
 	return Color3.fromRGB(values[1], values[2], values[3])
 end
@@ -73,6 +76,12 @@ local function commit()
 	Remotes.get("SetAppearance"):FireServer({ appearance = current })
 end
 
+-- Picks a choice for one category: updates the look, redraws that row's
+-- selection, and sends the whole look to the server.
+--
+-- The single funnel every edit goes through, whichever row it came from.
+-- Does nothing if the choice is already the current one, so re-clicking a
+-- swatch costs no remote.
 local function choose(categoryId: string, choiceId: string)
 	if (current :: any)[categoryId] == choiceId then
 		return
@@ -198,6 +207,8 @@ local function buildOptionRow(parent: Instance, category: AppearanceDefs.Categor
 
 	local choices = AppearanceDefs.choicesFor(category)
 
+	-- Moves this row's choice `by` places, wrapping at either end so a row is
+	-- never a dead end.
 	local function step(by: number)
 		local index = 1
 		for at, choice in choices do
@@ -210,6 +221,7 @@ local function buildOptionRow(parent: Instance, category: AppearanceDefs.Categor
 		choose(category.id, choices[next].id)
 	end
 
+	-- One of a row's two cycle buttons.
 	local function arrow(text: string, x: number, by: number)
 		local button = Instance.new("TextButton")
 		button.Size = UDim2.fromOffset(32, 26)
@@ -245,6 +257,9 @@ local function redrawAll()
 	end
 end
 
+-- Builds the whole panel: a row per category in CATEGORIES, in order, and
+-- a Done button. Called once at startup and then only shown and hidden —
+-- the rows are not rebuilt when the look changes, only their selections.
 local function build(gui: ScreenGui): Frame
 	local frame = Instance.new("Frame")
 	frame.Name = "CharacterEditor"
@@ -318,6 +333,8 @@ local function build(gui: ScreenGui): Frame
 	return frame
 end
 
+-- Hides the panel and releases the Escape binding. Safe to call when
+-- already closed.
 function CharacterEditor.close()
 	local frame = panel
 	if not frame or not open then
@@ -335,6 +352,9 @@ function CharacterEditor.close()
 	end)
 end
 
+-- Shows the panel, starting from the look the server just sent. Binds
+-- Escape as well as the Done button — Roblox's own menu takes that key
+-- first, so the button is the affordance that always works.
 function CharacterEditor.openWith(look: AppearanceDefs.Look?)
 	local frame = panel
 	if not frame then
@@ -361,6 +381,8 @@ function CharacterEditor.openWith(look: AppearanceDefs.Look?)
 	end, false, Enum.KeyCode.Escape)
 end
 
+-- Builds the panel and listens for the two server events that drive it:
+-- the look changing, and the looking glass telling this client to open.
 function CharacterEditor.start()
 	local playerGui = localPlayer:WaitForChild("PlayerGui")
 

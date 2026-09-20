@@ -67,6 +67,7 @@ local cursorFree = false
 
 local reticle: Frame? = nil
 
+-- The local Humanoid, or nil between characters.
 local function getHumanoid(): Humanoid?
 	local character = player.Character
 	if not character then
@@ -75,6 +76,7 @@ local function getHumanoid(): Humanoid?
 	return character:FindFirstChildOfClass("Humanoid")
 end
 
+-- The local HumanoidRootPart, or nil between characters.
 local function getRoot(): BasePart?
 	local character = player.Character
 	if not character then
@@ -83,6 +85,9 @@ local function getRoot(): BasePart?
 	return character:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
+-- Removes the AlignOrientation that holds the character facing the
+-- camera. Called whenever the lock goes off or the character is replaced
+-- — a constraint left on a dead character keeps turning the corpse.
 local function destroyConstraint()
 	if alignOrientation then
 		alignOrientation:Destroy()
@@ -176,6 +181,9 @@ local function clearOffset(root: BasePart, wanted: number): number
 	return math.max(hit.Distance - WALL_MARGIN, 0)
 end
 
+-- Turns the character to face where the camera is looking, every frame,
+-- while the lock is on. Does nothing at all when it is off, which is what
+-- lets the whole system be toggled without unwinding anything.
 local function onRenderStep(deltaTime: number)
 	if not locked then
 		return
@@ -228,6 +236,7 @@ local RETICLE_TICK = 7
 local RETICLE_THICKNESS = 2
 local RETICLE_GAP = 5
 
+-- One arm of the reticle.
 local function buildTick(parent: Frame, position: UDim2, size: UDim2)
 	local tick = Instance.new("Frame")
 	tick.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -246,6 +255,8 @@ local function buildTick(parent: Frame, position: UDim2, size: UDim2)
 	tick.Parent = parent
 end
 
+-- The crosshair shown while the camera is locked: four ticks around a
+-- gap, built once and hidden rather than rebuilt.
 local function buildReticle(): Frame
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "CameraLockReticle"
@@ -275,6 +286,8 @@ local function buildReticle(): Frame
 	return frame
 end
 
+-- Turns the lock on or off: applies or removes the facing constraint, and
+-- shows or hides the reticle.
 function CameraLock.setLocked(value: boolean)
 	locked = value
 	applyToCharacter()
@@ -294,6 +307,7 @@ function CameraLock.setLocked(value: boolean)
 	end
 end
 
+-- Whether the camera lock is currently on.
 function CameraLock.isLocked(): boolean
 	return locked
 end
@@ -315,6 +329,8 @@ function CameraLock.setCursorFree(value: boolean)
 	end
 end
 
+-- Builds the reticle, binds the toggle key, and begins the per-frame
+-- turn. The lock starts on.
 function CameraLock.start()
 	reticle = buildReticle()
 

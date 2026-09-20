@@ -51,6 +51,8 @@ local ROLL_DIRECTIONS: { [string]: boolean } = {
 	right = true,
 }
 
+-- The claimed roll direction if it is one of the four, "back" otherwise.
+-- Cosmetic and client-chosen, so it is checked rather than trusted.
 function PlayerCombatState.rollDirection(claimed: unknown): RollDirection
 	if typeof(claimed) == "string" and ROLL_DIRECTIONS[claimed] then
 		return claimed :: RollDirection
@@ -124,6 +126,9 @@ export type State = {
 
 local states: { [Player]: State } = {}
 
+-- This player's combat state, created empty on first use. Every accessor
+-- goes through here, so no caller has to know whether a player has been
+-- seen before.
 local function getOrCreate(player: Player): State
 	local state = states[player]
 	if state then
@@ -182,6 +187,9 @@ function PlayerCombatState.peek(player: Player): State
 	return getOrCreate(player)
 end
 
+-- Whether the player is stunned at `now`. Takes a time rather than
+-- reading the clock, because hits are judged at the moment they land,
+-- which may be slightly in the past by the time this is asked.
 function PlayerCombatState.isStunned(state: State, now: number): boolean
 	return now < state.stunnedUntil
 end

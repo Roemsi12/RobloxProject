@@ -76,6 +76,9 @@ export type SessionLock = {
 -- written back.
 export type MigrationStatus = "ok" | "new" | "future_version" | "corrupt"
 
+-- A brand-new player's profile. Also what every unreadable record falls
+-- back to — but see `migrate`, which says whether the fallback it hands
+-- back may actually be written.
 function PlayerDataSchema.default(): PlayerData
 	return {
 		version = PlayerDataSchema.CURRENT_VERSION,
@@ -141,6 +144,9 @@ local function sanitizeSkills(value: unknown): { [string]: { [string]: number } 
 	return result
 end
 
+-- One inventory item in the current shape, or nil if it is too malformed
+-- to keep. An unrecognised `itemId` is kept deliberately: it may be newer
+-- than this server, and dropping it would delete progress on a rollback.
 local function sanitizeItem(value: unknown): ItemInstance?
 	if type(value) ~= "table" then
 		return nil
@@ -164,6 +170,9 @@ local function sanitizeItem(value: unknown): ItemInstance?
 	}
 end
 
+-- The inventory, cleaned and capped at MAX_INVENTORY. Walked by index
+-- rather than by pairs, so order survives and a stray non-array key can't
+-- get in.
 local function sanitizeInventory(value: unknown): { ItemInstance }
 	local result = {}
 	if type(value) ~= "table" then

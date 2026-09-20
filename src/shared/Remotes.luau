@@ -70,6 +70,8 @@ local REMOTE_EVENTS = {
 
 local folder: Folder? = nil
 
+-- Creates the remotes folder and every RemoteEvent in it, once. Reuses
+-- the folder if it is somehow already there, so a second call is safe.
 local function buildOnServer(): Folder
 	local existing = ReplicatedStorage:FindFirstChild(FOLDER_NAME)
 	if existing then
@@ -89,6 +91,9 @@ local function buildOnServer(): Folder
 	return created
 end
 
+-- The remotes folder: built on the server, waited for on the client.
+-- Cached after the first call, which is what lets `get` be cheap enough
+-- to call inline.
 local function resolveFolder(): Folder
 	if folder then
 		return folder
@@ -110,6 +115,11 @@ function Remotes.init()
 	resolveFolder()
 end
 
+-- One RemoteEvent by name. The only way anything reaches a remote.
+--
+-- A name that was never registered fails loudly here rather than quietly
+-- creating a remote nobody is listening to — which is the failure mode
+-- this whole module exists to prevent.
 function Remotes.get(name: string): RemoteEvent
 	local resolved = resolveFolder()
 

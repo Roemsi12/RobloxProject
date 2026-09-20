@@ -133,6 +133,8 @@ local function stylePanel(frame: GuiObject)
 	stroke.Parent = frame
 end
 
+-- A panel-styled text label. The building block every HUD readout is made
+-- of, so they all share one look.
 local function makeLabel(parent: Instance, size: UDim2, position: UDim2, textSize: number): TextLabel
 	local label = Instance.new("TextLabel")
 	label.Size = size
@@ -269,6 +271,8 @@ local function stackItems(items: { any }): ({ Stack }, number)
 	return stacks, total
 end
 
+-- The inventory panel. Returns the panel, a function to re-render it from
+-- a list of items, and the label showing how full it is.
 local function buildInventory(parent: Instance): (Frame, ({ any }, number) -> (), TextLabel)
 	local panel = Instance.new("Frame")
 	panel.Size = UDim2.fromOffset(INVENTORY_WIDTH, 430)
@@ -370,6 +374,9 @@ local function buildInventory(parent: Instance): (Frame, ({ any }, number) -> ()
 	empty.Text = "Nothing yet. Clear a room, open the chest behind it, and take what's inside."
 	empty.Parent = panel
 
+	-- Redraws the whole item grid from scratch. Cheap enough because it only
+	-- runs when the inventory actually changes, and simpler than diffing
+	-- tiles against what is already there.
 	local function render(items: { any }, limit: number)
 		for _, child in grid:GetChildren() do
 			if child:IsA("TextButton") then
@@ -537,6 +544,8 @@ local function buildDungeonHUD(gui: ScreenGui)
 	banner.TextTransparency = 1
 	banner.Parent = gui
 
+	-- Flashes a banner across the dungeon HUD, held long enough to read then
+	-- faded.
 	local function announce(text: string, color: Color3, seconds: number)
 		banner.Text = text
 		banner.TextColor3 = color
@@ -556,6 +565,8 @@ local function buildDungeonHUD(gui: ScreenGui)
 	-- their countdowns separately.
 	local queued: { [string]: any } = { active = false, count = 0, gate = "The gate" }
 
+	-- Rewrites the queue line from whatever the server last said: how many are
+	-- waiting, or the countdown once a run is about to start.
 	local function renderStatus()
 		if queued.active then
 			local seconds = math.max(math.ceil((queued.entersAt or 0) - Workspace:GetServerTimeNow()), 0)
@@ -697,6 +708,8 @@ type LootRow = {
 	taken: boolean,
 }
 
+-- The chest panel. Returns the panel, a function to refresh it from a
+-- server payload, and one to close it.
 local function buildLootPanel(gui: ScreenGui, onTake: (string, number?, boolean) -> ()): (Frame, (any) -> (), () -> ())
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -770,6 +783,8 @@ local function buildLootPanel(gui: ScreenGui, onTake: (string, number?, boolean)
 		end
 	end
 
+	-- One line of the chest panel. `taken` greys it out rather than removing
+	-- it, so the list does not jump under the pointer as things are taken.
 	local function addRow(order: number, name: string, detail: string, color: Color3, taken: boolean, take: () -> ())
 		local row = Instance.new("TextButton")
 		row.Size = UDim2.new(1, 0, 0, LOOT_ROW_HEIGHT)
@@ -820,6 +835,7 @@ local function buildLootPanel(gui: ScreenGui, onTake: (string, number?, boolean)
 
 	closeButton.MouseButton1Click:Connect(close)
 
+	-- Rebuilds the chest panel from the server's contents for it.
 	local function refresh(payload: any)
 		local chestId = payload.chestId
 		if type(chestId) ~= "string" then
@@ -894,6 +910,9 @@ local PANEL_HEIGHT = 520
 local CANVAS_WIDTH = PANEL_WIDTH - 24
 local CANVAS_HEIGHT = PANEL_HEIGHT - 108
 
+-- One skill-tree node. Returns a function that re-reads the player's
+-- progression and restyles the node — affordable, taken, or locked — so
+-- the panel refreshes without rebuilding the tree.
 local function buildNodeButton(
 	parent: Instance,
 	node: SkillTreeDefs.Node,
@@ -1064,6 +1083,8 @@ local function buildSkillPanel(gui: ScreenGui, onSpend: (string) -> ()): (Frame,
 	local hovered: SkillTreeDefs.Node? = nil
 	local latest: Progression? = nil
 
+	-- Writes the detail box from whichever node the pointer is over: what it
+	-- does at its current rank, and what it would cost.
 	local function describeHover()
 		local node = hovered
 		if not node then
@@ -1090,6 +1111,9 @@ local function buildSkillPanel(gui: ScreenGui, onSpend: (string) -> ()): (Frame,
 		end
 	end
 
+	-- Builds one weapon's tree, once, and caches it. A player only ever sees
+	-- the tree for what they carry, so trees are built on first sight rather
+	-- than all at startup.
 	local function buildTree(weaponId: string)
 		local tree = SkillTreeDefs.treeFor(weaponId)
 		if not tree then
@@ -1111,6 +1135,9 @@ local function buildSkillPanel(gui: ScreenGui, onSpend: (string) -> ()): (Frame,
 			return (column + 0.5) / columns * CANVAS_WIDTH, (tier - 0.5) / tiers * CANVAS_HEIGHT
 		end
 
+		-- Positions a node at its grid column and tier. The layout is data in
+		-- SkillTreeDefs rather than derived here, because which nodes sit beside
+		-- each other is part of the design.
 		local function place(object: GuiObject, column: number, tier: number)
 			local x, y = centreOf(column, tier)
 			object.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1144,6 +1171,7 @@ local function buildSkillPanel(gui: ScreenGui, onSpend: (string) -> ()): (Frame,
 		built[weaponId] = entry
 	end
 
+	-- Re-reads every built node against the player's current progression.
 	local function refresh(state: Progression)
 		latest = state
 

@@ -38,12 +38,18 @@ function Loadout.resolve(weaponId: unknown): EquipResult
 	return { ok = true, weaponId = weaponId, classTag = def.classTag }
 end
 
+-- A weapon's definition. Asserts rather than returning nil: every weapon
+-- id in the game comes from WeaponDefs, so a miss is a typo or stale save
+-- data reaching code that should have validated it first.
 function Loadout.getDef(weaponId: string): WeaponDefs.WeaponDef
 	local def = WeaponDefs[weaponId]
 	assert(def, `No weapon def for "{weaponId}"`)
 	return def
 end
 
+-- The class a weapon makes you. The only way class is ever derived —
+-- nothing stores a class, which is what makes "switching weapon switches
+-- class" true by construction.
 function Loadout.classOf(weaponId: string): string
 	return Loadout.getDef(weaponId).classTag
 end
@@ -69,6 +75,9 @@ export type SwingTiming = {
 	finisher: boolean,
 }
 
+-- Every time this swing is worth knowing: its windup, how long the combo
+-- stays open after it, and when the next press is allowed. The finisher
+-- (the last step) pays the longer recovery.
 function Loadout.swingTiming(attack: WeaponDefs.AttackProfile, step: number): SwingTiming
 	local combo = attack.combo[step]
 	assert(combo, `No combo step {step}`)

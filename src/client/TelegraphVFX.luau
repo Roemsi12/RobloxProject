@@ -122,6 +122,9 @@ local function tintFor(enemyId: string, model: Model): Highlight
 	return tint
 end
 
+-- Puts an enemy's standing tint where its state says it should be: grey
+-- once dead, blue while staggered by a parry, nothing otherwise. Called
+-- after anything that could change which of those applies.
 local function settle(enemyId: string, model: Model)
 	local tint = tintFor(enemyId, model)
 
@@ -195,6 +198,7 @@ local function makeZone(root: BasePart, radius: number): Part
 	return part
 end
 
+-- Removes an enemy's danger disc, if it has one up.
 local function clearZone(enemyId: string)
 	local zone = zones[enemyId]
 	if zone then
@@ -245,6 +249,13 @@ local function glintAt(glint: Glint, now: number): number
 	return build ^ GLINT_BUILD * (0.5 + 0.5 * wave)
 end
 
+-- Wires every telegraph cue to the server events that drive it: the glint
+-- on a parryable weapon, the red flash and danger zone on an unparryable
+-- attack, and the stagger and death tints.
+--
+-- The per-frame loop advances the glint and the zone, and is also what
+-- eventually clears either of them — nothing here trusts a matching
+-- "stop" event to arrive, since the enemy can die mid-windup.
 function TelegraphVFX.start()
 	Remotes.get("EnemyTelegraphStart").OnClientEvent:Connect(function(payload)
 		clearZone(payload.enemyId)

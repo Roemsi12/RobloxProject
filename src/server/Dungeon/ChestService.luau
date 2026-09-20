@@ -65,6 +65,8 @@ type Record = {
 
 local chests: { [string]: Record } = {}
 
+-- How many rows the chest panel still has anything in. Zero means the
+-- chest is empty and can close for good.
 local function rowsLeft(record: Record): number
 	local count = if record.coinsTaken or record.coins <= 0 then 0 else 1
 	for _, slot in record.slots do
@@ -110,6 +112,8 @@ local function refreshPrompt(record: Record)
 	prompt.ActionText = if left > 0 then "Search" else "Empty"
 end
 
+-- Sends a chest's contents: to one player when they open it, to everyone
+-- looking at it when someone takes something out.
 local function publish(record: Record, player: Player?)
 	local payload = contentsOf(record)
 	if player then
@@ -120,6 +124,9 @@ local function publish(record: Record, player: Player?)
 	end
 end
 
+-- Whether the player is still close enough to the chest to take from it.
+-- Checked on every take, not just on open: the panel stays up while they
+-- walk away.
 local function withinReach(player: Player, record: Record): boolean
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -187,6 +194,8 @@ local function onTake(player: Player, payload: unknown)
 	refreshPrompt(record)
 end
 
+-- Listens for take requests. Chests themselves are built by the dungeon
+-- as it generates, not here.
 function ChestService.start()
 	Remotes.get("ChestTakeItem").OnServerEvent:Connect(onTake)
 end
@@ -210,6 +219,8 @@ export type ChestSpec = {
 	parent: Instance,
 }
 
+-- An anchored, non-colliding part of a chest's dressing. Non-colliding so
+-- the lid's hinge and the bands never catch a player walking past.
 local function decor(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material): Part
 	local part = Instance.new("Part")
 	part.Name = name
@@ -246,6 +257,8 @@ local function buildLid(chest: Part): (Part, CFrame)
 	return lid, hinge
 end
 
+-- Swings the lid open about its hinge, keeping the lid's offset from that
+-- hinge so it turns rather than jumping to a new place.
 local function openLid(lid: Part, hinge: CFrame)
 	local closedOffset = hinge:ToObjectSpace(lid.CFrame)
 	local opened = hinge * CFrame.Angles(LID_OPEN_ANGLE, 0, 0) * closedOffset
@@ -281,6 +294,9 @@ local function goldBurst(chest: Part)
 	end)
 end
 
+-- The sphere that keeps players out of a vault until it is unlocked.
+-- A ball rather than a box: a vault door is round, and a box would leave
+-- corners a player could stand in.
 local function buildBarrier(chest: Part): Part
 	local barrier = Instance.new("Part")
 	barrier.Name = "Barrier"
@@ -346,6 +362,8 @@ function ChestService.createChest(spec: ChestSpec): (Part, () -> ())
 	local opened = false
 	local unlocked = false
 
+	-- Drops the vault barrier, once. Guarded, because every enemy in the room
+	-- dying calls it and only the first should do anything.
 	local function unlock()
 		if unlocked then
 			return

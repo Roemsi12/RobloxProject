@@ -8,6 +8,9 @@ local DamageMath = require(ReplicatedStorage.Shared.DamageMath)
 
 local Characters = {}
 
+-- A player's HumanoidRootPart, or nil if they have no character right
+-- now. The position all combat reasons about: hit-reg reads this part and
+-- nothing else.
 function Characters.getRoot(player: Player): BasePart?
 	local character = player.Character
 	if not character then
@@ -17,6 +20,7 @@ function Characters.getRoot(player: Player): BasePart?
 	return character:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
+-- A player's Humanoid, or nil if they have no character right now.
 function Characters.getHumanoid(player: Player): Humanoid?
 	local character = player.Character
 	if not character then
@@ -26,6 +30,9 @@ function Characters.getHumanoid(player: Player): Humanoid?
 	return character:FindFirstChildOfClass("Humanoid")
 end
 
+-- Whether the player has a character with health left. Checked before
+-- anything is done to them: a player can die between a swing starting and
+-- it landing.
 function Characters.isAlive(player: Player): boolean
 	local humanoid = Characters.getHumanoid(player)
 	return humanoid ~= nil and humanoid.Health > 0

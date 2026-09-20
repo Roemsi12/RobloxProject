@@ -46,6 +46,8 @@ export type Hooks = {
 	onCleared: () -> (),
 }
 
+-- A one-line banner on every client's screen. `tone` picks its colour:
+-- "good", "danger" or neutral.
 local function notice(text: string, tone: string)
 	Remotes.get("DungeonNotice"):FireAllClients({ text = text, tone = tone })
 end
@@ -64,6 +66,8 @@ local function livingPlayersIn(bounds: RoomTemplates.Bounds): number
 	return count
 end
 
+-- A room's bounds pulled in by `amount` on every side, so nothing spawns
+-- inside a wall.
 local function inset(bounds: RoomTemplates.Bounds, amount: number): RoomTemplates.Bounds
 	return {
 		minX = bounds.minX + amount,
@@ -104,6 +108,9 @@ local function buildGate(room: RoomTemplates.Room, side: DungeonLayout.Side, par
 	return gate
 end
 
+-- Seals or opens an ambush room's gates, and lights them to match. The
+-- collision and the light always move together, so a gate never looks
+-- shut while being walkable.
 local function setGates(gates: { Part }, sealed: boolean)
 	for _, gate in gates do
 		gate.CanCollide = sealed
@@ -189,6 +196,7 @@ function AmbushService.start(
 
 	local nextWave: () -> ()
 
+	-- The ambush being beaten: opens the gates and says so.
 	local function clear()
 		state = "cleared"
 		setGates(gates, false)
@@ -196,6 +204,11 @@ function AmbushService.start(
 		hooks.onCleared()
 	end
 
+	-- Spawns one wave around the room's edge, spread evenly from a random
+	-- starting angle so two waves never appear in the same places.
+	--
+	-- `thisAttempt` is captured deliberately: an enemy from an abandoned
+	-- attempt must not count toward the current one when it dies.
 	local function spawnWave(ids: { string })
 		local thisAttempt = attempt
 		local remaining = #ids
@@ -246,6 +259,7 @@ function AmbushService.start(
 		spawnWave(ids)
 	end
 
+	-- The trap going off: seals the room and starts the first wave.
 	local function spring()
 		state = "springing"
 		local thisAttempt = attempt
@@ -262,6 +276,9 @@ function AmbushService.start(
 		end)
 	end
 
+	-- Abandons this ambush and puts the room back. Bumps the attempt counter,
+	-- which is what makes every enemy and callback from the old attempt
+	-- harmless.
 	local function reset()
 		attempt += 1
 		for _, enemy in living do

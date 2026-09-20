@@ -55,6 +55,12 @@ local healthById: { [string]: number } = {}
 
 local countJoints = RigAnimation.countJoints
 
+-- Starts animating an enemy rig, once the whole thing has replicated.
+--
+-- The model arrives before its joints do, so this waits for all fifteen
+-- and for the PrimaryPart before building a controller. An enemy already
+-- reported dead — a player joining mid-fight — is put straight onto the
+-- last frame of its death rather than standing up first.
 local function onEnemyAdded(instance: Instance)
 	if not instance:IsA("Model") then
 		return
@@ -99,6 +105,8 @@ local function onEnemyAdded(instance: Instance)
 	end
 end
 
+-- Stops tracking an enemy whose model has gone, releasing its controller
+-- and any published tracks it loaded.
 local function onEnemyRemoved(instance: Instance)
 	local enemyId = instance:GetAttribute("EnemyId")
 	if typeof(enemyId) ~= "string" then
@@ -112,6 +120,12 @@ local function onEnemyRemoved(instance: Instance)
 	end
 end
 
+-- One frame for every tracked enemy: works out how fast it is actually
+-- moving, picks idle or walk from that, and advances its animation.
+--
+-- Speed is measured from replicated positions, which arrive in steps
+-- rather than every frame, so it is smoothed — without that an enemy
+-- flickers between idle and walk between updates.
 local function step(deltaTime: number)
 	local dt = math.max(deltaTime, 1e-3)
 	local smoothing = 1 - math.exp(-SPEED_SMOOTHING * dt)
@@ -149,6 +163,9 @@ function EnemyAnimation.hitStop(enemyId: string, seconds: number)
 	end
 end
 
+-- Begins animating every tagged enemy, now and as they spawn, and wires
+-- the server's combat events to what each rig should play. Runs its frame
+-- step on PreSimulation, where a script's pose wins over the Animator's.
 function EnemyAnimation.start()
 	CollectionService:GetInstanceAddedSignal(ENEMY_TAG):Connect(onEnemyAdded)
 	CollectionService:GetInstanceRemovedSignal(ENEMY_TAG):Connect(onEnemyRemoved)

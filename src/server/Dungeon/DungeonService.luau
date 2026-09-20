@@ -54,6 +54,9 @@ local resetAt: number? = nil
 local encounterActive = false
 local lastPlayerInBossRoom = 0
 
+-- The whole run's state as one table: which run it is, what phase it is
+-- in, and how far through the rooms. Built in one place so every send
+-- agrees about shape.
 local function statusPayload(): { [string]: any }
 	return {
 		run = runNumber,
@@ -64,14 +67,20 @@ local function statusPayload(): { [string]: any }
 	}
 end
 
+-- Tells every client the run's current state. Called after anything that
+-- changes it, rather than on a timer.
 local function publishStatus()
 	Remotes.get("DungeonUpdated"):FireAllClients(statusPayload())
 end
 
+-- A one-line banner on every client's screen. `tone` picks its colour:
+-- "good", "danger" or neutral.
 local function notice(text: string, tone: string)
 	Remotes.get("DungeonNotice"):FireAllClients({ text = text, tone = tone })
 end
 
+-- The boss encounter's state, or nil when there is no dungeon to describe
+-- one for. `defeated` marks the send that reports the kill.
 local function encounterPayload(active: boolean, defeated: boolean?): { [string]: any }?
 	local dungeon = current
 	if not dungeon then
@@ -85,6 +94,9 @@ local function encounterPayload(active: boolean, defeated: boolean?): { [string]
 	}
 end
 
+-- Starts or ends the boss encounter and tells every client. Returns early
+-- if nothing changed, so it is safe to call every frame — except for a
+-- defeat, which always sends.
 local function setEncounter(active: boolean, defeated: boolean?)
 	if encounterActive == active and not defeated then
 		return
@@ -108,6 +120,9 @@ local function dungeonPlayers(): { Player }
 	return list
 end
 
+-- Whether anyone is standing inside the boss room's floor. What starts
+-- the encounter: the boss wakes when someone walks in, not when the room
+-- is generated.
 local function anyPlayerInBossRoom(dungeon: DungeonGenerator.BuiltDungeon): boolean
 	local bounds = dungeon.bossRoom.room.floorBounds
 	for _, player in dungeonPlayers() do
@@ -126,6 +141,8 @@ end
 
 local generateRun: () -> ()
 
+-- Tears the dungeon down and builds the next one. Guarded against running
+-- twice, since both a boss kill and a wipe can ask for it.
 local function resetRun()
 	local dungeon = current
 	if not dungeon or phase == "resetting" then
@@ -156,6 +173,9 @@ local function resetRun()
 	notice("A new dungeon has formed", "info")
 end
 
+-- The boss dying: reports it, pays everyone out, and schedules the reset.
+-- Ignored unless the run is actually still running, so a late kill from a
+-- run already being reset does nothing.
 local function onBossDefeated()
 	local dungeon = current
 	if not dungeon or phase ~= "running" then
@@ -190,6 +210,9 @@ local function onBossDefeated()
 	task.delay(DungeonDefs.RESET_DELAY, resetRun)
 end
 
+-- Watches one room's enemies and reports it cleared when the last of them
+-- dies. `runId` is the guard against a room from a previous dungeon
+-- reporting into the current one.
 local function trackRoom(built: DungeonGenerator.BuiltRoom, runId: number)
 	if not built.clearable then
 		return
