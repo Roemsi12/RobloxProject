@@ -62,6 +62,10 @@ src/shared/            -> ReplicatedStorage.Shared
                          -- draws from: stone, metal, bone, cloth, firelight,
                          -- plus shade/mix helpers (pure)
   RigDefs.luau           -- the shared R15 skeleton + each rig's look (pure)
+  AppearanceDefs.luau    -- every player-look choice and outfitFor, which turns
+                         -- a saved look into textures + colours (pure)
+  AvatarTextures.luau    -- avatar texture name -> uploaded image id; written
+                         -- by art/avatar/upload.py, 0 = not uploaded (pure)
   AnimationDefs.luau     -- every rough animation, as keyframe data (pure). Exports
                          -- `strike`, the timing skeleton generated attacks
                          -- are built on too
@@ -95,8 +99,9 @@ src/server/            -> ServerScriptService.Server
                          -- profile has loaded, hub-dais placement, respawn
   AppearanceService.luau -- the one body everyone wears: applies a
                          -- HumanoidDescription that strips bundles, clothing
-                         -- and accessories, then welds the player's chosen
-                         -- hair, face, markings and garb over it
+                         -- and accessories, then dresses it: our shirt/pants
+                         -- textures, face and marking decals, and a Roblox
+                         -- hair accessory, each tinted the chosen colour
   EquipService.luau      -- the only owner of equipped weapon + upgrade levels;
                          -- onChanged tells listeners when either changes
   InventoryService.luau  -- the only owner of inventory

@@ -1,5 +1,5 @@
 --!strict
--- Puts everyone in the same body, and then puts their own face on it.
+-- Puts everyone in the same body, and then dresses it the way they chose.
 --
 -- Two halves, and they do different jobs:
 --
@@ -12,28 +12,34 @@
 --   moves the shoulders somewhere else makes a parry tell harder to read
 --   through no fault of the person trying to read it.
 --
---   The LOOK is given back. Hair, face, markings and garb are welded on top
---   from AppearanceDefs, tinted with the colours they chose.
+--   The LOOK is given back, from AppearanceDefs.outfitFor: our own clothing
+--   textures as a Shirt, Pants and chest ShirtGraphic, face and marking
+--   decals on the head, and a Roblox-made hair accessory dyed the colour they
+--   picked. Every texture is tinted through Color3, which multiplies.
 --
 -- Server-built, like WeaponVisuals and for the same reason: everyone has to
 -- see the same character, not just its owner.
 --
--- Pieces are massless, non-colliding and non-querying, so nothing here changes
--- how a character moves or what hit-reg reads — combat resolves against the
--- HumanoidRootPart alone, which this never touches.
+-- Nothing here adds a part except the hair accessory, which Roblox attaches
+-- massless and non-colliding itself, so a look never changes how a character
+-- moves or what hit-reg reads: combat resolves against the HumanoidRootPart.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage.Shared
 local AppearanceDefs = require(Shared.AppearanceDefs)
+local AvatarTextures = require(Shared.AvatarTextures)
 local Remotes = require(Shared.Remotes)
 
 local AppearanceService = {}
 
--- The model holding everything a look welds on, so re-applying is a destroy
--- and a rebuild rather than a diff.
-local LOOK_MODEL = "CharacterLook"
+-- What every instance this service makes is named, so re-dressing a body
+-- replaces exactly what it made.
+local SHIRT = "LookShirt"
+local PANTS = "LookPants"
+local OVERLAY = "LookOverlay"
+local DECAL_PREFIX = "LookDecal"
 
 -- The R15 parts a body colour applies to, and which HumanoidDescription field
 -- carries each one.
@@ -46,15 +52,9 @@ local SKIN_FIELDS = {
 	"RightLegColor",
 }
 
--- Where a piece on a hand is held from, if the avatar says.
-local GRIP_ATTACHMENT: { [string]: string } = {
-	RightHand = "RightGripAttachment",
-	LeftHand = "LeftGripAttachment",
-}
-
 local looks: { [Player]: AppearanceDefs.Look } = {}
 -- Characters already dressed, so a second CharacterAdded for the same body
--- (or a look change racing a respawn) doesn't build the pieces twice.
+-- (or a look change racing a respawn) can be told apart from a new body.
 local dressed: { [Player]: Model } = {}
 
 -- A palette colour ({0-255, 0-255, 0-255}) as a Color3. Every colour in the
@@ -63,30 +63,32 @@ local function rgb(values: { number }): Color3
 	return Color3.fromRGB(values[1], values[2], values[3])
 end
 
--- A three-number table as a Vector3, for sizes and offsets out of data files.
-local function vec(values: { number }): Vector3
-	return Vector3.new(values[1], values[2], values[3])
-end
-
--- Where a look's piece sits relative to the part it hangs on: the offset
--- first, then its own rotation. Same order as RigDefs decorations, which
--- is what lets a hood sweep back or a pauldron slope off a shoulder.
-local function pieceOffset(piece: AppearanceDefs.Piece): CFrame
-	local rotation = piece.rotation or { 0, 0, 0 }
-	return CFrame.new(vec(piece.offset))
-		* CFrame.Angles(math.rad(rotation[1]), math.rad(rotation[2]), math.rad(rotation[3]))
+-- The content id of a named avatar texture, or nil if it hasn't been
+-- uploaded yet (AvatarTextures holds 0). Each missing name is warned about
+-- once, so a half-uploaded set says what's missing without flooding output.
+local warnedMissing: { [string]: boolean } = {}
+local function textureId(name: string): string?
+	local id = AvatarTextures[name]
+	if id and id > 0 then
+		return `rbxassetid://{id}`
+	end
+	if not warnedMissing[name] then
+		warnedMissing[name] = true
+		warn(`[AppearanceService] Avatar texture "{name}" has no image id yet; run art/avatar/upload.py`)
+	end
+	return nil
 end
 
 --[[ The shared body ]]
 
--- A description with nothing on it: no bundle, no clothes, no hat, at the
--- blocky proportions the animations were authored against.
+-- A description with nothing on it but the look's hair: no bundle, no
+-- clothes, at the blocky proportions the animations were authored against.
 --
 -- Built fresh rather than edited from the character's current one. Editing
 -- theirs means every field we forget to clear is a piece of catalogue avatar
 -- that survives, and the list of things Roblox can put on an avatar only ever
 -- grows.
-local function describeBody(look: AppearanceDefs.Look): HumanoidDescription
+local function describeBody(look: AppearanceDefs.Look, outfit: AppearanceDefs.Outfit): HumanoidDescription
 	local description = Instance.new("HumanoidDescription")
 
 	local build = AppearanceDefs.buildOf(look.build)
@@ -97,88 +99,120 @@ local function describeBody(look: AppearanceDefs.Look): HumanoidDescription
 	description.BodyTypeScale = AppearanceDefs.BODY_TYPE_SCALE
 	description.ProportionScale = AppearanceDefs.PROPORTION_SCALE
 
-	local skin = rgb(AppearanceDefs.colorOf(AppearanceDefs.SKIN_TONES, look.skin))
+	local skin = rgb(outfit.skin)
 	for _, field in SKIN_FIELDS do
 		(description :: any)[field] = skin
 	end
 
-	-- The face is built out of parts (AppearanceDefs), so the avatar's own
-	-- face decal has to go or it shows through underneath.
+	-- The face is our own decals (dress), so the avatar's face has to go or
+	-- it shows through underneath.
 	description.Face = 0
+
+	-- The one catalogue piece of a look. Roblox loads it and hangs it off the
+	-- head; dress dyes it.
+	description.HairAccessory = if outfit.hair then tostring(outfit.hair) else ""
+	description.HatAccessory = if outfit.hat then tostring(outfit.hat) else ""
 
 	return description
 end
 
 --[[ The look ]]
 
-local function stripLook(character: Model)
-	local existing = character:FindFirstChild(LOOK_MODEL)
+-- Takes the texture off a catalogue accessory and dyes it one colour
+-- instead. A hair's texture is painted in its own colour, and no tint turns
+-- painted-on yellow hair black; bare, the mesh takes any colour and its
+-- shape still reads through the lighting.
+local function dye(accessory: Accessory, color: Color3)
+	local handle = accessory:FindFirstChild("Handle")
+	if not handle or not handle:IsA("BasePart") then
+		return
+	end
+	for _, child in handle:GetDescendants() do
+		if child:IsA("SurfaceAppearance") then
+			child:Destroy()
+		elseif child:IsA("SpecialMesh") then
+			child.TextureId = ""
+			child.VertexColor = Vector3.one
+		end
+	end
+	if handle:IsA("MeshPart") then
+		handle.TextureID = ""
+	end
+	handle.Color = color
+	handle.Material = Enum.Material.SmoothPlastic
+end
+
+-- One classic clothing item, tinted, replacing any this service made before.
+-- An item whose texture isn't uploaded yet is left off.
+local function wear(character: Model, className: string, name: string, layer: AppearanceDefs.Layer)
+	local existing = character:FindFirstChild(name)
 	if existing then
 		existing:Destroy()
 	end
-end
 
--- Builds and welds every piece of a look onto a character, replacing
--- whatever was there.
---
--- Pieces are massless, non-colliding and non-querying, so nothing here
--- changes how the character moves or what combat hit-reg reads — that
--- resolves against the HumanoidRootPart alone. A piece whose part is
--- missing is skipped rather than fatal.
-local function dress(character: Model, look: AppearanceDefs.Look)
-	stripLook(character)
-
-	local model = Instance.new("Model")
-	model.Name = LOOK_MODEL
-
-	for _, entry in AppearanceDefs.piecesFor(look) do
-		local piece = entry.piece
-		local host = character:FindFirstChild(piece.attachTo)
-		if not host or not host:IsA("BasePart") then
-			continue
-		end
-
-		local part = Instance.new("Part")
-		part.Name = piece.name
-		part.Size = vec(piece.size)
-		part.Color = rgb(entry.color)
-		part.Material = (Enum.Material :: any)[piece.material or "SmoothPlastic"]
-		part.Shape = (Enum.PartType :: any)[piece.shape or "Block"]
-		part.Transparency = piece.transparency or 0
-		part.CanCollide = false
-		part.CanQuery = false
-		part.CanTouch = false
-		part.Massless = true
-		part.CastShadow = true
-		part.TopSurface = Enum.SurfaceType.Smooth
-		part.BottomSurface = Enum.SurfaceType.Smooth
-
-		local anchor = CFrame.identity
-		local gripName = GRIP_ATTACHMENT[piece.attachTo]
-		local grip = gripName and host:FindFirstChild(gripName)
-		if grip and grip:IsA("Attachment") then
-			anchor = CFrame.new(grip.Position)
-		end
-
-		local c0 = anchor * pieceOffset(piece)
-		part.CFrame = host.CFrame * c0
-		part.Parent = model
-
-		local weld = Instance.new("Weld")
-		weld.Part0 = host
-		weld.Part1 = part
-		weld.C0 = c0
-		weld.Parent = part
+	local id = textureId(layer.texture)
+	if not id then
+		return
 	end
 
-	model.Parent = character
+	local item = Instance.new(className) :: any
+	item.Name = name
+	if className == "Shirt" then
+		item.ShirtTemplate = id
+	elseif className == "Pants" then
+		item.PantsTemplate = id
+	else
+		item.Graphic = id
+	end
+	item.Color3 = rgb(layer.color)
+	item.Parent = character
+end
+
+-- Puts a look's clothes, face and hair colour on a character that already
+-- has the look's body. Safe to call again on the same character: everything
+-- it makes is found by name and replaced.
+local function dress(character: Model, outfit: AppearanceDefs.Outfit)
+	wear(character, "Pants", PANTS, outfit.pants)
+	wear(character, "Shirt", SHIRT, outfit.shirt)
+	wear(character, "ShirtGraphic", OVERLAY, outfit.overlay)
+
+	local head = character:FindFirstChild("Head")
+	if head and head:IsA("BasePart") then
+		-- Every decal on the head goes, not just ours: the default head brings
+		-- a face of its own.
+		for _, child in head:GetChildren() do
+			if child:IsA("Decal") then
+				child:Destroy()
+			end
+		end
+		-- Bottom first: marking, face, eyes. ZIndex keeps that order.
+		for index, layer in outfit.decals do
+			local id = textureId(layer.texture)
+			if id then
+				local decal = Instance.new("Decal")
+				decal.Name = `{DECAL_PREFIX}{index}`
+				decal.Face = Enum.NormalId.Front
+				decal.Texture = id
+				decal.Color3 = rgb(layer.color)
+				decal.ZIndex = index
+				decal.Parent = head
+			end
+		end
+	end
+
+	local hairColor = rgb(outfit.hairColor)
+	for _, child in character:GetChildren() do
+		if child:IsA("Accessory") then
+			dye(child, hairColor)
+		end
+	end
 end
 
 -- Replace the body, then dress it.
 --
--- ApplyDescription rebuilds the character's parts, so the pieces have to be
--- welded after it rather than before: welding first would hang a haircut off
--- a head that is about to be replaced.
+-- ApplyDescription rebuilds the character's parts and removes clothing, so
+-- the look has to go on after it rather than before: dressing first would
+-- put a face on a head that is about to be replaced.
 local function apply(player: Player, character: Model)
 	local look = looks[player]
 	if not look then
@@ -190,9 +224,11 @@ local function apply(player: Player, character: Model)
 		return
 	end
 
+	local outfit = AppearanceDefs.outfitFor(look)
+
 	-- Yields, and a player can leave or respawn while it does.
 	local ok, err = pcall(function()
-		humanoid:ApplyDescription(describeBody(look))
+		humanoid:ApplyDescription(describeBody(look, outfit))
 	end)
 	if not ok then
 		warn(`[AppearanceService] Couldn't apply {player.Name}'s body: {err}`)
@@ -202,7 +238,7 @@ local function apply(player: Player, character: Model)
 		return
 	end
 
-	dress(character, look)
+	dress(character, outfit)
 	dressed[player] = character
 end
 
@@ -283,8 +319,6 @@ function AppearanceService.start()
 	-- apply, and `hydrate` does it when there is.
 	local function watch(player: Player)
 		player.CharacterAdded:Connect(function(character)
-			-- Only once the profile has loaded. Until then there is no look to
-			-- apply, and hydrate will do it when there is.
 			if looks[player] then
 				task.spawn(apply, player, character)
 			end

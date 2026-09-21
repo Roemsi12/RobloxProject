@@ -1480,8 +1480,15 @@ being asked for, and every animation keeps working.
 - **Built fresh, never edited from the character's own description.** Editing
   theirs means every field we forget to clear is a piece of catalogue avatar
   that survives, and the list of things Roblox can put on an avatar only grows.
-- **The look is welded on top, server-side**, like `WeaponVisuals` and for the
+- **The look is painted on, server-side**, like `WeaponVisuals` and for the
   same reason: everyone has to see the same character, not just its owner.
+  It started as blocks welded to the body, and read as exactly that. It is now
+  classic Shirt and Pants textures of our own, a chest ShirtGraphic, face and
+  marking decals, and a Roblox-made hair accessory. The art (`art/avatar`) is
+  drawn in greyscale because Roblox multiplies a clothing texture by its
+  `Color3`: one texture per garment takes every colour in the menu, and the
+  folds and seams stay in it. Hair has its texture stripped for the same
+  reason — a painted-on colour can't be tinted away.
 - **This is a readability decision as much as an art one.** A bundle that moves
   the shoulders makes a tell harder to read through no fault of the player
   trying to read it.
@@ -1492,7 +1499,7 @@ is in the README.
 
 ### The look is data, and unknown choices fall back field by field
 
-Nine categories, generated from one table. The editor has no hardcoded
+Ten categories, generated from one table. The editor has no hardcoded
 hairstyle in it, so adding one is a row.
 
 Saved looks break the rule the rest of `PlayerDataSchema` follows. Everywhere

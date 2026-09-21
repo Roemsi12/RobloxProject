@@ -125,7 +125,8 @@ rojo serve test.project.json
 Everyone wears the same body. A player's own Roblox avatar is replaced on spawn
 with the default blocky R15 build — no bundle, no clothing, no accessories, at
 fixed proportions — and what they choose is what goes *on* it: build, skin,
-face, hair and its colour, markings, garb and two garb colours. Nine rows,
+face, hair and its colour, markings, garb, and the garb, legwear and trim
+colours. Ten rows,
 every one of them a list in
 [`src/shared/AppearanceDefs.luau`](src/shared/AppearanceDefs.luau).
 
@@ -142,6 +143,17 @@ the player trying to read it.
 > Settings → Avatar → Rig Type → R15**. Without it, players spawn as R6, and
 > `PlayerAnimation` skips R6 avatars entirely — no stances, no swings, no
 > rolls.
+
+> **Avatar textures have to be uploaded once.** Clothes, faces and markings
+> are our own PNGs in `art/avatar/textures`, and a game can only use images
+> that are on Roblox. Make an Open Cloud API key (create.roblox.com → Open
+> Cloud → API Keys, Assets API read + write), put it in `ROBLOX_API_KEY`, and
+> run `python art/avatar/upload.py --user-id <id>` (or `--group-id` if a
+> group owns the game). It writes the ids into
+> `src/shared/AvatarTextures.luau`. Until then players spawn with hair but
+> no clothes or face, and the server warns which textures are missing.
+> To change the art, edit `art/avatar/generate.py`, run it, check
+> `art/avatar/preview.png` (from `preview.py`), then re-upload with `--force`.
 
 Adding a hairstyle is a row in `AppearanceDefs.HAIR`. The editor is generated
 from `AppearanceDefs.CATEGORIES` and has no hardcoded choice in it, so nothing
