@@ -148,7 +148,7 @@ the player trying to read it.
 > are our own PNGs in `art/avatar/textures`, and a game can only use images
 > that are on Roblox. Make an Open Cloud API key (create.roblox.com → Open
 > Cloud → API Keys, Assets API read + write), put it in `ROBLOX_API_KEY`, and
-> run `python art/avatar/upload.py --user-id <id>` (or `--group-id` if a
+> run `lune run upload-avatar --user-id <id>` (or `--group-id` if a
 > group owns the game). It writes the ids into
 > `src/shared/AvatarTextures.luau`. Until then players spawn with hair but
 > no clothes or face, and the server warns which textures are missing.

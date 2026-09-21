@@ -12,7 +12,7 @@ chosen colour, and a darker grey reads as a shade of it: every garment works
 in every colour without a texture per colour.
 
 Needs Pillow and numpy. The PNGs are committed, so only someone changing the
-art needs to run this. After changing it, re-upload (art/avatar/upload.py).
+art needs to run this. After changing it, re-upload (lune run upload-avatar --force <names>).
 """
 
 import math

@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local WeaponModelDefs = require(ReplicatedStorage.Shared.WeaponModelDefs)
 
+local AppearanceService = require(script.Parent.AppearanceService)
 local EquipService = require(script.Parent.EquipService)
 
 local WeaponVisuals = {}
@@ -258,6 +259,10 @@ function WeaponVisuals.start()
 	EquipService.onChanged(function(player)
 		refresh(player)
 	end)
+
+	-- Applying a look can rebuild the hands the weapon was welded to, which
+	-- drops it on the floor. Weld it again once the body is done.
+	AppearanceService.onDressed(refresh)
 
 	Players.PlayerAdded:Connect(watchPlayer)
 	for _, player in Players:GetPlayers() do

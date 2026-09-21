@@ -53,6 +53,8 @@ local SKIN_FIELDS = {
 }
 
 local looks: { [Player]: AppearanceDefs.Look } = {}
+-- Called with a player once their character has been rebuilt and dressed.
+local dressedListeners: { (Player) -> () } = {}
 -- Characters already dressed, so a second CharacterAdded for the same body
 -- (or a look change racing a respawn) can be told apart from a new body.
 local dressed: { [Player]: Model } = {}
@@ -74,7 +76,7 @@ local function textureId(name: string): string?
 	end
 	if not warnedMissing[name] then
 		warnedMissing[name] = true
-		warn(`[AppearanceService] Avatar texture "{name}" has no image id yet; run art/avatar/upload.py`)
+		warn(`[AppearanceService] Avatar texture "{name}" has no image id yet; run "lune run upload-avatar"`)
 	end
 	return nil
 end
@@ -240,6 +242,10 @@ local function apply(player: Player, character: Model)
 
 	dress(character, outfit)
 	dressed[player] = character
+
+	for _, listener in dressedListeners do
+		task.spawn(listener, player)
+	end
 end
 
 -- Rebuilds the player's body and look on their current character, if they
@@ -276,6 +282,13 @@ local function onSetAppearance(player: Player, payload: unknown)
 	looks[player] = clean
 	publish(player)
 	reapply(player)
+end
+
+-- Calls `listener(player)` every time a player's character has been rebuilt
+-- and dressed. Rebuilding can replace body parts, so anything welded to the
+-- body (WeaponVisuals) re-welds from here.
+function AppearanceService.onDressed(listener: (Player) -> ())
+	table.insert(dressedListeners, listener)
 end
 
 --[[ The DataService contract ]]

@@ -65,7 +65,7 @@ src/shared/            -> ReplicatedStorage.Shared
   AppearanceDefs.luau    -- every player-look choice and outfitFor, which turns
                          -- a saved look into textures + colours (pure)
   AvatarTextures.luau    -- avatar texture name -> uploaded image id; written
-                         -- by art/avatar/upload.py, 0 = not uploaded (pure)
+                         -- by lune/upload-avatar, 0 = not uploaded (pure)
   AnimationDefs.luau     -- every rough animation, as keyframe data (pure). Exports
                          -- `strike`, the timing skeleton generated attacks
                          -- are built on too
@@ -228,6 +228,8 @@ lune/                  -> not mapped by Rojo; Lune scripts run from the repo roo
                          -- pure modules sandboxed away from the Roblox API
   animation-workbench.luau -- `lune run animation-workbench`: every rig with its
                          -- rough animations as KeyframeSequences, self-checked
+  upload-avatar.luau     -- `lune run upload-avatar`: uploads art/avatar textures
+                         -- and writes their ids into AvatarTextures
   tell-workbench.luau    -- `lune run tell-workbench`: the four tells on rigs,
                          -- as animations to pose by hand in Studio.s
                          -- Animation Editor. `--read` prints the snippet that
