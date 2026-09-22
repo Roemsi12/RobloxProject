@@ -83,6 +83,14 @@ function AnimationDefs.swing(weaponId: string, step: number): string
 	return `swing_{weaponId}_{step}`
 end
 
+-- A move off the combo (WeaponDefs.MoveDef): a thrust, a kick, a shield
+-- bash. Named separately from `swing` because a move is not a step -- it has
+-- no place in the ladder, and it is chosen by which way the player is
+-- holding rather than by how many times they have pressed.
+function AnimationDefs.move(weaponId: string, moveId: string): string
+	return `move_{weaponId}_{moveId}`
+end
+
 -- Players: the dodge roll, in the direction the body is travelling
 -- (LocomotionMath.rollDirection). Four rolls rather than one dash, because a
 -- roll is the one move in the game that turns the whole body: played in the
@@ -2032,6 +2040,85 @@ local R15Player: { [string]: AnimationDef } = {
 		UpperTorso = { rx = -8, ry = 35 },
 		RightUpperArm = { rx = 50, rz = 10 },
 		RightLowerArm = { rx = 30 },
+	})),
+
+	-- The three moves off the combo. Each is authored so its `impact` sits at
+	-- the same fraction of its length the combo swings use, because playback
+	-- stretches everything before the impact to the server's wind-up and a
+	-- clip whose proportions are wildly different gets stretched oddly.
+
+	-- Thrust: the shield comes across to cover, the body turns side-on, and
+	-- the sword goes straight out from the hip. Narrow, long, and it carries
+	-- the player forward -- the only move here that closes distance.
+	[AnimationDefs.move("SwordAndShield", "Thrust")] = strike(0.68, 0.3, 0.18, merge(SHIELD_UP, footwork(6, 16, -30), {
+		UpperTorso = { rx = 2, ry = -28 },
+		Head = { ry = 20 },
+		RightUpperArm = { rx = 25, ry = -20, rz = 10 },
+		RightLowerArm = { rx = 95 },
+	}), merge(SHIELD_BACK, footwork(34, 14, 18), {
+		UpperTorso = { rx = 6, ry = 24 },
+		Head = { ry = -8 },
+		RightUpperArm = { rx = 78, ry = 10, rz = -6 },
+		RightLowerArm = { rx = 6 },
+	}), merge(SHIELD_UP, footwork(18, 12, 8), {
+		UpperTorso = { rx = 2, ry = 10 },
+		RightUpperArm = { rx = 50, rz = -4 },
+		RightLowerArm = { rx = 34 },
+	})),
+
+	-- Kick: the shield stays up and square -- this is a move you throw
+	-- *while* covered -- and the leg does the work. Short, and the recovery
+	-- settles the foot back down rather than carrying through, because the
+	-- point of it is to still be standing where you were.
+	[AnimationDefs.move("SwordAndShield", "Kick")] = strike(0.58, 0.26, 0.15, merge(SHIELD_UP, {
+		LowerTorso = { rx = -6, py = -0.08 },
+		UpperTorso = { rx = -8 },
+		RightUpperArm = { rx = 20, rz = -14 },
+		RightLowerArm = { rx = 24 },
+		RightUpperLeg = { rx = -28 },
+		RightLowerLeg = { rx = 50 },
+		LeftUpperLeg = { rx = 10 },
+		LeftLowerLeg = { rx = -18 },
+	}), merge(SHIELD_UP, {
+		LowerTorso = { rx = -14, py = -0.12 },
+		UpperTorso = { rx = -16 },
+		RightUpperArm = { rx = 16, rz = -18 },
+		RightUpperLeg = { rx = 62 },
+		RightLowerLeg = { rx = -8 },
+		RightFoot = { rx = -20 },
+		LeftUpperLeg = { rx = 16 },
+		LeftLowerLeg = { rx = -26 },
+	}), merge(SHIELD_UP, {
+		LowerTorso = { rx = -4, py = -0.06 },
+		UpperTorso = { rx = -6 },
+		RightUpperArm = { rx = 20, rz = -14 },
+		RightUpperLeg = { rx = 14 },
+		RightLowerLeg = { rx = -20 },
+		LeftUpperLeg = { rx = 8 },
+		LeftLowerLeg = { rx = -14 },
+	})),
+
+	-- Shield Bash: the whole body winds behind the shield and drives through
+	-- it. The sword arm tucks out of the way -- it is doing nothing here,
+	-- which is the read: a bash coming is a bash, not a cut.
+	[AnimationDefs.move("SwordAndShield", "ShieldBash")] = strike(0.72, 0.31, 0.19, merge(footwork(8, 18, 26), {
+		UpperTorso = { rx = 6, ry = 30 },
+		Head = { ry = -22 },
+		LeftUpperArm = { rx = 48, ry = 18, rz = -16 },
+		LeftLowerArm = { rx = 88 },
+		RightUpperArm = { rx = 12, ry = 24, rz = -22 },
+		RightLowerArm = { rx = 58 },
+	}), merge(footwork(32, 12, -30), {
+		UpperTorso = { rx = -10, ry = -26 },
+		Head = { ry = 16 },
+		LeftUpperArm = { rx = 74, ry = -14, rz = 6 },
+		LeftLowerArm = { rx = 42 },
+		RightUpperArm = { rx = 18, ry = 30, rz = -26 },
+		RightLowerArm = { rx = 64 },
+	}), merge(SHIELD_UP, footwork(18, 12, -10), {
+		UpperTorso = { rx = -4, ry = -10 },
+		RightUpperArm = { rx = 22, rz = -18 },
+		RightLowerArm = { rx = 50 },
 	})),
 
 	--[[ Daggers ]]

@@ -269,10 +269,21 @@ local function holdGuard(entry: Tracked, weaponId: string, fromStart: boolean)
 	})
 end
 
--- Whether an action name is a swing or a critical. These are the only
--- actions a flinch is allowed to interrupt.
+-- Whether an action name is an attack of some kind: a combo swing, a move
+-- off the combo, or a critical. These are the only actions a flinch is
+-- allowed to interrupt, and the only ones a feint may cancel.
+--
+-- Moves have to be in here. They are attacks, so a hit should break one and a
+-- feint should be able to call one off -- and because this is a name-prefix
+-- test, a move left out would not error, it would just quietly become
+-- uninterruptible. Which is the sort of thing nobody notices for a month.
 local function isStrike(name: string?): boolean
-	return name ~= nil and (string.sub(name, 1, 6) == "swing_" or string.sub(name, 1, 9) == "critical_")
+	if name == nil then
+		return false
+	end
+	return string.sub(name, 1, 6) == "swing_"
+		or string.sub(name, 1, 5) == "move_"
+		or string.sub(name, 1, 9) == "critical_"
 end
 
 -- Schedules the blade's whoosh for partway through the windup, where the

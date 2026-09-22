@@ -232,6 +232,12 @@ describe("Animation coverage", function()
 				has(AnimationDefs.swing(weaponId, step))
 			end
 			has(AnimationDefs.critical(weaponId))
+			-- Moves off the combo need a clip just as its steps do. Without
+			-- this a declared move plays nothing at all: `playAction`
+			-- resolves a missing name to nil and returns quietly.
+			for moveId in def.attack.moves or {} do
+				has(AnimationDefs.move(weaponId, moveId))
+			end
 			has(AnimationDefs.guard(weaponId))
 			has(AnimationDefs.stance(weaponId))
 			-- Without one, standing still falls back to Roblox's own idle and
@@ -341,6 +347,7 @@ describe("Animation shape", function()
 			local name = string.match(label, "/(.+)$") :: string
 			local isStrike = string.sub(name, 1, 7) == "attack_"
 				or string.sub(name, 1, 6) == "swing_"
+				or string.sub(name, 1, 5) == "move_"
 				or string.sub(name, 1, 9) == "critical_"
 			check(`{label} impact`, (anim.impact ~= nil) == isStrike)
 		end)
