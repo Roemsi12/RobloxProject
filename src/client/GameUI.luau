@@ -224,16 +224,13 @@ end
 -- thing that distinguishes two copies is `upgradeLevel`, which is part of the
 -- stack key — two Rotted Claws at level 0 really are interchangeable, and a
 -- pair at different levels stay in separate stacks.
-local INVENTORY_COLUMNS = 4
+-- The tile, and nothing about the panel around it. The grid is a
+-- UIGridLayout sized relative to its parent, so it wraps to however many
+-- columns the Inventory tab is wide -- the panel is no longer measured from
+-- the tiles, which is what the column count and the derived panel width used
+-- to be for, back when it was pinned to the side of the screen.
 local TILE_SIZE = 78
 local TILE_PADDING = 6
--- The grid wraps on width, so the panel is sized from the tiles rather than
--- the other way round: picking both by hand is how a fifth column appears the
--- next time a tile grows two pixels.
-local GRID_WIDTH = INVENTORY_COLUMNS * TILE_SIZE + (INVENTORY_COLUMNS - 1) * TILE_PADDING
-local PANEL_PADDING = 12
-local SCROLLBAR = 6
-local INVENTORY_WIDTH = GRID_WIDTH + PANEL_PADDING * 2 + SCROLLBAR
 
 type Stack = {
 	itemId: string,
@@ -281,15 +278,23 @@ end
 
 -- The inventory panel. Returns the panel, a function to re-render it from
 -- a list of items, and the label showing how full it is.
-local function buildInventory(parent: Instance): (Frame, ({ any }, number) -> (), TextLabel)
+-- Hosted in the menu's Inventory tab, exactly as `buildSkillPanel` is hosted
+-- in the Skill Tree one: it fills the window and draws no background of its
+-- own. The menu already provides the panel, and a frame with its own colour
+-- and border inside that one reads as a box in a box -- it also stacks a
+-- second translucent fill over the world, so the tab comes out visibly darker
+-- than every other tab in the same window.
+local function buildInventory(host: Instance): (Frame, ({ any }, number) -> (), TextLabel)
 	local panel = Instance.new("Frame")
-	panel.Size = UDim2.fromOffset(INVENTORY_WIDTH, 430)
-	panel.Position = UDim2.new(1, -(INVENTORY_WIDTH + 16), 0, 16)
-	panel.BackgroundColor3 = PANEL_COLOR
-	panel.BackgroundTransparency = 0.15
-	panel.Visible = false
-	panel.Parent = parent
-	stylePanel(panel)
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.Position = UDim2.fromScale(0.5, 0.5)
+	-- Fills whatever the tab gives it, rather than naming the menu's size:
+	-- PANEL_WIDTH is declared further down this file and would not be in
+	-- scope here, and a panel that measures itself against its host stays
+	-- right if the menu is ever resized.
+	panel.Size = UDim2.fromScale(1, 1)
+	panel.BackgroundTransparency = 1
+	panel.Parent = host
 
 	local title = Instance.new("TextLabel")
 	title.Size = UDim2.new(1, -110, 0, 30)
@@ -1727,13 +1732,8 @@ function GameUI.start()
 	})
 	local menuButton, setMenuDot = buildMenuButton(gui)
 
-	-- The inventory lives in its tab now, centred in it, rather than pinned
-	-- to the side of the screen.
-	local inventoryPanel, renderInventory, inventoryWeapon = buildInventory(gui)
-	inventoryPanel.AnchorPoint = Vector2.new(0.5, 0.5)
-	inventoryPanel.Position = UDim2.fromScale(0.5, 0.5)
-	inventoryPanel.Visible = true
-	inventoryPanel.Parent = tabs.inventory
+	-- The inventory lives in its tab, the same way the skill tree does.
+	local _, renderInventory, inventoryWeapon = buildInventory(tabs.inventory)
 
 	buildControls(tabs.controls)
 
