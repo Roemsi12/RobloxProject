@@ -613,6 +613,48 @@ end
 -- player would be reading two different languages.
 AnimationDefs.strike = strike
 
+-- The same animation, starting from wherever the body already is.
+--
+-- This is how one authored clip flows into another. An action that is
+-- interrupted part way leaves the rig in some pose the next clip knows
+-- nothing about; played normally, the next clip opens at rest, so the body
+-- snaps back to neutral and starts over. `from` replaces the opening
+-- keyframe's poses with the captured one, and the lead-in the clip already
+-- has does the travelling instead.
+--
+-- **It adds no time, and that is not a stylistic choice.** Playback stretches
+-- everything before `impact` to fit the server's real wind-up
+-- (`KeyframeMath.alignedTime`), and the parry window is read off that impact.
+-- A transition that prepended time would push the visible hit later than the
+-- hit the server resolves, so a player would watch the blow land after being
+-- told it had. Every other keyframe, `impact` and `length` are therefore left
+-- exactly as authored, and a spec says so.
+--
+-- A part in `startPose` that the clip never poses stays in the animation's
+-- part set and eases to rest across it, which is what should happen: the body
+-- gives up whatever the last action left it holding and settles into what
+-- this one asks for.
+--
+-- Returns a new def and mutates nothing. `KeyframeMath.partsOf` caches on the
+-- def table, so each transition costs one cache miss -- once per interrupted
+-- action, not per frame. Do not be tempted to make this return a shared
+-- mutable def to avoid that.
+function AnimationDefs.from(anim: AnimationDef, startPose: Poses): AnimationDef
+	local keyframes = table.clone(anim.keyframes)
+	local first = keyframes[1]
+	if not first then
+		return anim
+	end
+
+	local opening = table.clone(first)
+	opening.poses = startPose
+	keyframes[1] = opening
+
+	local out = table.clone(anim)
+	out.keyframes = keyframes
+	return out
+end
+
 -- The same idle, re-labelled for walking: for a rig that never moves, so
 -- every enemy still has the full basic set.
 local function standIn(anim: AnimationDef): AnimationDef

@@ -446,3 +446,62 @@ describe("Animation shape", function()
 		end)
 	end)
 end)
+
+-- `AnimationDefs.from` is how one authored clip flows into another: it
+-- replaces the opening keyframe with the pose the body is actually in, so an
+-- interrupted action does not snap back to neutral before the next one
+-- starts.
+describe("AnimationDefs.from", function()
+	local START = { RightUpperArm = { rx = 40, ry = -12 }, LeftHand = { rz = 8 } }
+
+	local function swordSwing()
+		return AnimationDefs.get(RigDefs.PLAYER_RIG, AnimationDefs.swing("SwordAndShield", 1)) :: any
+	end
+
+	it("opens on the pose it was given", function()
+		local moved = AnimationDefs.from(swordSwing(), START)
+		expect(moved.keyframes[1].poses).toBe(START)
+		expect(moved.keyframes[1].time).toBe(0)
+	end)
+
+	-- The one that matters. Playback stretches everything before `impact` to
+	-- fit the server's wind-up, and the parry window is read off that impact,
+	-- so a transition that moved either would desynchronise what the player
+	-- sees from what the server resolved -- they would watch the blow land
+	-- after being told it had.
+	it("moves neither the impact nor the length", function()
+		local original = swordSwing()
+		local moved = AnimationDefs.from(original, START)
+		expect(moved.impact).toBe(original.impact)
+		expect(moved.length).toBe(original.length)
+		expect(#moved.keyframes).toBe(#original.keyframes)
+		for index = 2, #original.keyframes do
+			expect({ index, moved.keyframes[index] }).toEqual({ index, original.keyframes[index] })
+		end
+	end)
+
+	it("leaves the animation it was given alone", function()
+		local original = swordSwing()
+		local before = original.keyframes[1].poses
+		AnimationDefs.from(original, START)
+		expect(original.keyframes[1].poses).toBe(before)
+	end)
+
+	-- A part the captured pose holds but the clip never mentions has to stay
+	-- in the part set, or the sampler would not know to ease it out and the
+	-- body would keep holding it for the whole swing.
+	it("keeps a part the clip does not pose, so it eases out rather than sticking", function()
+		local moved = AnimationDefs.from(swordSwing(), { LeftHand = { rz = 30 } })
+		expect(table.find(KeyframeMath.partsOf(moved), "LeftHand") ~= nil).toBe(true)
+
+		local atStart = KeyframeMath.sample(moved, 0)
+		local atEnd = KeyframeMath.sample(moved, moved.length)
+		expect(atStart.LeftHand.rz).toBe(30)
+		expect(math.abs(atEnd.LeftHand.rz) < 1e-6).toBe(true)
+	end)
+
+	it("hands back an animation with no keyframes unchanged", function()
+		local empty = { length = 1, looped = false, priority = "Action", keyframes = {} } :: any
+		expect(AnimationDefs.from(empty, START)).toBe(empty)
+	end)
+end)
