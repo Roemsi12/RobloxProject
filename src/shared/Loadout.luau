@@ -91,6 +91,43 @@ function Loadout.swingTiming(attack: WeaponDefs.AttackProfile, step: number): Sw
 	}
 end
 
+-- The same shape for a move as `swingTiming` gives a combo step, so every
+-- caller can hold one kind of thing. Client and server both go through here,
+-- which is the only reason the client's guess about what is about to happen
+-- and the server's ruling on what did agree.
+--
+-- `comboExpiresAfter` is the interesting field. A move does not advance the
+-- ladder, but it does hold the window open from its own press -- so slash,
+-- thrust, slash comes out as steps one and two with a thrust between them,
+-- rather than resetting to step one because the ladder was left alone for too
+-- long. That is the whole of "chainable", expressed as one number.
+--
+-- `finisher` is always false: a move is never the end of a combo, because it
+-- is not part of one. It only exists in the return so the two timings stay
+-- interchangeable.
+function Loadout.moveTiming(attack: WeaponDefs.AttackProfile, moveId: string): SwingTiming
+	local moves = attack.moves
+	local move = moves and moves[moveId]
+	assert(move, `No move "{moveId}"`)
+	return {
+		windup = move.windup,
+		readyAfter = move.windup + move.recovery,
+		comboExpiresAfter = move.windup + attack.comboWindow,
+		damageMultiplier = move.damageMultiplier,
+		finisher = false,
+	}
+end
+
+-- Whether this weapon can throw this move at all. The server asks before it
+-- believes a client that says it threw one.
+function Loadout.hasMove(attack: WeaponDefs.AttackProfile, moveId: string?): boolean
+	if moveId == nil then
+		return false
+	end
+	local moves = attack.moves
+	return moves ~= nil and moves[moveId] ~= nil
+end
+
 -- Stable, sorted list so the debug keybinds and any future UI agree on order
 -- regardless of table iteration order.
 function Loadout.allWeaponIds(): { string }

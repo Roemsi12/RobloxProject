@@ -54,6 +54,39 @@ export type ComboStep = {
 	damageMultiplier: number,
 }
 
+-- A move the player throws deliberately, chosen by which way they are
+-- holding at the moment of the press rather than by where they are in the
+-- combo. A thrust, a kick, a shield bash.
+--
+-- Fuller than a `ComboStep` because it has to be. A combo step inherits the
+-- weapon's `range` and `arcDegrees` -- which is fine when every step is the
+-- same sword travelling through the same arc -- but a kick reaches a third as
+-- far as a sword and a shield bash sweeps a much narrower wedge. A move that
+-- could not say so would be a sword swing wearing a different animation.
+--
+-- Moves do not advance the combo ladder. They keep its window open, so
+-- slash, thrust, slash carries on from step one to step two: the ladder stays
+-- a ladder and the moves are things you can do between its rungs.
+export type MoveDef = {
+	-- Seconds from the press to the hit landing, as a combo step's windup is.
+	windup: number,
+	damageMultiplier: number,
+	-- This move's own reach and wedge, rather than the weapon's.
+	range: number,
+	arcDegrees: number,
+	-- Pause after it lands before anything else can start.
+	recovery: number,
+	-- The forward push on the press, studs per second. Visual, like the
+	-- weapon's `lunge`: the server resolves the hit from wherever the player
+	-- actually is. A thrust carries further than a slash; a kick pushes off
+	-- backwards and so carries none.
+	lunge: number,
+	-- Posture damage when the move is blocked, if it should differ from the
+	-- health damage. A shield bash is the whole reason this exists: it should
+	-- break a guard without being a threat to someone who simply steps aside.
+	postureDamage: number?,
+}
+
 -- The heavy attack on its own key: slower, harder, wider, on a cooldown.
 export type CriticalProfile = {
 	windup: number,
@@ -100,6 +133,10 @@ export type AttackProfile = {
 	-- (Shots, BowVFX). Purely a picture — the hit has already been decided
 	-- where the shot was taken — but it is what makes a bow read as a bow.
 	shot: ShotProfile?,
+	-- Moves this weapon can throw outside its combo, keyed by move id. Absent
+	-- on a weapon that has not been given a moveset yet, which is every weapon
+	-- but the sword and shield for now.
+	moves: { [string]: MoveDef }?,
 	-- Pause after a non-finisher swing lands before the next can start.
 	--
 	-- This is the number that decides whether melee is a rhythm or a mash. It
@@ -152,6 +189,55 @@ local WeaponDefs: { [string]: WeaponDef } = {
 			damage = 12,
 			range = 11,
 			arcDegrees = 120,
+			-- Three moves off the combo, each answering something the combo
+			-- cannot. They are held to the same reactable band the enemies
+			-- are, because a duel opponent has to be able to parry them.
+			moves = {
+				-- Forward. Longest reach and the narrowest wedge in the
+				-- weapon's kit: it closes distance and it demands you be
+				-- pointed at what you want to hit.
+				Thrust = {
+					windup = 0.32,
+					damageMultiplier = 1.15,
+					range = 15,
+					arcDegrees = 45,
+					recovery = 0.3,
+					lunge = 22,
+				},
+				-- Backward or sideways. Short, fast and weak, and it pushes
+				-- *you* rather than carrying you in -- the move for buying
+				-- space when something is already inside your guard.
+				Kick = {
+					-- 0.28 rather than the 0.26 this started at: the reactable
+					-- band floors at 0.27, and a kick nobody can parry is a
+					-- free hit in a duel. Still the fastest of the three.
+					windup = 0.28,
+					damageMultiplier = 0.5,
+					range = 7,
+					arcDegrees = 60,
+					recovery = 0.26,
+					lunge = 0,
+					-- Hits the guard harder than it hits the body. A kick is
+					-- a nudge to someone who steps aside and a real problem
+					-- to someone hiding behind a shield.
+					postureDamage = 14,
+				},
+				-- The heavy. Slowest of the three and barely scratches, but
+				-- it breaks a guard: this is the answer to a turtle, and the
+				-- reason `postureDamage` exists separately from damage.
+				ShieldBash = {
+					-- 0.37, a hair under the band ceiling of 0.38: past it, a
+					-- player reacting to the wind-up presses before the parry
+					-- window opens and is punished for reading it correctly.
+					windup = 0.37,
+					damageMultiplier = 0.4,
+					range = 9,
+					arcDegrees = 70,
+					recovery = 0.34,
+					lunge = 12,
+					postureDamage = 26,
+				},
+			},
 			recovery = 0.22,
 		},
 	},

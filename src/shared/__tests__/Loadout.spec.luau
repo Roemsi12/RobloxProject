@@ -5,6 +5,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConstants = require(Shared.CombatConstants)
 local Loadout = require(Shared.Loadout)
 local WeaponDefs = require(Shared.WeaponDefs)
+local ParryMath = require(Shared.ParryMath)
 
 local JestGlobals = require(ReplicatedStorage.DevPackages.JestGlobals)
 local describe = JestGlobals.describe
@@ -233,5 +234,92 @@ describe("melee pacing", function()
 			expect({ weaponId, cycle(weaponId) >= cycle(fastest) }).toEqual({ weaponId, true })
 			expect({ weaponId, cycle(weaponId) <= cycle(slowest) }).toEqual({ weaponId, true })
 		end
+	end)
+end)
+
+-- Moves are the attacks a player throws deliberately, off the combo, chosen
+-- by which way they are holding. They are held to the combo's own floors --
+-- the "too fast, you can pretty much spam" verdict applies to anything on the
+-- attack button, not just to the ladder.
+describe("weapon moves", function()
+	local MIN_SWING_CYCLE = 0.3
+
+	local function eachMove(callback: (weaponId: string, moveId: string, move: any, def: any) -> ())
+		for weaponId, def in WeaponDefs do
+			for moveId, move in def.attack.moves or {} do
+				callback(weaponId, moveId, move, def)
+			end
+		end
+	end
+
+	it("never lets a move come round faster than a swing may", function()
+		eachMove(function(weaponId, moveId, _, def)
+			local timing = Loadout.moveTiming(def.attack, moveId)
+			expect({ weaponId, moveId, timing.readyAfter >= MIN_SWING_CYCLE })
+				.toEqual({ weaponId, moveId, true })
+		end)
+	end)
+
+	-- Same reasoning as the combo's own window test: a move that closes the
+	-- window before you are allowed to press again cannot be chained out of,
+	-- which is the entire point of having it.
+	it("keeps every move's combo window open past its own cooldown", function()
+		eachMove(function(weaponId, moveId, _, def)
+			local timing = Loadout.moveTiming(def.attack, moveId)
+			expect({ weaponId, moveId, timing.comboExpiresAfter > timing.readyAfter })
+				.toEqual({ weaponId, moveId, true })
+		end)
+	end)
+
+	it("never reports a move as a finisher", function()
+		eachMove(function(weaponId, moveId, _, def)
+			expect({ weaponId, moveId, Loadout.moveTiming(def.attack, moveId).finisher })
+				.toEqual({ weaponId, moveId, false })
+		end)
+	end)
+
+	it("gives every move its own reach and wedge, and sane ones", function()
+		eachMove(function(weaponId, moveId, move)
+			expect({ weaponId, moveId, move.range > 0 and move.range <= 30 })
+				.toEqual({ weaponId, moveId, true })
+			expect({ weaponId, moveId, move.arcDegrees > 0 and move.arcDegrees <= 360 })
+				.toEqual({ weaponId, moveId, true })
+			expect({ weaponId, moveId, move.recovery >= 0.12 }).toEqual({ weaponId, moveId, true })
+			expect({ weaponId, moveId, move.lunge >= 0 }).toEqual({ weaponId, moveId, true })
+		end)
+	end)
+
+	-- A duel opponent parries a player's swing the same way a player parries
+	-- an enemy's, so a move nobody can react to is the same defect on the
+	-- other side of the fight. Same band, same derivation.
+	it("keeps every move answerable by reacting to it", function()
+		local lowest, highest = ParryMath.readableLead(true)
+		eachMove(function(weaponId, moveId, move)
+			expect({ weaponId, moveId, "too fast", move.windup >= lowest - 1e-9 })
+				.toEqual({ weaponId, moveId, "too fast", true })
+			expect({ weaponId, moveId, "too slow", move.windup <= highest + 1e-9 })
+				.toEqual({ weaponId, moveId, "too slow", true })
+		end)
+	end)
+
+	-- Posture damage is optional, and only worth setting when it differs from
+	-- what the move does to health -- that difference is what makes a shield
+	-- bash a guard-breaker rather than just a weak hit.
+	it("only sets posture damage where it means something", function()
+		eachMove(function(weaponId, moveId, move)
+			if move.postureDamage ~= nil then
+				expect({ weaponId, moveId, move.postureDamage > 0 }).toEqual({ weaponId, moveId, true })
+			end
+		end)
+	end)
+
+	it("knows which moves a weapon has", function()
+		local sword = WeaponDefs.SwordAndShield.attack
+		expect(Loadout.hasMove(sword, "Thrust")).toBe(true)
+		expect(Loadout.hasMove(sword, "Pirouette")).toBe(false)
+		expect(Loadout.hasMove(sword, nil)).toBe(false)
+		-- A weapon with no moveset at all answers false rather than erroring:
+		-- the server asks this about whatever a client claims.
+		expect(Loadout.hasMove(WeaponDefs.Bow.attack, "Thrust")).toBe(false)
 	end)
 end)
