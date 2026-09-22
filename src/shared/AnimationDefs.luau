@@ -26,6 +26,7 @@
 -- a strike steps into it with the whole body, and walking slows right down
 -- while one plays.
 
+local GripSolver = require(script.Parent.GripSolver)
 local KeyframeMath = require(script.Parent.KeyframeMath)
 local RigDefs = require(script.Parent.RigDefs)
 
@@ -1400,6 +1401,373 @@ local function guardSnap(pose: Poses): AnimationDef
 	}
 end
 
+--[[ Weapons in the hand ]]
+
+-- The weapon arms below are written as where the *weapon* goes, and
+-- GripSolver works out the shoulder, elbow and wrist that put it there.
+--
+-- Written in root space: +X the rig's right, +Y up, -Z the way the character
+-- faces, the origin at the hips as they stand (the floor is at y = -3). A
+-- strike aims at something in front of the character wherever the torso has
+-- twisted to on the way, and root space is where "in front" stays put. Each
+-- pose is converted through its own hips and waist, so the torso twist that
+-- drives a swing is still authored the old way, as angles, around it.
+--
+-- `at` is the fist, `point` the way the weapon runs from it (head, point or
+-- upper limb), `edge` the way its edge or arrow faces, `pole` where the
+-- elbow should go.
+type Grip = { at: { number }, point: { number }, edge: { number }?, pole: { number }? }
+
+-- `poses` with `side`'s arm holding the weapon as `grip` says.
+local function wield(poses: Poses, side: string, grip: Grip): Poses
+	local chest = GripSolver.chestFrame(poses)
+	local arm = GripSolver.hold(side, {
+		at = chest.toPoint(grip.at),
+		point = chest.toVector(grip.point),
+		edge = if grip.edge then chest.toVector(grip.edge) else nil,
+		pole = if grip.pole then chest.toVector(grip.pole) else nil,
+	})
+	return merge(poses, arm :: any)
+end
+
+-- `poses` with only a wrist turned, so the blade the authored arm carries
+-- points along `point` (root space). The right hand unless `side` says.
+--
+-- Every swing of a bladed weapon sets its wrists this way, and has to: a
+-- part a swing leaves unposed keeps whatever the stance under it had
+-- (RigAnimation), so a swing that said nothing about the wrist was thrown
+-- with the stance's resting droop — daggers stabbing with their points at
+-- the floor, a sword cutting with its blade at the sky.
+local function aimed(poses: Poses, point: { number }, side: string?): Poses
+	local hand = side or "Right"
+	local chest = GripSolver.chestFrame(poses)
+	local wrist = GripSolver.aim(poses :: any, hand, chest.toVector(point))
+	return merge(poses, { [`{hand}Hand`] = wrist })
+end
+
+-- Where a blade points at each beat of a strike, in root space. `follow`
+-- defaults to `hit`, and `recovery` is only used by a strike that has one.
+type BladeAims = { windup: { number }, hit: { number }, follow: { number }?, recovery: { number }? }
+
+-- Where a blade points in the anticipation beat: level-ish, at the target.
+local READY_POINT = { 0, 0.25, -1 }
+
+-- A strike or guard with its wrists set, so each blade points where the
+-- swing is going rather than wherever the arm happens to leave it.
+--
+-- Applied over the finished keyframes of `strike` (or `guardSnap`), each one
+-- aimed from its own arm: that way the anticipation and coil, which `strike`
+-- derives by scaling the windup, still carry a blade pointing the windup's
+-- way instead of a scaled wrist pointing somewhere new. The rest keyframes at
+-- either end are left alone — that is the stance's wrist, faded to.
+local function aimBlades(anim: AnimationDef, aims: { Right: BladeAims?, Left: BladeAims? }): AnimationDef
+	local keyframes = table.clone(anim.keyframes)
+	local last = #keyframes
+	for side, spec in aims :: any do
+		local byIndex: { [number]: { number } }
+		if last == 3 then
+			-- A guard: rest, the overshoot, the held pose.
+			byIndex = { [2] = spec.hit, [3] = spec.hit }
+		else
+			-- rest, anticipation, windup, coil, impact, follow, [recovery], rest.
+			-- The anticipation points the blade at the target, ready, rather than
+			-- the windup's way: it is the windup scaled back past rest, and a blade
+			-- aimed backward from an arm that has barely moved would need a wrist
+			-- bent double.
+			byIndex = { [2] = READY_POINT, [3] = spec.windup, [4] = spec.windup, [5] = spec.hit, [6] = spec.follow or spec.hit }
+			if last == 8 then
+				byIndex[7] = spec.recovery or spec.hit
+			end
+		end
+		for index, point in byIndex do
+			local keyframe = keyframes[index]
+			keyframes[index] = {
+				time = keyframe.time,
+				easing = keyframe.easing,
+				poses = aimed(keyframe.poses, point, side),
+			}
+		end
+	end
+	local copy = table.clone(anim)
+	copy.keyframes = keyframes
+	return copy
+end
+
+-- The same animation with the left hand put on the haft of whatever the
+-- right holds, `along` studs from the right fist (positive toward the head),
+-- in every keyframe.
+--
+-- Done last, over the finished keyframes, because `strike` derives its
+-- anticipation and coil by scaling angles: scaling two arms' angles does not
+-- keep two fists on one haft, but re-solving the second arm against wherever
+-- the first ended up does. Each keyframe is solved near the one before it so
+-- the angles stay continuous, and a loop's last frame reuses its first so the
+-- loop still closes exactly.
+--
+-- Solving only at the authored keyframes is not enough: between two of them
+-- each joint is interpolated on its own, and two arms interpolated
+-- independently drift apart — mid-swing, the second fist came a couple of
+-- studs off the haft. So the animation is resampled at TWO_HANDED_RATE, every
+-- authored keyframe kept (the impact among them), and the second arm solved
+-- at each sample. The samples are joined linearly: they are dense enough to
+-- carry the original easing in their spacing.
+local TWO_HANDED_RATE = 30
+
+local function twoHanded(anim: AnimationDef, along: number, pole: { number }?): AnimationDef
+	local times: { number } = {}
+	for _, keyframe in anim.keyframes do
+		table.insert(times, keyframe.time)
+	end
+	local steps = math.ceil(anim.length * TWO_HANDED_RATE)
+	for step = 1, steps - 1 do
+		local t = anim.length * step / steps
+		local near = false
+		for _, existing in times do
+			if math.abs(existing - t) < 0.2 / TWO_HANDED_RATE then
+				near = true
+				break
+			end
+		end
+		if not near then
+			table.insert(times, t)
+		end
+	end
+	table.sort(times)
+
+	local keyframes = {}
+	local previous: Poses? = nil
+	for index, t in times do
+		local sampled: Poses = KeyframeMath.sample(anim, t) :: any
+		local chest = GripSolver.chestFrame(sampled :: any)
+		local chestPole = if pole then chest.toVector(pole) else nil
+		-- Where the second fist cannot reach its place on the haft — the far
+		-- end of a spin, say — it slides up toward the first, which is what
+		-- hands on a haft actually do, rather than letting go of it.
+		local offHand, shortfall = GripSolver.offHand(sampled :: any, "Right", along, chestPole, previous :: any)
+		for _, slide in { 0.7, 0.45, 0.25 } do
+			if shortfall <= 0.05 then
+				break
+			end
+			local slid, slidShort = GripSolver.offHand(sampled :: any, "Right", along * slide, chestPole, previous :: any)
+			if slidShort < shortfall then
+				offHand, shortfall = slid, slidShort
+			end
+		end
+		if anim.looped and index == #times and keyframes[1] then
+			offHand = {
+				LeftUpperArm = keyframes[1].poses.LeftUpperArm,
+				LeftLowerArm = keyframes[1].poses.LeftLowerArm,
+				LeftHand = keyframes[1].poses.LeftHand,
+			} :: any
+		end
+		previous = offHand :: any
+		table.insert(keyframes, kf(t, merge(sampled, offHand :: any), "Linear"))
+	end
+	local copy = table.clone(anim)
+	copy.keyframes = keyframes
+	return copy
+end
+
+-- A body pose and where the weapon is in it: one beat of a two-handed strike.
+type Held = { body: Poses, grip: Grip }
+
+-- `body` with the weapon at `grip`. The two-handed strikes are written as a
+-- run of these; heavyStrike does the arms.
+local function held(body: Poses, _side: string, grip: Grip): Held
+	return { body = body, grip = grip }
+end
+
+local function vlerp(a: { number }, b: { number }, t: number): { number }
+	return { a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t }
+end
+
+local function vunit(a: { number }): { number }
+	local l = math.sqrt(a[1] ^ 2 + a[2] ^ 2 + a[3] ^ 2)
+	return { a[1] / l, a[2] / l, a[3] / l }
+end
+
+-- Turns direction `a` toward direction `b` by fraction `t` of the angle
+-- between them, about the axis they share (t past 1 carries on turning).
+-- Unlike blending the vectors, this keeps a steady turning speed and never
+-- passes through a zero-length direction when the two are far apart.
+local function slerp(a: { number }, b: { number }, t: number): { number }
+	local ua, ub = vunit(a), vunit(b)
+	local cosine = math.clamp(ua[1] * ub[1] + ua[2] * ub[2] + ua[3] * ub[3], -1, 1)
+	local angle = math.acos(cosine)
+	if angle < 1e-4 then
+		return vunit(vlerp(ua, ub, t))
+	end
+	local axis = { ua[2] * ub[3] - ua[3] * ub[2], ua[3] * ub[1] - ua[1] * ub[3], ua[1] * ub[2] - ua[2] * ub[1] }
+	if math.sqrt(axis[1] ^ 2 + axis[2] ^ 2 + axis[3] ^ 2) < 1e-6 then
+		-- Opposite directions: turn over the top.
+		axis = { 1, 0, 0 }
+	end
+	local k = vunit(axis)
+	local theta = angle * t
+	local c, s = math.cos(theta), math.sin(theta)
+	local kxa = { k[2] * ua[3] - k[3] * ua[2], k[3] * ua[1] - k[1] * ua[3], k[1] * ua[2] - k[2] * ua[1] }
+	local kda = k[1] * ua[1] + k[2] * ua[2] + k[3] * ua[3]
+	return {
+		ua[1] * c + kxa[1] * s + k[1] * kda * (1 - c),
+		ua[2] * c + kxa[2] * s + k[2] * kda * (1 - c),
+		ua[3] * c + kxa[3] * s + k[3] * kda * (1 - c),
+	}
+end
+
+-- Where the weapon is `t` of the way from `a` to `b`: the fist moving in a
+-- straight line, the weapon turning at a steady rate.
+local function gripBetween(a: Grip, b: Grip, t: number): Grip
+	return {
+		at = vlerp(a.at, b.at, t),
+		point = slerp(a.point, b.point, t),
+		edge = if a.edge and b.edge then slerp(a.edge, b.edge, t) else nil,
+	}
+end
+
+local ARM_PARTS = {
+	RightUpperArm = true,
+	RightLowerArm = true,
+	RightHand = true,
+	LeftUpperArm = true,
+	LeftLowerArm = true,
+	LeftHand = true,
+}
+
+-- Resamples how far the second fist sits down the haft from the first.
+local HAFT_SPACING = -1.0
+
+-- A strike with a two-handed weapon, keyed by where the *weapon* is.
+--
+-- `strike` makes a swing by interpolating joint angles between key poses and
+-- scaling them for the coil and follow-through. For a weapon held in two
+-- fists neither survives: two arms interpolated separately drift off one
+-- haft, an arm's angles interpolated between two solved poses can swing the
+-- weapon round the long way, and a scaled angle turns the head off the line
+-- of the cut. So here the body is still `strike`'s — its anticipation, coil
+-- and carry are right for a body — but the weapon moves along its own path:
+-- the fist in a straight line and the haft turning steadily between the
+-- beats, and both arms solved (GripSolver) at TWO_HANDED_RATE along the way.
+--
+-- It starts from and returns to `ready`, the weapon at the ready in both
+-- hands, rather than rest: rest is arms hanging, which for a haft through
+-- both fists puts the head on the floor.
+local function heavyStrike(
+	length: number,
+	impact: number,
+	windupAt: number,
+	ready: Grip,
+	windup: Held,
+	hit: Held,
+	recovery: Held?
+): AnimationDef
+	local body = strike(length, impact, windupAt, windup.body, hit.body, if recovery then recovery.body else nil)
+	local coilAt = windupAt + (impact - windupAt) * 0.45
+	local followAt = impact + math.min(0.07, (length - impact) * 0.2)
+
+	-- The weapon's own beats. The coil draws it a little further back than
+	-- the windup, and the follow-through carries it on past the hit along
+	-- the line it was travelling.
+	type Beat = { time: number, grip: Grip, easing: KeyframeMath.Easing }
+	local beats: { Beat } = {
+		{ time = 0, grip = ready, easing = "Out" },
+		{ time = windupAt * 0.4, grip = gripBetween(ready, windup.grip, 0.3), easing = "Smooth" },
+		{ time = windupAt, grip = windup.grip, easing = "Smooth" },
+		{ time = coilAt, grip = gripBetween(ready, windup.grip, 1.08), easing = "In" },
+		{ time = impact, grip = hit.grip, easing = "Out" },
+		{ time = followAt, grip = gripBetween(windup.grip, hit.grip, 1.1), easing = "Smooth" },
+	}
+	if recovery then
+		table.insert(beats, { time = followAt + (length - followAt) * 0.5, grip = recovery.grip, easing = "Smooth" })
+	end
+	table.insert(beats, { time = length, grip = ready, easing = "Smooth" })
+
+	local function gripAt(t: number): Grip
+		for index = 1, #beats - 1 do
+			local from, to = beats[index], beats[index + 1]
+			if t <= to.time then
+				local span = to.time - from.time
+				local alpha = if span > 0 then KeyframeMath.ease(from.easing, (t - from.time) / span) else 1
+				return gripBetween(from.grip, to.grip, alpha)
+			end
+		end
+		return beats[#beats].grip
+	end
+
+	local times: { number } = {}
+	for _, beat in beats do
+		table.insert(times, beat.time)
+	end
+	local function addTime(t: number, rate: number)
+		for _, existing in times do
+			if math.abs(existing - t) < 0.2 / rate then
+				return
+			end
+		end
+		table.insert(times, t)
+	end
+	local steps = math.ceil(length * TWO_HANDED_RATE)
+	for step = 1, steps - 1 do
+		addTime(length * step / steps, TWO_HANDED_RATE)
+	end
+	-- The snap from the coil into the hit is the fastest the weapon ever
+	-- moves, so it gets three times the samples: that is where two arms
+	-- solved a frame apart would otherwise come furthest apart in between.
+	local fast = TWO_HANDED_RATE * 3
+	local fastSteps = math.ceil((followAt - coilAt) * fast)
+	for step = 1, fastSteps - 1 do
+		addTime(coilAt + (followAt - coilAt) * step / fastSteps, fast)
+	end
+	table.sort(times)
+
+	local keyframes = {}
+	local previous: Poses = {}
+	for _, t in times do
+		local poses: Poses = {}
+		for part, values in KeyframeMath.sample(body, t) do
+			if not ARM_PARTS[part] then
+				poses[part] = values
+			end
+		end
+		local grip = gripAt(t)
+		local chest = GripSolver.chestFrame(poses :: any)
+		local right = GripSolver.hold("Right", {
+			at = chest.toPoint(grip.at),
+			point = chest.toVector(grip.point),
+			edge = if grip.edge then chest.toVector(grip.edge) else nil,
+		}, previous :: any)
+		poses = merge(poses, right :: any)
+
+		-- Where the second fist cannot reach its place on the haft it slides
+		-- up toward the first, which is what hands on a haft do.
+		local left, shortfall = GripSolver.offHand(poses :: any, "Right", HAFT_SPACING, nil, previous :: any)
+		for _, slide in { 0.7, 0.45, 0.25 } do
+			if shortfall <= 0.05 then
+				break
+			end
+			local slid, slidShort = GripSolver.offHand(poses :: any, "Right", HAFT_SPACING * slide, nil, previous :: any)
+			if slidShort < shortfall then
+				left, shortfall = slid, slidShort
+			end
+		end
+		poses = merge(poses, left :: any)
+		previous = poses
+		table.insert(keyframes, kf(t, poses, "Linear"))
+	end
+
+	return {
+		length = length,
+		looped = false,
+		priority = "Action",
+		impact = impact,
+		keyframes = keyframes,
+	}
+end
+
+-- A direction, not yet unit length; GripSolver normalises.
+local function dir(x: number, y: number, z: number): { number }
+	return { x, y, z }
+end
+
 local SHIELD_UP: Poses = {
 	LeftUpperArm = { rx = 55, rz = -10 },
 	LeftLowerArm = { rx = 80 },
@@ -1415,6 +1783,135 @@ local SHIELD_BACK: Poses = {
 local SHIELD_DOWN: Poses = {
 	LeftUpperArm = { rx = 10, rz = -7 },
 	LeftLowerArm = { rx = 28 },
+}
+
+--[[ The bow: a shot, rather than a swing ]]
+
+-- A shot is not a strike. `strike` builds a swing out of a windup pose, an
+-- exaggerated coil and a hit, by scaling joint angles — which is right for a
+-- blade and wrong for a bow, where the thing that must not move while the
+-- draw builds is the bow. So a shot is keyed from where the bow and the
+-- string hand are, every beat solved (GripSolver) rather than scaled:
+--
+--   raise    the bow comes up on target, the string hand meets the string
+--   draw     the string hand pulls back to the anchor under the jaw
+--   release  the impact: still at the anchor — the arrow leaves from there
+--   follow   the string hand flicks back off the face; the bow stays up
+--   settle   the bow comes down, the string hand drops toward the quiver
+--
+-- The body is side-on with the **left** shoulder at the target, which is how
+-- a bow held in the left hand is shot. The first version had it turned the
+-- other way, right shoulder leading, with the bow arm reaching across the
+-- chest to a target on the wrong side of it.
+--
+-- The draw is measured along the arrow, from the bow fist back to the
+-- anchor. BowVFX pulls the string back to wherever the right hand is while
+-- it is behind the string, and the server's shot is what lets it go.
+
+-- Under the chin, a little to the right: where the string hand anchors.
+local BOW_ANCHOR = { 0.1, 1.75, -0.8 }
+-- The arrow rests above the fist by this much (WeaponModelDefs.BOW.arrowZ).
+local ARROW_RISE = 0.32
+
+-- The bow arm and its fist for a draw of `draw` studs, aimed `lift` degrees
+-- above level. The fist is placed so that the arrow line runs back through
+-- the anchor, which is what makes the draw read as aimed down the arrow.
+local function bowFist(draw: number, lift: number): ({ number }, { number })
+	local l = math.rad(lift)
+	local forward = { 0, math.sin(l), -math.cos(l) }
+	return {
+		BOW_ANCHOR[1] + forward[1] * draw,
+		BOW_ANCHOR[2] + forward[2] * draw - ARROW_RISE,
+		BOW_ANCHOR[3] + forward[3] * draw,
+	}, forward
+end
+
+-- The bow carried low in front of the left hip, upright, an arrow already on
+-- the string. The walking stance, and where every shot starts and settles —
+-- a shot keyed from rest would begin and end with the arms hanging, which
+-- for a bow means an arrow pointing into the floor.
+local BOW_CARRY: Poses = wield({
+	UpperTorso = { ry = -12 },
+	Head = { ry = 10 },
+	RightUpperArm = { rx = 10, rz = 10 },
+	RightLowerArm = { rx = 30 },
+}, "Left", { at = { -1.3, 0.55, -1.0 }, point = dir(0.25, 1, -0.55), edge = dir(0.15, 0, -1) })
+
+type ShotSpec = {
+	length: number,
+	impact: number,
+	-- How far the string comes back, and how high the shot is aimed.
+	draw: number,
+	lift: number,
+	-- Hips and chest for the whole shot. Side-on: left shoulder forward.
+	body: Poses,
+	-- How far the string hand flies back off the anchor on release.
+	kick: number,
+}
+
+local function shot(spec: ShotSpec): AnimationDef
+	local fist, forward = bowFist(spec.draw, spec.lift)
+	-- The bow stands up with a slight cant, arrow on target.
+	local bow: Grip = { at = fist, point = dir(0.12, 1, forward[2] * 0.4), edge = forward, pole = dir(-1, -0.4, 0.2) }
+	local elbowOut = dir(1, 0.35, 0.8)
+
+	local function frame(stringHand: Grip, bowGrip: Grip?): Poses
+		local poses = wield(spec.body, "Left", bowGrip or bow)
+		return wield(poses, "Right", stringHand)
+	end
+
+	-- The string at rest is a little in front of the anchor end of the draw.
+	local nock = {
+		fist[1] - forward[1] * 0.75,
+		fist[2] + ARROW_RISE - forward[2] * 0.75,
+		fist[3] - forward[3] * 0.75,
+	}
+	local anchor = { BOW_ANCHOR[1], BOW_ANCHOR[2], BOW_ANCHOR[3] }
+	local deep = { anchor[1], anchor[2], anchor[3] + 0.08 }
+	local flick = { anchor[1] + 0.5, anchor[2] + 0.2, anchor[3] + spec.kick }
+
+	local raiseAt = spec.impact * 0.3
+	local drawAt = spec.impact * 0.72
+	local followAt = spec.impact + math.min(0.09, (spec.length - spec.impact) * 0.25)
+	local settleAt = followAt + (spec.length - followAt) * 0.5
+
+	-- Coming down: bow lowered and canted, the string hand off toward the
+	-- quiver on the back.
+	local lowered: Grip = { at = { -0.9, 0.9, -1.9 }, point = dir(0.35, 1, -0.3), edge = forward, pole = bow.pole }
+
+	return {
+		length = spec.length,
+		looped = false,
+		priority = "Action",
+		impact = spec.impact,
+		keyframes = {
+			kf(0, BOW_CARRY, "Out"),
+			kf(raiseAt, frame({ at = nock, point = forward, pole = elbowOut })),
+			kf(drawAt, frame({ at = anchor, point = forward, pole = elbowOut }), "In"),
+			kf(spec.impact, frame({ at = deep, point = forward, pole = elbowOut }), "Out"),
+			kf(followAt, frame({ at = flick, point = dir(0.3, 0.4, -1), pole = elbowOut })),
+			kf(settleAt, frame({ at = { 0.9, 0.9, -0.9 }, point = dir(0, 0.2, -1) }, lowered)),
+			kf(spec.length, BOW_CARRY),
+		},
+	}
+end
+
+-- Side-on for a left-handed bow: the hips turned right and the chest further,
+-- left foot leading, head turned back round to look down the arrow.
+local function archerBody(twist: number, lean: number): Poses
+	return merge(footwork(8, 12, -30), {
+		UpperTorso = { rx = lean, ry = twist + 30 },
+		Head = { rx = -2, ry = -twist - 4 },
+	})
+end
+
+-- The two-handed weapons at the ready, held diagonally across the body: what
+-- every one of their strikes starts from and settles back into (heavyStrike).
+local STAFF_READY: Grip = { at = { 0.35, 1.15, -1.45 }, point = dir(0.5, 0.85, -0.3) }
+local AXE_READY: Grip = {
+	at = { 0.3, 1.1, -1.4 },
+	point = dir(0.5, 0.85, -0.3),
+	edge = dir(0.7, 0, -0.7),
 }
 
 local R15Player: { [string]: AnimationDef } = {
@@ -1434,8 +1931,9 @@ local R15Player: { [string]: AnimationDef } = {
 		Head = { ry = -8 },
 		RightUpperArm = { rx = 6, rz = 6 },
 		RightLowerArm = { rx = 12 },
-		-- Sums with the arm above it to about -24: tip just clear of the floor.
-		RightHand = { rx = -42 },
+		-- Sums with the arm above it to about -18: tip clear of the floor, with
+		-- room left for a swing to dip it further on the way into its windup.
+		RightHand = { rx = -36 },
 	})),
 
 	-- Standing still: side-on behind the shield, sword drawn back low and
@@ -1487,7 +1985,7 @@ local R15Player: { [string]: AnimationDef } = {
 	}), merge(SHIELD_UP, footwork(28, 18, -15), {
 		UpperTorso = { rx = 8, ry = -35 },
 		Head = { ry = 15 },
-		RightUpperArm = { rx = 150, rz = 70 },
+		RightUpperArm = { rx = 118, rz = 58 },
 		RightLowerArm = { rx = 15 },
 	}), merge(SHIELD_UP, footwork(14, 10, -8), {
 		UpperTorso = { ry = -15 },
@@ -1684,135 +2182,82 @@ local R15Player: { [string]: AnimationDef } = {
 
 	--[[ Staff ]]
 
-	-- Two hands on the staff, held across the body.
-	-- The staff is gripped below its middle and runs up the hand's +Y, so a
-	-- hanging arm already stands it upright like a walking stave, butt near
-	-- the floor. Resting it is a matter of letting the arm down, not of
-	-- turning the wrist.
-	[AnimationDefs.stance("Staff")] = stanceLoop({
+	-- Every staff and greataxe pose below is two-handed, and written as where
+	-- the weapon is: see "Weapons in the hand" above. The right fist sits a
+	-- hand's width off the butt and the left goes a stud further down the
+	-- haft (`twoHanded`), so both fists are low on the haft and the head does
+	-- the travelling — a long mace, swung. The walking stance alone is
+	-- one-handed: a stave carried at the side.
+
+	-- Carried upright at the side like a walking stave, orb above the head.
+	[AnimationDefs.stance("Staff")] = stanceLoop(wield({
 		UpperTorso = { ry = 8 },
 		Head = { ry = -7 },
-		RightUpperArm = { rx = 5, rz = 5 },
-		RightLowerArm = { rx = 10 },
 		LeftUpperArm = { rx = 9, rz = -6 },
 		LeftLowerArm = { rx = 22 },
-	}),
+	}, "Right", { at = { 1.55, 0.35, -0.95 }, point = dir(0.04, 1, 0.1) })),
 
-	-- Standing still: the staff planted, both hands stacked on it, leaning a
-	-- little of the body's weight through it. The one idle in the game that is
+	-- Standing still: the staff stood up in front, both hands on it, a little
+	-- of the body's weight leant through it. The one idle in the game that is
 	-- resting rather than threatening, which is the point of the class.
-	[AnimationDefs.idle("Staff")] = idleLoop({
+	[AnimationDefs.idle("Staff")] = twoHanded(idleLoop(wield(merge(mirror(footwork(12, 22, 18)), {
 		UpperTorso = { rx = 6, ry = 14 },
-		Head = { rx = -8, ry = -18 },
-		RightUpperArm = { rx = 14, ry = 8, rz = 9 },
-		RightLowerArm = { rx = 26 },
-		LeftUpperArm = { rx = 48, ry = -6, rz = -12 },
-		LeftLowerArm = { rx = 52 },
-	}, 12, 22, 18),
+		Head = { rx = -8, ry = -30 },
+	}), "Right", { at = { 0.75, 1.35, -1.45 }, point = dir(0.05, 1, -0.08) }), 12, 22, 18), -1.0),
 
-	-- Staff raised level in front, both hands wide.
-	[AnimationDefs.guard("Staff")] = guardSnap({
+	-- Staff raised level in front of the face, orb to the right.
+	[AnimationDefs.guard("Staff")] = twoHanded(guardSnap(wield({
 		UpperTorso = { rx = -6 },
-		RightUpperArm = { rx = 110, rz = 30 },
-		LeftUpperArm = { rx = 110, rz = -30 },
-		RightLowerArm = { rx = 60 },
-		LeftLowerArm = { rx = 60 },
-	}),
+	}, "Right", { at = { -0.1, 2.25, -1.55 }, point = dir(1, 0.1, 0), edge = dir(0, 1, 0) })), -1.0),
 
-	-- 1: sweep, right to left.
-	[AnimationDefs.swing("Staff", 1)] = strike(0.62, 0.25, 0.15, merge(footwork(10, 8, -20), {
-		UpperTorso = { rx = 6, ry = -50 },
-		Head = { ry = 15 },
-		RightUpperArm = { rx = 75, rz = 55 },
-		LeftUpperArm = { rx = 85, rz = 10 },
-		RightLowerArm = { rx = 40 },
-		LeftLowerArm = { rx = 60 },
-	}), merge(footwork(30, 20, 25), {
-		UpperTorso = { rx = -12, ry = 48 },
-		Head = { ry = -15 },
-		RightUpperArm = { rx = 90, rz = -20 },
-		LeftUpperArm = { rx = 72, rz = -48 },
-		RightLowerArm = { rx = 15 },
-		LeftLowerArm = { rx = 18 },
-	})),
+	-- 1: sweep, right to left, the orb out at the end of it.
+	[AnimationDefs.swing("Staff", 1)] = heavyStrike(0.62, 0.25, 0.15, STAFF_READY, held(merge(footwork(10, 8, -20), {
+		UpperTorso = { rx = 6, ry = -40 },
+		Head = { ry = 30 },
+	}), "Right", { at = { 1.35, 1.5, -0.7 }, point = dir(0.7, 0.3, 0.65), edge = dir(0, 0, -1) }), held(merge(footwork(30, 20, 25), {
+		UpperTorso = { rx = -12, ry = 16 },
+		Head = { ry = -24 },
+	}), "Right", { at = { 0.25, 1.45, -1.75 }, point = dir(-0.35, 0.05, -1), edge = dir(-1, 0, 0) })),
 
-	-- 2: sweep back, left to right.
-	[AnimationDefs.swing("Staff", 2)] = strike(0.62, 0.24, 0.14, merge(footwork(12, 10, 20), {
-		UpperTorso = { rx = 4, ry = 50 },
-		Head = { ry = -15 },
-		RightUpperArm = { rx = 90, rz = -25 },
-		LeftUpperArm = { rx = 72, rz = -50 },
-		RightLowerArm = { rx = 40 },
-		LeftLowerArm = { rx = 40 },
-	}), merge(footwork(30, 20, -25), {
-		UpperTorso = { rx = -12, ry = -48 },
-		Head = { ry = 15 },
-		RightUpperArm = { rx = 80, rz = 60 },
-		LeftUpperArm = { rx = 88, rz = 15 },
-		RightLowerArm = { rx = 15 },
-		LeftLowerArm = { rx = 30 },
-	})),
+	-- 2: the sweep back, left to right.
+	[AnimationDefs.swing("Staff", 2)] = heavyStrike(0.62, 0.24, 0.14, STAFF_READY, held(merge(footwork(12, 10, 20), {
+		UpperTorso = { rx = 4, ry = 36 },
+		Head = { ry = -34 },
+	}), "Right", { at = { -0.35, 1.5, -1.2 }, point = dir(-0.7, 0.3, 0.6), edge = dir(0, 0, -1) }), held(merge(footwork(30, 20, -25), {
+		UpperTorso = { rx = -12, ry = -16 },
+		Head = { ry = 24 },
+	}), "Right", { at = { 0.2, 1.45, -1.75 }, point = dir(0.4, 0.05, -1), edge = dir(1, 0, 0) })),
 
-	-- 3: thrust, the end of the staff driven straight out.
-	[AnimationDefs.swing("Staff", 3)] = strike(0.62, 0.24, 0.14, merge(footwork(8, 10, -15), {
-		UpperTorso = { rx = 4, ry = -25 },
-		RightUpperArm = { rx = 40, rz = 15 },
-		LeftUpperArm = { rx = 55, rz = -5 },
-		RightLowerArm = { rx = 95 },
-		LeftLowerArm = { rx = 110 },
-	}), merge(footwork(36, 26, 10), {
-		UpperTorso = { rx = -18, ry = 10 },
-		RightUpperArm = { rx = 95, rz = 0 },
-		LeftUpperArm = { rx = 90, rz = -10 },
-		RightLowerArm = { rx = 5 },
-		LeftLowerArm = { rx = 20 },
-	})),
+	-- 3: thrust, the orb driven straight out from the hip.
+	[AnimationDefs.swing("Staff", 3)] = heavyStrike(0.62, 0.24, 0.14, STAFF_READY, held(merge(footwork(8, 10, -15), {
+		UpperTorso = { rx = 4, ry = -22 },
+		Head = { ry = 20 },
+	}), "Right", { at = { 1.15, 1.05, -1.35 }, point = dir(-0.15, 0.08, -1) }), held(merge(footwork(36, 26, 10), {
+		UpperTorso = { rx = -18, ry = 4 },
+		Head = { ry = -12 },
+	}), "Right", { at = { 0.55, 1.45, -2.45 }, point = dir(-0.08, 0.05, -1) })),
 
-	-- 4, the finisher: a two-handed overhead slam.
-	[AnimationDefs.swing("Staff", 4)] = strike(0.9, 0.32, 0.2, merge(footwork(4, 4, 0), {
+	-- 4, the finisher: raised right over the head, then slammed down.
+	[AnimationDefs.swing("Staff", 4)] = heavyStrike(0.9, 0.32, 0.2, STAFF_READY, held(merge(footwork(4, 4, 0), {
 		UpperTorso = { rx = 18 },
 		Head = { rx = 10 },
-		RightUpperArm = { rx = 172, rz = 12 },
-		LeftUpperArm = { rx = 168, rz = -12 },
-		RightLowerArm = { rx = 25 },
-		LeftLowerArm = { rx = 25 },
-	}), merge(footwork(38, 26, 0), {
+	}), "Right", { at = { 0.25, 3.35, -0.35 }, point = dir(0, 0.45, 1), edge = dir(0, 1, 0) }), held(merge(footwork(38, 26, 0), {
 		UpperTorso = { rx = -36 },
 		Head = { rx = -12 },
-		RightUpperArm = { rx = 65, rz = -6 },
-		LeftUpperArm = { rx = 65, rz = 6 },
-		RightLowerArm = { rx = 5 },
-		LeftLowerArm = { rx = 5 },
-	}), merge(footwork(20, 14, 0), {
+	}), "Right", { at = { 0.25, 0.85, -2.05 }, point = dir(0, -0.45, -1), edge = dir(0, -1, 0.45) }), held(merge(footwork(20, 14, 0), {
 		UpperTorso = { rx = -16 },
-		RightUpperArm = { rx = 45 },
-		LeftUpperArm = { rx = 45 },
-		RightLowerArm = { rx = 20 },
-		LeftLowerArm = { rx = 20 },
-	})),
+	}), "Right", { at = { 0.3, 1.3, -1.7 }, point = dir(0, 0.15, -1) })),
 
 	-- Critical: wound right round, then a full spinning sweep.
-	[AnimationDefs.critical("Staff")] = strike(1.3, 0.55, 0.38, merge(footwork(14, 22, -40), {
-		UpperTorso = { rx = 10, ry = -85 },
-		Head = { ry = 50 },
-		RightUpperArm = { rx = 80, rz = 75 },
-		LeftUpperArm = { rx = 85, rz = 20 },
-		RightLowerArm = { rx = 30 },
-		LeftLowerArm = { rx = 40 },
-	}), merge(footwork(34, 24, 45), {
-		UpperTorso = { rx = -10, ry = 85 },
+	[AnimationDefs.critical("Staff")] = heavyStrike(1.3, 0.55, 0.38, STAFF_READY, held(merge(footwork(14, 22, -40), {
+		UpperTorso = { rx = 10, ry = -60 },
+		Head = { ry = 60 },
+	}), "Right", { at = { 0.7, 1.45, -1.1 }, point = dir(0.75, 0.2, 0.75), edge = dir(-1, 0, 0) }), held(merge(footwork(34, 24, 30), {
+		UpperTorso = { rx = -10, ry = 12 },
 		Head = { ry = -40 },
-		RightUpperArm = { rx = 88, rz = -40 },
-		LeftUpperArm = { rx = 75, rz = -65 },
-		RightLowerArm = { rx = 10 },
-		LeftLowerArm = { rx = 10 },
-	}), merge(footwork(18, 12, 20), {
-		UpperTorso = { ry = 35 },
-		RightUpperArm = { rx = 50 },
-		LeftUpperArm = { rx = 55 },
-		RightLowerArm = { rx = 40 },
-		LeftLowerArm = { rx = 60 },
-	})),
+	}), "Right", { at = { -0.2, 1.35, -1.8 }, point = dir(-0.55, 0.05, -1), edge = dir(-1, 0, 0.5) }), held(merge(footwork(18, 12, 20), {
+		UpperTorso = { ry = 14 },
+	}), "Right", { at = { -0.2, 1.1, -1.5 }, point = dir(-0.7, 0.1, -0.7) })),
 
 	--[[ Greataxe: the Berserker ]]
 
@@ -1820,135 +2265,86 @@ local R15Player: { [string]: AnimationDef } = {
 	-- than anything else in the game and the follow-throughs carry the body
 	-- past where it meant to stop, because that overshoot is the only way a
 	-- swing reads as weighing something the swinger cannot quite control.
+	--
+	-- Held like the staff (see above): right fist under the head, left fist
+	-- a stud down the haft toward the butt. The bit's edge faces the way
+	-- the head is travelling, so every cut leads with the blade.
 
-	-- Carried on the shoulder, which is where a thing this heavy is carried.
-	[AnimationDefs.stance("Greataxe")] = stanceLoop({
+	-- Carried on the right shoulder: the fist just in front of it, the haft
+	-- lying over the top of it, and the head hanging behind the back with the
+	-- blade down, which is where a thing this heavy is carried.
+	[AnimationDefs.stance("Greataxe")] = stanceLoop(wield({
 		UpperTorso = { rx = -6, ry = -14 },
 		Head = { ry = 16 },
-		RightUpperArm = { rx = -22, ry = -20, rz = 42 },
-		RightLowerArm = { rx = 118 },
 		LeftUpperArm = { rx = 14, rz = -8 },
 		LeftLowerArm = { rx = 30 },
-	}),
+	}, "Right", { at = { 1.3, 1.65, -0.9 }, point = dir(0.05, 0.2, 1), edge = dir(0, -1, 0) })),
 
-	-- Standing still: the axe head down on the floor, both hands stacked on
-	-- the butt of the haft, leaning on it. The only idle in the game where the
-	-- weapon is touching the ground, because it is the only one heavy enough.
-	[AnimationDefs.idle("Greataxe")] = idleLoop({
-		UpperTorso = { rx = 14, ry = 10 },
-		Head = { rx = -16, ry = -14 },
-		RightUpperArm = { rx = 36, ry = 6, rz = 12 },
-		RightLowerArm = { rx = 30 },
-		LeftUpperArm = { rx = 42, ry = -8, rz = -14 },
-		LeftLowerArm = { rx = 38 },
-	}, 16, 24, 14),
+	-- Standing still: at the ready in both hands, the haft across the body and
+	-- the head up by the right shoulder — the pose every strike starts from and
+	-- settles back into (AXE_READY), so stopping to swing never turns the axe
+	-- over. It used to stand on its head with both hands on the butt, leaning
+	-- on it, which read as holding it upside down.
+	[AnimationDefs.idle("Greataxe")] = twoHanded(idleLoop(wield(merge(mirror(footwork(16, 24, 14)), {
+		UpperTorso = { rx = -4, ry = 10 },
+		Head = { ry = -24 },
+	}), "Right", AXE_READY), 16, 24, 14), -1.0),
 
-	-- The haft held across, which is all this weapon can do to block.
-	[AnimationDefs.guard("Greataxe")] = guardSnap({
+	-- The haft held across in front of the face, which is all this weapon can
+	-- do to block.
+	[AnimationDefs.guard("Greataxe")] = twoHanded(guardSnap(wield({
 		UpperTorso = { rx = -10, ry = -8 },
-		RightUpperArm = { rx = 84, rz = 34 },
-		RightLowerArm = { rx = 52 },
-		LeftUpperArm = { rx = 96, rz = -28 },
-		LeftLowerArm = { rx = 48 },
-	}),
+	}, "Right", { at = { 0.6, 2.15, -1.55 }, point = dir(1, 0.12, 0), edge = dir(0, 1, 0.2) })), -1.0),
 
 	-- 1: a flat cleave, right to left, off the shoulder.
-	[AnimationDefs.swing("Greataxe", 1)] = strike(1.05, 0.46, 0.3, merge(footwork(10, 16, -34), {
-		UpperTorso = { rx = 8, ry = -62 },
-		Head = { ry = 34 },
-		RightUpperArm = { rx = 42, ry = 28, rz = 62 },
-		RightLowerArm = { rx = 86 },
-		LeftUpperArm = { rx = 30, rz = 26 },
-		LeftLowerArm = { rx = 74 },
-	}), merge(footwork(40, 26, 40), {
-		UpperTorso = { rx = -16, ry = 62 },
-		Head = { ry = -28 },
-		RightUpperArm = { rx = 78, ry = -20, rz = -44 },
-		RightLowerArm = { rx = 10 },
-		LeftUpperArm = { rx = 62, rz = -56 },
-		LeftLowerArm = { rx = 14 },
-	})),
+	[AnimationDefs.swing("Greataxe", 1)] = heavyStrike(1.05, 0.46, 0.3, AXE_READY, held(merge(footwork(10, 16, -34), {
+		UpperTorso = { rx = 8, ry = -40 },
+		Head = { ry = 40 },
+	}), "Right", { at = { 1.3, 2.0, -0.35 }, point = dir(0.55, 0.35, 0.75), edge = dir(0, 0, -1) }), held(merge(footwork(34, 24, 24), {
+		UpperTorso = { rx = -14, ry = 18 },
+		Head = { ry = -30 },
+	}), "Right", { at = { 0.25, 1.35, -1.65 }, point = dir(-0.25, 0.05, -1), edge = dir(-1, 0, 0) })),
 
 	-- 2: the cleave coming back the other way, using where 1 finished.
-	[AnimationDefs.swing("Greataxe", 2)] = strike(1.0, 0.44, 0.28, merge(footwork(12, 16, 38), {
-		UpperTorso = { rx = 6, ry = 60 },
-		Head = { ry = -30 },
-		RightUpperArm = { rx = 74, ry = -18, rz = -40 },
-		RightLowerArm = { rx = 74 },
-		LeftUpperArm = { rx = 58, rz = -52 },
-		LeftLowerArm = { rx = 68 },
-	}), merge(footwork(38, 26, -40), {
-		UpperTorso = { rx = -16, ry = -62 },
-		Head = { ry = 28 },
-		RightUpperArm = { rx = 50, ry = 26, rz = 66 },
-		RightLowerArm = { rx = 12 },
-		LeftUpperArm = { rx = 36, rz = 34 },
-		LeftLowerArm = { rx = 16 },
-	})),
+	[AnimationDefs.swing("Greataxe", 2)] = heavyStrike(1.0, 0.44, 0.28, AXE_READY, held(merge(footwork(12, 16, 38), {
+		UpperTorso = { rx = 6, ry = 34 },
+		Head = { ry = -44 },
+	}), "Right", { at = { -0.8, 1.95, -0.6 }, point = dir(-0.6, 0.35, 0.7), edge = dir(0, 0, -1) }), held(merge(footwork(36, 24, -26), {
+		UpperTorso = { rx = -14, ry = -16 },
+		Head = { ry = 30 },
+	}), "Right", { at = { -0.1, 1.35, -1.9 }, point = dir(0.3, 0.05, -1), edge = dir(1, 0, 0) })),
 
 	-- 3: a rising cut, up through the body from low right.
-	[AnimationDefs.swing("Greataxe", 3)] = strike(0.98, 0.42, 0.26, merge(footwork(10, 20, -26), {
-		UpperTorso = { rx = 26, ry = -34 },
-		Head = { rx = -14, ry = 20 },
-		RightUpperArm = { rx = -34, ry = 14, rz = 30 },
-		RightLowerArm = { rx = 58 },
-		LeftUpperArm = { rx = -22, rz = -18 },
-		LeftLowerArm = { rx = 52 },
-	}), merge(footwork(34, 22, 26), {
-		UpperTorso = { rx = -22, ry = 30 },
-		Head = { rx = 12, ry = -18 },
-		RightUpperArm = { rx = 150, rz = 18 },
-		RightLowerArm = { rx = 18 },
-		LeftUpperArm = { rx = 138, rz = -22 },
-		LeftLowerArm = { rx = 22 },
-	})),
+	[AnimationDefs.swing("Greataxe", 3)] = heavyStrike(0.98, 0.42, 0.26, AXE_READY, held(merge(footwork(10, 20, -26), {
+		UpperTorso = { rx = 10, ry = -34 },
+		Head = { rx = -10, ry = 34 },
+	}), "Right", { at = { 1.3, 0.75, 0.1 }, point = dir(0.35, -0.45, 0.8), edge = dir(0, 1, -0.3) }), held(merge(footwork(34, 22, 20), {
+		UpperTorso = { rx = -20, ry = 12 },
+		Head = { rx = 10, ry = -20 },
+	}), "Right", { at = { 0.35, 2.2, -1.4 }, point = dir(0, 0.8, -0.7), edge = dir(0, 1, -0.2) })),
 
 	-- 4, the finisher: straight up over the head and down like a felled tree.
-	[AnimationDefs.swing("Greataxe", 4)] = strike(1.5, 0.62, 0.38, merge(footwork(6, 8, 0), {
-		UpperTorso = { rx = 30 },
-		Head = { rx = 18 },
-		RightUpperArm = { rx = 176, rz = 14 },
-		RightLowerArm = { rx = 34 },
-		LeftUpperArm = { rx = 172, rz = -14 },
-		LeftLowerArm = { rx = 34 },
-	}), merge(footwork(46, 30, 0), {
-		UpperTorso = { rx = -48 },
-		Head = { rx = -18 },
-		RightUpperArm = { rx = 56, rz = -8 },
-		RightLowerArm = { rx = 4 },
-		LeftUpperArm = { rx = 56, rz = 8 },
-		LeftLowerArm = { rx = 4 },
-	}), merge(footwork(26, 18, 0), {
-		UpperTorso = { rx = -26 },
+	[AnimationDefs.swing("Greataxe", 4)] = heavyStrike(1.5, 0.62, 0.38, AXE_READY, held(merge(footwork(6, 8, 0), {
+		UpperTorso = { rx = 24 },
+		Head = { rx = 14 },
+	}), "Right", { at = { 0.3, 3.35, 0 }, point = dir(0, 0.3, 1), edge = dir(0, 1, 0) }), held(merge(footwork(46, 30, 0), {
+		UpperTorso = { rx = -40 },
+		Head = { rx = -14 },
+	}), "Right", { at = { 0.2, 1.65, -2.05 }, point = dir(0, -0.32, -1), edge = dir(0, -1, 0.32) }), held(merge(footwork(26, 18, 0), {
+		UpperTorso = { rx = -22 },
 		Head = { rx = -8 },
-		RightUpperArm = { rx = 40, rz = 6 },
-		RightLowerArm = { rx = 26 },
-		LeftUpperArm = { rx = 40, rz = -6 },
-		LeftLowerArm = { rx = 26 },
-	})),
+	}), "Right", { at = { 0.35, 1.45, -1.7 }, point = dir(0, -0.1, -1), edge = dir(0, -1, 0) })),
 
 	-- Critical: wind the whole body round and take everything with it.
-	[AnimationDefs.critical("Greataxe")] = strike(1.7, 0.75, 0.48, merge(footwork(12, 26, -56), {
-		UpperTorso = { rx = 12, ry = -92 },
-		Head = { ry = 54 },
-		RightUpperArm = { rx = 58, ry = 34, rz = 72 },
-		RightLowerArm = { rx = 74 },
-		LeftUpperArm = { rx = 44, rz = 34 },
-		LeftLowerArm = { rx = 68 },
-	}), merge(footwork(44, 28, 58), {
-		UpperTorso = { rx = -20, ry = 92 },
-		Head = { ry = -46 },
-		RightUpperArm = { rx = 84, ry = -28, rz = -52 },
-		RightLowerArm = { rx = 8 },
-		LeftUpperArm = { rx = 68, rz = -62 },
-		LeftLowerArm = { rx = 12 },
-	}), merge(footwork(24, 16, 26), {
-		UpperTorso = { rx = -12, ry = 40 },
-		RightUpperArm = { rx = 56, rz = -14 },
-		RightLowerArm = { rx = 34 },
-		LeftUpperArm = { rx = 48, rz = -24 },
-		LeftLowerArm = { rx = 40 },
-	})),
+	[AnimationDefs.critical("Greataxe")] = heavyStrike(1.7, 0.75, 0.48, AXE_READY, held(merge(footwork(12, 26, -56), {
+		UpperTorso = { rx = 12, ry = -60 },
+		Head = { ry = 70 },
+	}), "Right", { at = { 1.1, 1.6, 0.4 }, point = dir(0.35, 0.15, 1), edge = dir(-1, 0, 0.3) }), held(merge(footwork(44, 28, 58), {
+		UpperTorso = { rx = -18, ry = 30 },
+		Head = { ry = -60 },
+	}), "Right", { at = { 0.1, 1.35, -2.0 }, point = dir(-0.3, 0.05, -1), edge = dir(-1, 0, 0) }), held(merge(footwork(24, 16, 26), {
+		UpperTorso = { rx = -12, ry = 12 },
+	}), "Right", { at = { -0.1, 1.05, -1.6 }, point = dir(-0.6, -0.1, -0.8), edge = dir(-0.6, 0, 0.8) })),
 
 	--[[ Rapier: the Duelist ]]
 
@@ -2090,137 +2486,47 @@ local R15Player: { [string]: AnimationDef } = {
 
 	--[[ Longbow: the Ranger ]]
 
-	-- The bow is in the left hand, so every one of these is built around the
-	-- left arm staying out at the target while the right does all the moving.
-	-- A shot is a draw and a release, and the release is the impact.
+	-- The bow is in the left hand, the string in the right. Every shot is
+	-- built by `shot` (see "The bow: a shot, rather than a swing" above), so
+	-- the bow stays on target through the whole draw and the arrow line runs
+	-- back to the anchor under the jaw.
 
-	[AnimationDefs.stance("Bow")] = stanceLoop({
-		UpperTorso = { ry = 18 },
-		Head = { ry = -22 },
-		-- The bow arm carried across the body, string hand near the hip.
-		LeftUpperArm = { rx = 34, ry = -12, rz = -16 },
-		LeftLowerArm = { rx = 42 },
-		RightUpperArm = { rx = 10, rz = 10 },
-		RightLowerArm = { rx = 52 },
-	}),
+	-- Walking: the bow carried at the hip (BOW_CARRY).
+	[AnimationDefs.stance("Bow")] = stanceLoop(BOW_CARRY),
 
-	-- Standing still: bow arm down but not slack, string hand resting on the
-	-- quiver. Watching something, rather than aiming at it.
-	[AnimationDefs.idle("Bow")] = idleLoop({
-		UpperTorso = { rx = -4, ry = 24 },
-		Head = { ry = -34 },
-		LeftUpperArm = { rx = 22, ry = -10, rz = -12 },
-		LeftLowerArm = { rx = 30 },
-		RightUpperArm = { rx = -30, ry = -16, rz = 26 },
-		RightLowerArm = { rx = 96 },
-	}, 18, 20, 30),
+	-- Standing still: bow down across the front but not slack, string hand
+	-- resting on the arrow. Watching something, rather than aiming at it.
+	[AnimationDefs.idle("Bow")] = idleLoop(wield(wield(merge(mirror(footwork(18, 20, 30)), {
+		UpperTorso = { rx = -4, ry = -10 },
+		Head = { ry = 36 },
+	}), "Left", { at = { -0.75, 0.75, -1.45 }, point = dir(0.55, 1, -0.4), edge = dir(0.35, 0, -1) }), "Right", {
+		at = { 0.15, 0.55, -1.05 },
+		point = dir(-0.4, -0.1, -1),
+	}), 18, 20, 30),
 
-	-- The bow turned flat across the face. It is a bow; this is the best it
-	-- can do, and the parry frames in WeaponDefs say so.
-	[AnimationDefs.guard("Bow")] = guardSnap({
-		UpperTorso = { rx = -8, ry = 10 },
-		LeftUpperArm = { rx = 94, ry = -16, rz = -22 },
-		LeftLowerArm = { rx = 56 },
-		RightUpperArm = { rx = 70, rz = 30 },
-		RightLowerArm = { rx = 70 },
-	}),
-
-	-- 1: draw and loose. The bow arm comes up and locks; the right hand
-	-- pulls back past the jaw and lets go.
-	[AnimationDefs.swing("Bow", 1)] = strike(0.9, 0.44, 0.3, merge(footwork(8, 10, 26), {
-		UpperTorso = { rx = -2, ry = 30 },
-		Head = { ry = -36 },
-		LeftUpperArm = { rx = 86, ry = -20, rz = -14 },
-		LeftLowerArm = { rx = 10 },
-		RightUpperArm = { rx = 64, ry = 26, rz = 40 },
-		RightLowerArm = { rx = 116 },
-	}), merge(footwork(12, 12, 20), {
-		UpperTorso = { rx = -4, ry = 24 },
-		Head = { ry = -30 },
-		LeftUpperArm = { rx = 88, ry = -20, rz = -12 },
-		LeftLowerArm = { rx = 8 },
-		-- The release: the string hand flies back off the face.
-		RightUpperArm = { rx = 40, ry = 34, rz = 58 },
-		RightLowerArm = { rx = 84 },
+	-- The bow turned flat across the face, both hands on it. It is a bow;
+	-- this is the best it can do, and the parry frames in WeaponDefs say so.
+	[AnimationDefs.guard("Bow")] = guardSnap(wield(wield({
+		UpperTorso = { rx = -8, ry = -10 },
+	}, "Left", { at = { -0.35, 2.3, -1.55 }, point = dir(1, 0.1, 0), edge = dir(0, 0.25, -1) }), "Right", {
+		at = { 1.2, 2.4, -1.55 },
+		point = dir(0, 1, -0.2),
 	})),
 
-	-- 2: a shorter draw, nocked from the quiver on the way up.
-	[AnimationDefs.swing("Bow", 2)] = strike(0.86, 0.42, 0.28, merge(footwork(8, 10, 24), {
-		UpperTorso = { ry = 28 },
-		Head = { ry = -34 },
-		LeftUpperArm = { rx = 84, ry = -20, rz = -14 },
-		LeftLowerArm = { rx = 12 },
-		RightUpperArm = { rx = 58, ry = 24, rz = 44 },
-		RightLowerArm = { rx = 112 },
-	}), merge(footwork(12, 12, 18), {
-		UpperTorso = { rx = -4, ry = 22 },
-		LeftUpperArm = { rx = 88, ry = -20, rz = -12 },
-		LeftLowerArm = { rx = 8 },
-		RightUpperArm = { rx = 36, ry = 32, rz = 60 },
-		RightLowerArm = { rx = 80 },
-	})),
+	-- 1: draw and loose.
+	[AnimationDefs.swing("Bow", 1)] = shot({ length = 0.9, impact = 0.44, draw = 2.75, lift = 2, body = archerBody(-64, -2), kick = 0.55 }),
+
+	-- 2: a shorter draw, snapped off quicker.
+	[AnimationDefs.swing("Bow", 2)] = shot({ length = 0.86, impact = 0.42, draw = 2.6, lift = 2, body = archerBody(-62, 0), kick = 0.5 }),
 
 	-- 3: the same again, leaning into it.
-	[AnimationDefs.swing("Bow", 3)] = strike(0.86, 0.42, 0.28, merge(footwork(10, 12, 22), {
-		UpperTorso = { rx = 4, ry = 26 },
-		Head = { ry = -30 },
-		LeftUpperArm = { rx = 82, ry = -18, rz = -16 },
-		LeftLowerArm = { rx = 14 },
-		RightUpperArm = { rx = 60, ry = 22, rz = 42 },
-		RightLowerArm = { rx = 114 },
-	}), merge(footwork(16, 14, 16), {
-		UpperTorso = { rx = -8, ry = 20 },
-		LeftUpperArm = { rx = 90, ry = -20, rz = -10 },
-		LeftLowerArm = { rx = 6 },
-		RightUpperArm = { rx = 38, ry = 30, rz = 58 },
-		RightLowerArm = { rx = 78 },
-	})),
+	[AnimationDefs.swing("Bow", 3)] = shot({ length = 0.86, impact = 0.42, draw = 2.65, lift = 3, body = archerBody(-65, -6), kick = 0.5 }),
 
-	-- 4, the finisher: drawn all the way to the ear and held a beat.
-	[AnimationDefs.swing("Bow", 4)] = strike(1.25, 0.6, 0.4, merge(footwork(10, 14, 30), {
-		UpperTorso = { rx = 2, ry = 34 },
-		Head = { ry = -40 },
-		LeftUpperArm = { rx = 90, ry = -22, rz = -10 },
-		LeftLowerArm = { rx = 4 },
-		RightUpperArm = { rx = 72, ry = 30, rz = 48 },
-		RightLowerArm = { rx = 128 },
-	}), merge(footwork(14, 14, 22), {
-		UpperTorso = { rx = -6, ry = 26 },
-		Head = { ry = -32 },
-		LeftUpperArm = { rx = 92, ry = -22, rz = -8 },
-		LeftLowerArm = { rx = 2 },
-		RightUpperArm = { rx = 34, ry = 38, rz = 66 },
-		RightLowerArm = { rx = 72 },
-	}), merge(footwork(12, 12, 24), {
-		UpperTorso = { ry = 28 },
-		LeftUpperArm = { rx = 62, ry = -16, rz = -14 },
-		LeftLowerArm = { rx = 26 },
-		RightUpperArm = { rx = 16, rz = 30 },
-		RightLowerArm = { rx = 72 },
-	})),
+	-- 4, the finisher: drawn all the way and held a beat.
+	[AnimationDefs.swing("Bow", 4)] = shot({ length = 1.25, impact = 0.6, draw = 2.85, lift = 3, body = archerBody(-66, -4), kick = 0.75 }),
 
 	-- Critical: a long aimed shot. Everything stops, including the archer.
-	[AnimationDefs.critical("Bow")] = strike(1.5, 0.7, 0.46, merge(footwork(8, 16, 34), {
-		UpperTorso = { rx = -4, ry = 38 },
-		Head = { ry = -46 },
-		LeftUpperArm = { rx = 94, ry = -24, rz = -8 },
-		LeftLowerArm = { rx = 2 },
-		RightUpperArm = { rx = 78, ry = 32, rz = 50 },
-		RightLowerArm = { rx = 132 },
-	}), merge(footwork(12, 16, 26), {
-		UpperTorso = { rx = -8, ry = 30 },
-		Head = { ry = -36 },
-		LeftUpperArm = { rx = 96, ry = -24, rz = -6 },
-		LeftLowerArm = { rx = 0 },
-		RightUpperArm = { rx = 30, ry = 40, rz = 70 },
-		RightLowerArm = { rx = 66 },
-	}), merge(footwork(10, 14, 28), {
-		UpperTorso = { ry = 32 },
-		LeftUpperArm = { rx = 70, ry = -18, rz = -12 },
-		LeftLowerArm = { rx = 20 },
-		RightUpperArm = { rx = 14, rz = 26 },
-		RightLowerArm = { rx = 76 },
-	})),
+	[AnimationDefs.critical("Bow")] = shot({ length = 1.5, impact = 0.7, draw = 2.9, lift = 5, body = archerBody(-68, -2), kick = 0.8 }),
 
 	--[[ Arcane Focus: the Mage ]]
 
@@ -2286,9 +2592,9 @@ local R15Player: { [string]: AnimationDef } = {
 		LeftUpperArm = { rx = 50, rz = -38 },
 		LeftLowerArm = { rx = 54 },
 	}), merge(footwork(30, 20, -30), {
-		UpperTorso = { rx = -12, ry = -46 },
-		Head = { ry = 24 },
-		RightUpperArm = { rx = 58, ry = 28, rz = 52 },
+		UpperTorso = { rx = -12, ry = -20 },
+		Head = { ry = 40 },
+		RightUpperArm = { rx = 78, ry = 12, rz = 28 },
 		RightLowerArm = { rx = 14 },
 		LeftUpperArm = { rx = 26, rz = 24 },
 		LeftLowerArm = { rx = 18 },
@@ -2437,6 +2743,72 @@ local R15Player: { [string]: AnimationDef } = {
 
 	[AnimationDefs.HURT] = hurt(nil, 1.0),
 }
+
+--[[ Where the blades point ]]
+
+-- Every bladed weapon's swings, with the wrist set at each beat (aimBlades).
+-- Directions are root space: -Z at the target, +X the rig's right. A cut
+-- winds up with the blade back the way it will come from and lands with it
+-- out in front, angled along the line of the cut; a thrust keeps the point on
+-- the target the whole way.
+local BLADE_AIMS: { [string]: { Right: BladeAims?, Left: BladeAims? } } = {
+	-- Sword: the edge leads every cut.
+	[AnimationDefs.swing("SwordAndShield", 1)] = {
+		Right = { windup = dir(0.35, 0.75, 0.55), hit = dir(-0.35, -0.2, -1), follow = dir(-0.8, -0.5, -0.4), recovery = dir(0.1, 0.35, -1) },
+	},
+	[AnimationDefs.swing("SwordAndShield", 2)] = {
+		Right = { windup = dir(-0.6, -0.5, -0.6), hit = dir(0.2, 0.15, -1), follow = dir(0.7, 0.6, -0.3), recovery = dir(0.1, 0.3, -1) },
+	},
+	[AnimationDefs.swing("SwordAndShield", 3)] = {
+		Right = { windup = dir(0.9, 0.15, 0.4), hit = dir(-0.35, 0, -1), follow = dir(-0.9, 0, -0.3), recovery = dir(0, 0.3, -1) },
+	},
+	[AnimationDefs.swing("SwordAndShield", 4)] = {
+		Right = { windup = dir(0, 0.5, 1), hit = dir(0, -0.3, -1), follow = dir(0, -0.3, -1), recovery = dir(0, 0, -1) },
+	},
+	[AnimationDefs.critical("SwordAndShield")] = {
+		Right = { windup = dir(1, 0.1, 0.5), hit = dir(-0.4, 0, -1), follow = dir(-0.9, 0, 0.2), recovery = dir(0, 0.2, -1) },
+	},
+	[AnimationDefs.guard("SwordAndShield")] = {
+		Right = { windup = dir(0.15, 0.55, -1), hit = dir(0.15, 0.55, -1) },
+	},
+
+	-- Daggers: the off blade stays up in guard while the other one works.
+	[AnimationDefs.swing("Daggers", 1)] = {
+		Right = { windup = dir(0, 0.1, -1), hit = dir(0, 0, -1) },
+		Left = { windup = dir(0.3, 0.5, -1), hit = dir(0.3, 0.4, -1) },
+	},
+	[AnimationDefs.swing("Daggers", 2)] = {
+		Left = { windup = dir(0, 0.1, -1), hit = dir(0, 0, -1) },
+		Right = { windup = dir(-0.3, 0.5, -1), hit = dir(-0.3, 0.4, -1) },
+	},
+	[AnimationDefs.swing("Daggers", 3)] = {
+		Right = { windup = dir(0.9, 0.2, -0.3), hit = dir(-0.5, 0, -1), follow = dir(-0.9, 0, -0.2) },
+		Left = { windup = dir(0.3, 0.5, -1), hit = dir(0.3, 0.5, -1) },
+	},
+	[AnimationDefs.swing("Daggers", 4)] = {
+		Right = { windup = dir(0, 0.2, -1), hit = dir(0, -0.7, -0.7), recovery = dir(0, 0.2, -1) },
+		Left = { windup = dir(0, 0.2, -1), hit = dir(0, -0.7, -0.7), recovery = dir(0, 0.2, -1) },
+	},
+	[AnimationDefs.critical("Daggers")] = {
+		Right = { windup = dir(-0.5, 0.8, -0.3), hit = dir(0.5, -0.2, -1), follow = dir(1, -0.2, -0.4), recovery = dir(0, 0.2, -1) },
+		Left = { windup = dir(0.5, 0.8, -0.3), hit = dir(-0.5, -0.2, -1), follow = dir(-1, -0.2, -0.4), recovery = dir(0, 0.2, -1) },
+	},
+	[AnimationDefs.guard("Daggers")] = {
+		Right = { windup = dir(-0.6, 0.7, -0.4), hit = dir(-0.6, 0.7, -0.4) },
+		Left = { windup = dir(0.6, 0.7, -0.4), hit = dir(0.6, 0.7, -0.4) },
+	},
+
+	-- Rapier: the point stays on the target. The third swing is a cut off
+	-- the wrist and is authored with its own wrist, so it is left alone.
+	[AnimationDefs.swing("Rapier", 1)] = { Right = { windup = dir(0, 0.05, -1), hit = dir(0, 0, -1) } },
+	[AnimationDefs.swing("Rapier", 2)] = { Right = { windup = dir(0, 0.05, -1), hit = dir(0, 0, -1) } },
+	[AnimationDefs.swing("Rapier", 4)] = { Right = { windup = dir(0, 0.05, -1), hit = dir(0, -0.02, -1), recovery = dir(0, 0.1, -1) } },
+	[AnimationDefs.critical("Rapier")] = { Right = { windup = dir(0, 0.05, -1), hit = dir(0, -0.02, -1), recovery = dir(0, 0.1, -1) } },
+}
+
+for name, aims in BLADE_AIMS do
+	R15Player[name] = aimBlades(R15Player[name], aims)
+end
 
 -- rigId -> animation name -> animation.
 AnimationDefs.BY_RIG = {

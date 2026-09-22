@@ -44,8 +44,9 @@ is generated in this same server, well north of the hub.
 | **Z** / **X** / **C** | The abilities you unlocked in the skill tree |
 | **F2** | Combat debug readout — **Studio only** |
 | **Left Shift** | Toggle camera lock (on by default) |
-| **I** | Inventory |
-| **K** | Skills: your weapon's tree, and the points to spend in it |
+| **M** (or the Menu button, top-left) | The menu: skill tree, inventory, controls |
+| **I** | Inventory (the menu's Inventory tab) |
+| **K** | Skills: your weapon's tree, and the points to spend in it (the menu's Skill Tree tab) |
 | **E** at an altar, anvil, gate, chest or mirror | Take up a class, upgrade your weapon, queue for the dungeon, open a chest, change how you look |
 | **1 / 2 / 3** | Swap weapon instantly — **Studio only**, for tuning |
 
@@ -205,6 +206,17 @@ Animation Editor:
    [`src/shared/AnimationIds.luau`](src/shared/AnimationIds.luau) under the rig and
    animation name. The game uses your version from then on.
 
+To see every player animation with its weapon in hand, and check that the
+weapon is held properly (nothing through the floor, the blade out in front at
+impact, both hands on a two-handed haft, the bow upright and drawn):
+
+```sh
+lune run weapon-poses              # every weapon
+lune run weapon-poses Bow swing_   # one weapon, matching animations
+```
+
+It writes `workbench/WeaponPoses-<weapon>.html` to open in a browser.
+
 The workbench script checks its output before reporting success, including solving
 every animation against the floor. Regenerating replaces the file, so publish (or keep
 your own copy of) anything in progress first.
@@ -214,11 +226,26 @@ your own copy of) anything in progress first.
 Every kill pays XP to everyone carrying a weapon, not just whoever landed the
 blow. Each level is a skill point, up to level 20.
 
-Points are spent in the tree of the weapon you are holding (**K**). Each
-weapon has its own tree of three branches, and its own points — picking up the
-daggers at level 15 gives you a full 14 points to spend in *their* tree
-without touching the sword's. No tree can be filled: 26 ranks, 19 points at
-the cap, so what you leave out matters as much as what you take.
+Points are spent in the tree of the weapon you are holding (the menu's Skill
+Tree tab: **M**, or **K** straight there). Each weapon has its own tree of three
+branches, and its own points — picking up the daggers at level 15 gives you a
+full 14 points to spend in *their* tree without touching the sword's. No tree
+can be filled: 19 nodes and 36–38 ranks, 19 points at the cap, so what you
+leave out matters as much as what you take.
+
+Every branch also carries a **mechanic** (the nodes with a purple edge and a ◆):
+something that changes how the class fights rather than a bigger number. Each
+class has three, and no two classes share one:
+
+| Class | Mechanics |
+|---|---|
+| Tank | blocked hits strike back · a parry wards you · combo finishers stagger |
+| Assassin | extra damage to wounded enemies · the first hit after a dodge · hits bleed |
+| Healer | heals ward whoever they touch · guarding heals you and allies · hits heal allies |
+| Berserker | lifesteal · more damage the lower your health · damage builds with hits in a row |
+| Duelist | a split-second parry staggers longer · riposte hits extend the riposte · thrusts pierce |
+| Ranger | criticals mark prey for the party · a second arrow at another enemy · dodging reloads the critical |
+| Mage | hits arc to nearby enemies · damage taken on posture instead · kills heal allies |
 
 Each branch ends in an **ability**, and finishing a branch is the only way to
 get one. The branch's position decides its key: leftmost is **Z**, then **X**,

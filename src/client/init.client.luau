@@ -2,6 +2,7 @@
 -- Client bootstrap.
 
 local AtmosphereFX = require(script.AtmosphereFX)
+local BowVFX = require(script.BowVFX)
 local CameraLock = require(script.CameraLock)
 local CameraShake = require(script.CameraShake)
 local CharacterEditor = require(script.CharacterEditor)
@@ -14,6 +15,7 @@ local PlayerAnimation = require(script.PlayerAnimation)
 local ProjectileVFX = require(script.ProjectileVFX)
 local ScreenFX = require(script.ScreenFX)
 local SoundFX = require(script.SoundFX)
+local TalentVFX = require(script.TalentVFX)
 local TelegraphVFX = require(script.TelegraphVFX)
 local WorldFeedback = require(script.WorldFeedback)
 
@@ -25,6 +27,8 @@ CombatClient.start()
 EnemyAnimation.start()
 TelegraphVFX.start()
 ProjectileVFX.start()
+BowVFX.start()
+TalentVFX.start()
 WorldFeedback.start()
 ScreenFX.start()
 -- After ScreenFX, so the combat grade is created before the world grade and

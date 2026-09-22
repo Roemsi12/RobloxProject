@@ -63,6 +63,16 @@ export type CriticalProfile = {
 	arcDegrees: number,
 }
 
+-- What a shot looks like in flight.
+export type ShotProfile = {
+	-- A look BowVFX knows how to draw.
+	kind: string,
+	-- Studs per second. Fast, because the hit is already decided when the
+	-- shot leaves: the slower it flies, the longer the damage number sits on
+	-- an enemy the arrow has not reached yet.
+	speed: number,
+}
+
 export type AttackProfile = {
 	-- Pressing attack again soon after a swing lands continues into the next
 	-- step; the last step is the finisher, which hits hardest and takes
@@ -85,6 +95,11 @@ export type AttackProfile = {
 	damage: number,
 	range: number,
 	arcDegrees: number,
+	-- Set for a weapon whose swing is a shot: at the moment it resolves, every
+	-- client is told to fly one of these from the weapon to where it went
+	-- (Shots, BowVFX). Purely a picture — the hit has already been decided
+	-- where the shot was taken — but it is what makes a bow read as a bow.
+	shot: ShotProfile?,
 	-- Pause after a non-finisher swing lands before the next can start.
 	--
 	-- This is the number that decides whether melee is a rhythm or a mash. It
@@ -350,6 +365,7 @@ local WeaponDefs: { [string]: WeaponDef } = {
 			range = 52,
 			arcDegrees = 22,
 			recovery = 0.26,
+			shot = { kind = "arrow", speed = 220 },
 		},
 	},
 

@@ -53,6 +53,17 @@ local function pieceOffset(piece: WeaponModelDefs.PieceDef): CFrame
 		* CFrame.Angles(math.rad(rotation[1]), math.rad(rotation[2]), math.rad(rotation[3]))
 end
 
+-- How the model sits in the fist (WeaponModelDefs.Hold), or nothing for a
+-- model built the way it is held.
+local function holdOffset(def: WeaponModelDefs.WeaponModelDef): CFrame
+	local hold = def.hold
+	if not hold then
+		return CFrame.identity
+	end
+	local r = hold.rotation
+	return CFrame.new(vec(hold.offset)) * CFrame.Angles(math.rad(r[1]), math.rad(r[2]), math.rad(r[3]))
+end
+
 -- One piece of a weapon as a Part, including its upgrade glow: a light, a
 -- sparkle emitter and eventually Neon, from the weapon's level.
 local function makePiece(piece: WeaponModelDefs.PieceDef, def: WeaponModelDefs.WeaponModelDef, level: number): Part
@@ -205,6 +216,9 @@ local function attach(character: Model, weaponId: string, level: number)
 			anchor = CFrame.new(grip.Position)
 		elseif isFallback and gripName then
 			anchor = CFrame.new(0, -part0.Size.Y / 2, 0)
+		end
+		if gripName then
+			anchor *= holdOffset(def)
 		end
 
 		local part = makePiece(piece, def, level)

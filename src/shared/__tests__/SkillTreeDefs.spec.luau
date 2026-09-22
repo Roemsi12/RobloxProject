@@ -137,6 +137,31 @@ describe("the trees themselves", function()
 		end
 	end)
 
+	-- The mechanics are what make the classes more than the same fighter with
+	-- different numbers, so every branch has one and no two classes share any.
+	it("gives every branch a mechanic, and every class mechanics of its own", function()
+		local owner: { [string]: string } = {}
+		for _, weaponId in SkillTreeDefs.weaponIds() do
+			local tree = SkillTreeDefs.treeFor(weaponId) :: any
+			for _, branch in tree.branches do
+				local found = false
+				for _, node in tree.nodes do
+					if node.branch == branch and SkillTreeDefs.isMechanic(node) then
+						found = true
+						for key in node.effects do
+							if (SkillTreeDefs.EFFECTS[key] :: any).mechanic then
+								local previous = owner[key]
+								expect({ key, previous == nil or previous == weaponId }).toEqual({ key, true })
+								owner[key] = weaponId
+							end
+						end
+					end
+				end
+				expect({ weaponId, branch, found }).toEqual({ weaponId, branch, true })
+			end
+		end
+	end)
+
 	-- Every capstone has to be reachable on its own, or it is decoration.
 	-- The cheapest route is one rank in each node on the way down to it.
 	it("lets a maxed player reach every capstone", function()
