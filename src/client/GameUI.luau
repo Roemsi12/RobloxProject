@@ -1699,6 +1699,17 @@ function GameUI.start()
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "GameUI"
 	gui.ResetOnSpawn = false
+	-- A ScreenGui still defaults to Global, where ZIndex is absolute across
+	-- the whole GUI and a child does NOT automatically draw above its parent.
+	-- The menu sets ZIndex 10 on its window to sit above the HUD, which under
+	-- Global put the window's own background in front of its tab bar, its
+	-- body and every label inside it: the panel rendered, the text did not.
+	--
+	-- Sibling is what CameraLock and CharacterEditor already set on theirs,
+	-- and it is what the rest of this file assumes -- every other ZIndex here
+	-- orders elements against their own siblings (a branch line behind a node
+	-- button, a taken-row cover behind its label), which Sibling preserves.
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	gui.Parent = player:WaitForChild("PlayerGui")
 
 	-- Damage and heal flashes are ScreenFX's: a vignette at the edges.
