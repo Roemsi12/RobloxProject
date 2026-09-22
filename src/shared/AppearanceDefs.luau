@@ -19,52 +19,79 @@
 -- game is authored in (RigDefs), and the 15 joints are what make a player's
 -- body as readable as an enemy's.
 --
--- A choice is a piece of data, never a branch. Adding a hairstyle is a row in
--- HAIR; nothing in the service or the menu changes. The pieces a choice is
--- built from use the same fields as RigDefs decorations — offset from the
--- centre of the part they hang on, then rotation, in the rig's own space —
--- because they are welded onto a body the same way.
+-- What goes on it is textures and real meshes, not welded blocks:
+--
+--   Garb is a classic Shirt and Pants, plus a ShirtGraphic on the chest that
+--   carries the trim colour. The art is ours (art/avatar), drawn in greyscale
+--   so one texture takes any colour: Roblox multiplies a clothing texture by
+--   its Color3.
+--
+--   Faces and markings are Decals on the head, tinted the same way. The eyes
+--   are a decal of their own, so an eye colour tints the eyes and nothing else.
+--
+--   Hair is a catalogue hair accessory made by Roblox, with its texture taken
+--   off so it takes the chosen hair colour.
+--
+-- Textures are named here and resolved to image ids through AvatarTextures,
+-- which the upload script writes. A choice is still a piece of data, never a
+-- branch: adding a hairstyle is a row in HAIR.
 
 local Palette = require(script.Parent.Palette)
 
 local AppearanceDefs = {}
 
 export type RGB = { number }
-export type Vec3 = { number }
 
--- A welded piece of a look: hair, a jaw, a hood, a pauldron.
-export type Piece = {
-	name: string,
-	-- An R15 part name.
-	attachTo: string,
-	size: Vec3,
-	offset: Vec3,
-	rotation: Vec3?,
-	-- Which of the look's colours this piece takes. A piece with its own
-	-- `color` ignores this.
-	tint: ("skin" | "hair" | "garb" | "trim")?,
-	color: RGB?,
-	material: string?,
-	shape: string?,
-	transparency: number?,
-}
+-- The colours a layer can take from the look.
+export type Tint = "skin" | "hair" | "garb" | "trim" | "legwear"
 
-export type Option = {
+export type HairOption = {
 	id: string,
 	label: string,
-	pieces: { Piece }?,
+	-- A Roblox catalogue hair accessory (HumanoidDescription.HairAccessory).
+	hair: number?,
+	-- A Roblox catalogue hat, for a hood (HumanoidDescription.HatAccessory).
+	hat: number?,
+	-- Which of the look's colours the accessory takes. Unset is the hair colour.
+	tint: Tint?,
 }
 
--- One row of the editor: what it is called, what can be picked, and where the
--- answer is stored on the saved look.
+export type FaceOption = {
+	id: string,
+	label: string,
+	-- Texture names, drawn in this order: the face, then the eyes over it.
+	face: string,
+	eyes: string,
+	-- The face's tint: a mask takes the trim colour. Unset is untinted.
+	faceTint: Tint?,
+	-- The eyes' colour. Unset leaves natural eyes their own colours.
+	eyeColor: RGB?,
+}
+
+export type MarkingOption = {
+	id: string,
+	label: string,
+	texture: string?,
+	tint: Tint?,
+	color: RGB?,
+}
+
+export type GarbOption = {
+	id: string,
+	label: string,
+	shirt: string,
+	pants: string,
+	-- The chest piece that carries the trim colour.
+	overlay: string,
+}
+
 export type Category = {
 	id: string,
 	label: string,
 	-- "option" picks from a list; "color" picks from a swatch row.
 	kind: "option" | "color",
-	-- Loosely typed on purpose: an option row is usually an Option, but Build
-	-- is a choice made of scales rather than pieces. Everything that reads
-	-- these needs `id` and `label` and nothing more.
+	-- Loosely typed on purpose: each option list has its own shape.
+	-- Everything that reads these needs `id` and `label` and nothing more.
 	options: { any }?,
 	colors: { { id: string, label: string, rgb: RGB } }?,
 }
@@ -75,7 +102,7 @@ export type Category = {
 -- a shirt or a hat. Zeroing the body-type and proportion scales is what makes
 -- the body blocky: those two are what bend a default R15 toward Rthro's
 -- proportions, and at zero the parts are the plain boxes the animations were
--- authored against.
+-- authored against — and the boxes a classic shirt template is drawn for.
 AppearanceDefs.BODY_TYPE_SCALE = 0
 AppearanceDefs.PROPORTION_SCALE = 0
 AppearanceDefs.HEAD_SCALE = 1
@@ -105,41 +132,44 @@ AppearanceDefs.SKIN_TONES = {
 }
 
 AppearanceDefs.HAIR_COLORS = {
-	swatch("black", "Black", { 28, 26, 28 }),
-	swatch("soot", "Soot", { 54, 50, 52 }),
-	swatch("brown", "Brown", { 78, 52, 34 }),
-	swatch("chestnut", "Chestnut", { 108, 66, 38 }),
-	swatch("auburn", "Auburn", { 132, 62, 34 }),
-	swatch("ash", "Ash", { 150, 142, 132 }),
+	swatch("black", "Black", { 36, 34, 36 }),
+	swatch("soot", "Soot", { 70, 66, 68 }),
+	swatch("brown", "Brown", { 96, 64, 42 }),
+	swatch("chestnut", "Chestnut", { 128, 78, 44 }),
+	swatch("auburn", "Auburn", { 150, 70, 38 }),
+	swatch("ash", "Ash", { 160, 152, 142 }),
 	swatch("white", "White", Palette.BONE),
-	swatch("straw", "Straw", Palette.LINEN),
+	swatch("straw", "Straw", { 206, 180, 120 }),
 	swatch("ember", "Ember", Palette.TORCH_EMBER),
 	swatch("arcane", "Arcane", Palette.ARCANE),
 	swatch("shadow", "Shadow", Palette.SHADOW_MAGIC),
 	swatch("ghost", "Ghostfire", Palette.GHOST_FIRE),
 }
 
+-- Cloth colours. Brighter than the palette's own cloth colours, because a
+-- clothing texture multiplies by its colour: the texture's folds and seams
+-- already darken it, and the palette values on top of that read as black.
 AppearanceDefs.GARB_COLORS = {
-	swatch("black", "Black", Palette.BLACK_CLOTH),
-	swatch("ash", "Ash", Palette.TATTERED),
-	swatch("linen", "Linen", Palette.LINEN),
-	swatch("leather", "Leather", Palette.LEATHER),
-	swatch("crimson", "Crimson", Palette.CRIMSON),
-	swatch("deep", "Deep Blue", Palette.DEEP_BLUE),
-	swatch("moss", "Moss", Palette.MOSS),
-	swatch("rust", "Rust", Palette.RUST),
-	swatch("iron", "Iron", Palette.IRON),
-	swatch("bone", "Bone", Palette.OLD_BONE),
+	swatch("black", "Black", { 62, 60, 66 }),
+	swatch("ash", "Ash", { 150, 140, 126 }),
+	swatch("linen", "Linen", { 236, 222, 188 }),
+	swatch("leather", "Leather", { 156, 106, 72 }),
+	swatch("crimson", "Crimson", { 164, 44, 52 }),
+	swatch("deep", "Deep Blue", { 66, 86, 140 }),
+	swatch("moss", "Moss", { 100, 122, 84 }),
+	swatch("rust", "Rust", { 166, 98, 60 }),
+	swatch("iron", "Iron", { 104, 102, 108 }),
+	swatch("bone", "Bone", { 230, 222, 196 }),
 }
 
 AppearanceDefs.TRIM_COLORS = {
-	swatch("gold", "Gold", Palette.GOLD),
-	swatch("bright", "Bright Gold", Palette.BRIGHT_GOLD),
+	swatch("gold", "Gold", { 214, 170, 84 }),
+	swatch("bright", "Bright Gold", { 255, 214, 110 }),
 	swatch("steel", "Steel", Palette.STEEL),
-	swatch("dark", "Dark Steel", Palette.DARK_STEEL),
-	swatch("copper", "Copper", Palette.COPPER),
-	swatch("iron", "Iron", Palette.IRON),
-	swatch("crimson", "Crimson", Palette.CRIMSON),
+	swatch("dark", "Dark Steel", { 112, 116, 126 }),
+	swatch("copper", "Copper", { 196, 122, 76 }),
+	swatch("iron", "Iron", { 104, 102, 108 }),
+	swatch("crimson", "Crimson", { 164, 44, 52 }),
 	swatch("arcane", "Arcane", Palette.ARCANE),
 	swatch("ghost", "Ghostfire", Palette.GHOST_FIRE),
 	swatch("bone", "Bone", Palette.BONE),
@@ -147,331 +177,67 @@ AppearanceDefs.TRIM_COLORS = {
 
 --[[ Hair ]]
 
--- Hair is built from slabs sitting on and around the head. The head is a 1.2
--- cube whose centre is the part's origin, so a piece at y = 0.62 caps it and
--- one at z = 0.62 sits across the brow.
-local function cap(name: string, size: Vec3, offset: Vec3, rotation: Vec3?): Piece
-	return { name = name, attachTo = "Head", size = size, offset = offset, rotation = rotation, tint = "hair" }
-end
-
+-- All made by Roblox, so none of them can vanish from the catalogue under a
+-- player's head, and all sized for the classic head the body wears.
 AppearanceDefs.HAIR = {
-	{ id = "shaved", label = "Shaved", pieces = {} },
-	{
-		id = "cropped",
-		label = "Cropped",
-		pieces = {
-			cap("HairTop", { 1.26, 0.26, 1.26 }, { 0, 0.54, 0 }),
-			cap("HairBack", { 1.24, 0.5, 0.2 }, { 0, 0.3, 0.56 }),
-		},
-	},
-	{
-		id = "swept",
-		label = "Swept",
-		pieces = {
-			cap("HairTop", { 1.28, 0.3, 1.28 }, { 0, 0.55, 0 }),
-			cap("HairSweep", { 1.3, 0.34, 0.5 }, { 0, 0.6, -0.42 }, { -16, 0, 0 }),
-			cap("HairBack", { 1.24, 0.6, 0.22 }, { 0, 0.22, 0.56 }),
-		},
-	},
-	{
-		id = "long",
-		label = "Long",
-		pieces = {
-			cap("HairTop", { 1.3, 0.3, 1.3 }, { 0, 0.55, 0 }),
-			cap("HairBack", { 1.26, 1.5, 0.3 }, { 0, -0.24, 0.58 }),
-			cap("HairSideRight", { 0.26, 1.2, 0.9 }, { 0.6, -0.1, 0.16 }),
-			cap("HairSideLeft", { 0.26, 1.2, 0.9 }, { -0.6, -0.1, 0.16 }),
-		},
-	},
-	{
-		id = "topknot",
-		label = "Topknot",
-		pieces = {
-			cap("HairTop", { 1.24, 0.22, 1.24 }, { 0, 0.52, 0 }),
-			cap("HairKnot", { 0.42, 0.42, 0.42 }, { 0, 0.78, 0.12 }),
-			cap("HairTail", { 0.26, 0.24, 0.9 }, { 0, 0.72, 0.6 }, { 28, 0, 0 }),
-		},
-	},
-	{
-		id = "braids",
-		label = "Braids",
-		pieces = {
-			cap("HairTop", { 1.28, 0.28, 1.28 }, { 0, 0.54, 0 }),
-			cap("HairBack", { 1.22, 0.7, 0.24 }, { 0, 0.18, 0.57 }),
-			cap("BraidRight", { 0.24, 1.4, 0.24 }, { 0.58, -0.28, 0.46 }, { 10, 0, -6 }),
-			cap("BraidLeft", { 0.24, 1.4, 0.24 }, { -0.58, -0.28, 0.46 }, { 10, 0, 6 }),
-		},
-	},
-	{
-		id = "mohawk",
-		label = "Mohawk",
-		pieces = {
-			cap("HairRidge", { 0.3, 0.52, 1.2 }, { 0, 0.66, 0 }),
-			cap("HairStubble", { 1.24, 0.16, 1.24 }, { 0, 0.5, 0 }),
-		},
-	},
-	{
-		id = "wild",
-		label = "Wild",
-		pieces = {
-			cap("HairTop", { 1.34, 0.42, 1.34 }, { 0, 0.58, 0 }),
-			cap("HairTuftRight", { 0.4, 0.4, 0.5 }, { 0.5, 0.74, -0.2 }, { 0, 0, -24 }),
-			cap("HairTuftLeft", { 0.36, 0.44, 0.44 }, { -0.52, 0.72, 0.16 }, { 0, 0, 22 }),
-			cap("HairBack", { 1.28, 0.9, 0.28 }, { 0, 0.1, 0.58 }),
-		},
-	},
-	{
-		id = "hooded",
-		label = "Hooded",
-		pieces = {
-			{ name = "HoodCrown", attachTo = "Head", size = { 1.42, 0.5, 1.44 }, offset = { 0, 0.5, 0.04 }, tint = "garb", material = "Fabric" },
-			{ name = "HoodBack", attachTo = "Head", size = { 1.36, 1.3, 0.34 }, offset = { 0, -0.1, 0.64 }, tint = "garb", material = "Fabric" },
-			{ name = "HoodSideRight", attachTo = "Head", size = { 0.3, 1.1, 1.2 }, offset = { 0.62, 0.02, 0.1 }, tint = "garb", material = "Fabric" },
-			{ name = "HoodSideLeft", attachTo = "Head", size = { 0.3, 1.1, 1.2 }, offset = { -0.62, 0.02, 0.1 }, tint = "garb", material = "Fabric" },
-			{ name = "HoodBrow", attachTo = "Head", size = { 1.44, 0.34, 0.5 }, offset = { 0, 0.44, -0.44 }, rotation = { -12, 0, 0 }, tint = "garb", material = "Fabric" },
-		},
-	},
-} :: { Option }
+	{ id = "shaved", label = "Shaved" },
+	{ id = "cropped", label = "Cropped", hair = 13655562 }, -- Brooding Black Hair
+	{ id = "swept", label = "Swept", hair = 376548738 }, -- Brown Charmer Hair
+	{ id = "long", label = "Long", hair = 1772372988 }, -- Black Long and Straight Hair
+	{ id = "topknot", label = "Topknot", hair = 343584973 }, -- Man Bun Hair
+	{ id = "ponytail", label = "Ponytail", hair = 376527350 }, -- Black Ponytail
+	{ id = "braids", label = "Braids", hair = 7193454569 }, -- Braided Hair - Black
+	{ id = "mohawk", label = "Mohawk", hair = 11721248 }, -- Mohawk
+	{ id = "wild", label = "Wild", hair = 16630147 }, -- Beautiful Hair for Beautiful People
+	-- A hood is cloth, so it takes the garb colour, not the hair colour.
+	{ id = "hooded", label = "Hooded", hat = 617605556, tint = "garb" }, -- Medieval Hood of Mystery
+} :: { HairOption }
 
 --[[ Faces ]]
 
--- The face is built, not drawn: a decal would be one more asset to upload and
--- would not read at all under the dungeon's lighting. Eyes are Neon so they
--- carry in the dark, which is where this game is played.
-local function eyes(name: string, size: Vec3, y: number, spread: number, color: RGB, material: string?): { Piece }
-	return {
-		{ name = `{name}Right`, attachTo = "Head", size = size, offset = { spread, y, -0.61 }, color = color, material = material or "Neon" },
-		{ name = `{name}Left`, attachTo = "Head", size = size, offset = { -spread, y, -0.61 }, color = color, material = material or "Neon" },
-	}
-end
-
--- A matched pair of eyebrows at height `y`, each tilted `tilt` degrees
--- (positive angles them inward, into a scowl). Tinted with the hair
--- colour, so brows always match the head they sit under.
-local function brows(y: number, tilt: number): { Piece }
-	return {
-		{ name = "BrowRight", attachTo = "Head", size = { 0.34, 0.09, 0.06 }, offset = { 0.26, y, -0.6 }, rotation = { 0, 0, -tilt }, tint = "hair" },
-		{ name = "BrowLeft", attachTo = "Head", size = { 0.34, 0.09, 0.06 }, offset = { -0.26, y, -0.6 }, rotation = { 0, 0, tilt }, tint = "hair" },
-	}
-end
-
--- Several piece lists flattened into one, for a face or a garb built out
--- of more than one helper.
-local function join(...: { Piece }): { Piece }
-	local out: { Piece } = {}
-	for _, list in { ... } do
-		for _, piece in list do
-			table.insert(out, piece)
-		end
-	end
-	return out
-end
-
-local MOUTH_SET: { Piece } = {
-	{ name = "Mouth", attachTo = "Head", size = { 0.36, 0.07, 0.05 }, offset = { 0, -0.3, -0.61 }, color = { 62, 44, 44 } },
-}
-
+-- Eyes that glow are drawn white and tinted; natural eyes carry their own
+-- whites and irises and are left alone.
 AppearanceDefs.FACES = {
-	{
-		id = "steady",
-		label = "Steady",
-		pieces = join(eyes("Eye", { 0.2, 0.11, 0.05 }, 0.1, 0.26, { 240, 240, 245 }, "SmoothPlastic"), brows(0.26, 6), MOUTH_SET),
-	},
-	{
-		id = "grim",
-		label = "Grim",
-		pieces = join(eyes("Eye", { 0.22, 0.09, 0.05 }, 0.1, 0.26, { 220, 222, 230 }, "SmoothPlastic"), brows(0.24, 18), MOUTH_SET),
-	},
-	{
-		id = "weary",
-		label = "Weary",
-		pieces = join(
-			eyes("Eye", { 0.2, 0.08, 0.05 }, 0.08, 0.26, { 200, 200, 208 }, "SmoothPlastic"),
-			brows(0.26, -10),
-			MOUTH_SET,
-			{ { name = "HollowRight", attachTo = "Head", size = { 0.24, 0.12, 0.04 }, offset = { 0.26, -0.03, -0.6 }, color = { 92, 78, 74 }, transparency = 0.4 } },
-			{ { name = "HollowLeft", attachTo = "Head", size = { 0.24, 0.12, 0.04 }, offset = { -0.26, -0.03, -0.6 }, color = { 92, 78, 74 }, transparency = 0.4 } }
-		),
-	},
-	{
-		id = "ember",
-		label = "Ember-Eyed",
-		pieces = join(eyes("Eye", { 0.22, 0.12, 0.05 }, 0.1, 0.26, Palette.TORCH_EMBER), brows(0.27, 14), MOUTH_SET),
-	},
-	{
-		id = "ghostfire",
-		label = "Ghostfire",
-		pieces = join(eyes("Eye", { 0.22, 0.12, 0.05 }, 0.1, 0.26, Palette.GHOST_FIRE), brows(0.27, 10), MOUTH_SET),
-	},
-	{
-		id = "arcane",
-		label = "Arcane",
-		pieces = join(eyes("Eye", { 0.2, 0.14, 0.05 }, 0.1, 0.26, Palette.ARCANE), brows(0.28, 0), MOUTH_SET),
-	},
-	{
-		id = "hollowed",
-		label = "Hollowed",
-		pieces = join(
-			eyes("Socket", { 0.24, 0.18, 0.05 }, 0.09, 0.26, Palette.VOID, "SmoothPlastic"),
-			eyes("Glint", { 0.08, 0.08, 0.04 }, 0.09, 0.26, Palette.EYE_GLOW),
-			{ { name = "Mouth", attachTo = "Head", size = { 0.44, 0.1, 0.05 }, offset = { 0, -0.3, -0.61 }, color = Palette.VOID } }
-		),
-	},
-	{
-		id = "masked",
-		label = "Masked",
-		pieces = join(
-			{ { name = "Mask", attachTo = "Head", size = { 1.16, 0.8, 0.12 }, offset = { 0, 0.02, -0.6 }, tint = "trim", material = "Metal" } },
-			eyes("Slit", { 0.26, 0.07, 0.06 }, 0.12, 0.27, Palette.VOID, "SmoothPlastic"),
-			{ { name = "MaskRidge", attachTo = "Head", size = { 0.1, 0.72, 0.16 }, offset = { 0, 0, -0.64 }, tint = "trim", material = "Metal" } }
-		),
-	},
-} :: { Option }
+	{ id = "steady", label = "Steady", face = "face_steady", eyes = "eyes_natural" },
+	{ id = "calm", label = "Calm", face = "face_calm", eyes = "eyes_natural" },
+	{ id = "grim", label = "Grim", face = "face_grim", eyes = "eyes_narrow" },
+	{ id = "weary", label = "Weary", face = "face_weary", eyes = "eyes_narrow" },
+	{ id = "ember", label = "Ember-Eyed", face = "face_fierce", eyes = "eyes_glow", eyeColor = Palette.TORCH_EMBER },
+	{ id = "ghostfire", label = "Ghostfire", face = "face_grim", eyes = "eyes_glow", eyeColor = Palette.GHOST_FIRE },
+	{ id = "arcane", label = "Arcane", face = "face_calm", eyes = "eyes_glow", eyeColor = Palette.ARCANE },
+	{ id = "hollowed", label = "Hollowed", face = "face_hollow", eyes = "eyes_sockets", eyeColor = Palette.EYE_GLOW },
+	{ id = "masked", label = "Masked", face = "face_mask", faceTint = "trim", eyes = "eyes_slits" },
+} :: { FaceOption }
 
 --[[ Markings ]]
 
+-- Drawn under the face, so a mask covers a marking and the eyes sit on top
+-- of both.
 AppearanceDefs.MARKINGS = {
-	{ id = "none", label = "None", pieces = {} },
-	{
-		id = "warpaint",
-		label = "War Paint",
-		pieces = {
-			{ name = "PaintBand", attachTo = "Head", size = { 1.14, 0.18, 0.04 }, offset = { 0, 0.08, -0.62 }, tint = "trim" },
-			{ name = "PaintStreakRight", attachTo = "Head", size = { 0.1, 0.44, 0.04 }, offset = { 0.3, -0.16, -0.62 }, tint = "trim" },
-			{ name = "PaintStreakLeft", attachTo = "Head", size = { 0.1, 0.44, 0.04 }, offset = { -0.3, -0.16, -0.62 }, tint = "trim" },
-		},
-	},
-	{
-		id = "scar",
-		label = "Scar",
-		pieces = {
-			{ name = "Scar", attachTo = "Head", size = { 0.07, 0.62, 0.04 }, offset = { 0.3, 0.06, -0.62 }, rotation = { 0, 0, 12 }, color = { 158, 108, 98 } },
-			{ name = "ScarNotch", attachTo = "Head", size = { 0.16, 0.07, 0.04 }, offset = { 0.34, 0.24, -0.62 }, color = { 158, 108, 98 } },
-		},
-	},
-	{
-		id = "brand",
-		label = "Brand",
-		pieces = {
-			{ name = "BrandRing", attachTo = "Head", size = { 0.42, 0.42, 0.04 }, offset = { -0.3, 0.14, -0.62 }, color = Palette.RUST, shape = "Cylinder" },
-			{ name = "BrandBar", attachTo = "Head", size = { 0.3, 0.08, 0.05 }, offset = { -0.3, 0.14, -0.63 }, color = Palette.RUST },
-		},
-	},
-	{
-		id = "ash",
-		label = "Ash",
-		pieces = {
-			{ name = "AshSmear", attachTo = "Head", size = { 1.1, 0.5, 0.04 }, offset = { 0, -0.18, -0.62 }, color = { 62, 58, 62 }, transparency = 0.25 },
-		},
-	},
-	{
-		id = "tattoo",
-		label = "Tattoo",
-		pieces = {
-			{ name = "TattooStem", attachTo = "Head", size = { 0.07, 0.5, 0.04 }, offset = { -0.34, -0.06, -0.62 }, tint = "trim" },
-			{ name = "TattooArmUpper", attachTo = "Head", size = { 0.24, 0.07, 0.04 }, offset = { -0.26, 0.1, -0.62 }, rotation = { 0, 0, -30 }, tint = "trim" },
-			{ name = "TattooArmLower", attachTo = "Head", size = { 0.24, 0.07, 0.04 }, offset = { -0.26, -0.16, -0.62 }, rotation = { 0, 0, 30 }, tint = "trim" },
-		},
-	},
-	{
-		id = "stitched",
-		label = "Stitched",
-		pieces = {
-			{ name = "StitchLine", attachTo = "Head", size = { 0.06, 0.66, 0.04 }, offset = { 0.22, -0.02, -0.62 }, color = { 54, 44, 42 } },
-			{ name = "StitchA", attachTo = "Head", size = { 0.22, 0.05, 0.05 }, offset = { 0.22, 0.2, -0.62 }, color = { 54, 44, 42 } },
-			{ name = "StitchB", attachTo = "Head", size = { 0.22, 0.05, 0.05 }, offset = { 0.22, 0.02, -0.62 }, color = { 54, 44, 42 } },
-			{ name = "StitchC", attachTo = "Head", size = { 0.22, 0.05, 0.05 }, offset = { 0.22, -0.16, -0.62 }, color = { 54, 44, 42 } },
-		},
-	},
-} :: { Option }
+	{ id = "none", label = "None" },
+	{ id = "warpaint", label = "War Paint", texture = "mark_warpaint", tint = "trim" },
+	{ id = "scar", label = "Scar", texture = "mark_scar", color = { 170, 112, 102 } },
+	{ id = "brand", label = "Brand", texture = "mark_brand", color = Palette.RUST },
+	{ id = "ash", label = "Ash", texture = "mark_ash", color = { 70, 66, 70 } },
+	{ id = "tattoo", label = "Tattoo", texture = "mark_tattoo", tint = "trim" },
+	{ id = "stitched", label = "Stitched", texture = "mark_stitched" },
+} :: { MarkingOption }
 
 --[[ Garb ]]
 
--- Worn over the body rather than replacing it, so a garb piece never hides a
--- joint an animation moves. Nothing hangs below the knee: a tabard long enough
--- to reach the ankle clips through its own legs on every stride, and a roll
--- turns the whole body through it.
+-- Each garb is a shirt, the pants under it and the chest piece over it.
+-- Textures are painted onto the body rather than hung off it, so nothing a
+-- garb adds can clip through a stride or hide a joint an animation moves.
 AppearanceDefs.GARB = {
-	{ id = "none", label = "Ragged", pieces = {} },
-	{
-		id = "tunic",
-		label = "Tunic",
-		pieces = {
-			{ name = "Tunic", attachTo = "UpperTorso", size = { 2.12, 1.6, 1.12 }, offset = { 0, -0.04, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "TunicSkirt", attachTo = "LowerTorso", size = { 2.06, 0.9, 1.1 }, offset = { 0, -0.34, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "Belt", attachTo = "LowerTorso", size = { 2.14, 0.26, 1.14 }, offset = { 0, 0.06, 0 }, tint = "trim", material = "Fabric" },
-			{ name = "BeltBuckle", attachTo = "LowerTorso", size = { 0.28, 0.28, 0.12 }, offset = { 0, 0.06, -0.6 }, tint = "trim", material = "Metal" },
-		},
-	},
-	{
-		id = "leathers",
-		label = "Leathers",
-		pieces = {
-			{ name = "Jerkin", attachTo = "UpperTorso", size = { 2.14, 1.56, 1.14 }, offset = { 0, -0.02, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "StrapCross", attachTo = "UpperTorso", size = { 2.2, 0.24, 1.18 }, offset = { 0, 0.18, 0 }, rotation = { 0, 0, 22 }, tint = "trim", material = "Fabric" },
-			{ name = "Belt", attachTo = "LowerTorso", size = { 2.16, 0.3, 1.16 }, offset = { 0, 0.02, 0 }, tint = "trim", material = "Fabric" },
-			{ name = "BracerRight", attachTo = "RightLowerArm", size = { 0.92, 0.66, 0.92 }, offset = { 0, -0.1, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "BracerLeft", attachTo = "LeftLowerArm", size = { 0.92, 0.66, 0.92 }, offset = { 0, -0.1, 0 }, tint = "garb", material = "Fabric" },
-		},
-	},
-	{
-		id = "plate",
-		label = "Plate",
-		pieces = {
-			{ name = "Cuirass", attachTo = "UpperTorso", size = { 2.18, 1.62, 1.18 }, offset = { 0, -0.02, 0 }, tint = "garb", material = "Metal" },
-			{ name = "CuirassRidge", attachTo = "UpperTorso", size = { 0.16, 1.5, 1.22 }, offset = { 0, 0, -0.02 }, tint = "trim", material = "Metal" },
-			{ name = "Fauld", attachTo = "LowerTorso", size = { 2.12, 0.72, 1.16 }, offset = { 0, -0.24, 0 }, tint = "garb", material = "Metal" },
-			{ name = "PauldronRight", attachTo = "RightUpperArm", size = { 1.04, 0.62, 1.04 }, offset = { 0.08, 0.42, 0 }, rotation = { 0, 0, -10 }, tint = "trim", material = "Metal" },
-			{ name = "PauldronLeft", attachTo = "LeftUpperArm", size = { 1.04, 0.62, 1.04 }, offset = { -0.08, 0.42, 0 }, rotation = { 0, 0, 10 }, tint = "trim", material = "Metal" },
-			{ name = "GauntletRight", attachTo = "RightLowerArm", size = { 0.94, 0.7, 0.94 }, offset = { 0, -0.14, 0 }, tint = "garb", material = "Metal" },
-			{ name = "GauntletLeft", attachTo = "LeftLowerArm", size = { 0.94, 0.7, 0.94 }, offset = { 0, -0.14, 0 }, tint = "garb", material = "Metal" },
-		},
-	},
-	{
-		id = "robes",
-		label = "Robes",
-		pieces = {
-			{ name = "Robe", attachTo = "UpperTorso", size = { 2.16, 1.62, 1.16 }, offset = { 0, -0.02, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "RobeSkirt", attachTo = "LowerTorso", size = { 2.1, 1.0, 1.12 }, offset = { 0, -0.4, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "Stole", attachTo = "UpperTorso", size = { 0.5, 1.64, 1.24 }, offset = { 0, 0, 0 }, tint = "trim", material = "Fabric" },
-			{ name = "SleeveRight", attachTo = "RightLowerArm", size = { 1.0, 1.0, 1.0 }, offset = { 0, -0.16, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "SleeveLeft", attachTo = "LeftLowerArm", size = { 1.0, 1.0, 1.0 }, offset = { 0, -0.16, 0 }, tint = "garb", material = "Fabric" },
-		},
-	},
-	{
-		id = "tabard",
-		label = "Tabard",
-		pieces = {
-			{ name = "Gambeson", attachTo = "UpperTorso", size = { 2.12, 1.58, 1.12 }, offset = { 0, -0.02, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "TabardFront", attachTo = "UpperTorso", size = { 1.1, 1.7, 0.1 }, offset = { 0, -0.1, -0.61 }, tint = "trim", material = "Fabric" },
-			{ name = "TabardSkirt", attachTo = "LowerTorso", size = { 1.08, 0.86, 0.1 }, offset = { 0, -0.34, -0.58 }, tint = "trim", material = "Fabric" },
-			{ name = "TabardBack", attachTo = "UpperTorso", size = { 1.1, 1.7, 0.1 }, offset = { 0, -0.1, 0.61 }, tint = "trim", material = "Fabric" },
-			{ name = "Belt", attachTo = "LowerTorso", size = { 2.16, 0.28, 1.16 }, offset = { 0, 0.04, 0 }, tint = "garb", material = "Fabric" },
-		},
-	},
-	{
-		id = "wrappings",
-		label = "Wrappings",
-		pieces = {
-			{ name = "Wrap", attachTo = "UpperTorso", size = { 2.1, 1.2, 1.1 }, offset = { 0, -0.2, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "WrapStrap", attachTo = "UpperTorso", size = { 2.16, 0.22, 1.16 }, offset = { 0, 0.4, 0 }, rotation = { 0, 0, -18 }, tint = "trim", material = "Fabric" },
-			{ name = "WrapRight", attachTo = "RightLowerArm", size = { 0.9, 0.9, 0.9 }, offset = { 0, -0.1, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "WrapLeft", attachTo = "LeftLowerArm", size = { 0.9, 0.9, 0.9 }, offset = { 0, -0.1, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "Sash", attachTo = "LowerTorso", size = { 2.12, 0.4, 1.12 }, offset = { 0, -0.1, 0 }, rotation = { 0, 0, 8 }, tint = "trim", material = "Fabric" },
-		},
-	},
-	{
-		id = "cloak",
-		label = "Cloak",
-		pieces = {
-			{ name = "Jerkin", attachTo = "UpperTorso", size = { 2.12, 1.58, 1.12 }, offset = { 0, -0.02, 0 }, tint = "garb", material = "Fabric" },
-			{ name = "Cloak", attachTo = "UpperTorso", size = { 2.1, 2.1, 0.24 }, offset = { 0, -0.34, 0.66 }, tint = "trim", material = "Fabric" },
-			{ name = "CloakCollar", attachTo = "UpperTorso", size = { 2.0, 0.44, 0.9 }, offset = { 0, 0.66, 0.2 }, tint = "trim", material = "Fabric" },
-			{ name = "ClaspRight", attachTo = "UpperTorso", size = { 0.24, 0.24, 0.16 }, offset = { 0.52, 0.6, -0.56 }, tint = "trim", material = "Metal", shape = "Cylinder" },
-			{ name = "ClaspLeft", attachTo = "UpperTorso", size = { 0.24, 0.24, 0.16 }, offset = { -0.52, 0.6, -0.56 }, tint = "trim", material = "Metal", shape = "Cylinder" },
-		},
-	},
-} :: { Option }
+	{ id = "none", label = "Ragged", shirt = "shirt_ragged", pants = "pants_ragged", overlay = "overlay_ragged" },
+	{ id = "tunic", label = "Tunic", shirt = "shirt_tunic", pants = "pants_trousers", overlay = "overlay_tunic" },
+	{ id = "leathers", label = "Leathers", shirt = "shirt_leathers", pants = "pants_trousers", overlay = "overlay_leathers" },
+	{ id = "plate", label = "Plate", shirt = "shirt_plate", pants = "pants_greaves", overlay = "overlay_plate" },
+	{ id = "robes", label = "Robes", shirt = "shirt_robes", pants = "pants_robe", overlay = "overlay_robes" },
+	{ id = "tabard", label = "Tabard", shirt = "shirt_tabard", pants = "pants_trousers", overlay = "overlay_tabard" },
+	{ id = "wrappings", label = "Wrappings", shirt = "shirt_wrappings", pants = "pants_wraps", overlay = "overlay_wrappings" },
+	{ id = "cloak", label = "Cloak", shirt = "shirt_cloak", pants = "pants_trousers", overlay = "overlay_cloak" },
+} :: { GarbOption }
 
 --[[ Build ]]
 
@@ -504,6 +270,7 @@ export type Look = {
 	marking: string,
 	garb: string,
 	garbColor: string,
+	legwearColor: string,
 	trimColor: string,
 }
 
@@ -519,6 +286,7 @@ function AppearanceDefs.default(): Look
 		marking = "none",
 		garb = "tunic",
 		garbColor = "leather",
+		legwearColor = "black",
 		trimColor = "iron",
 	}
 end
@@ -576,6 +344,7 @@ AppearanceDefs.CATEGORIES = {
 	{ id = "marking", label = "Markings", kind = "option", options = AppearanceDefs.MARKINGS },
 	{ id = "garb", label = "Garb", kind = "option", options = AppearanceDefs.GARB },
 	{ id = "garbColor", label = "Garb Colour", kind = "color", colors = AppearanceDefs.GARB_COLORS },
+	{ id = "legwearColor", label = "Legwear", kind = "color", colors = AppearanceDefs.GARB_COLORS },
 	{ id = "trimColor", label = "Trim", kind = "color", colors = AppearanceDefs.TRIM_COLORS },
 } :: { Category }
 
@@ -602,43 +371,67 @@ function AppearanceDefs.sanitize(look: unknown): Look
 	return clean
 end
 
--- Every piece a look is built from, with its colour already resolved.
-export type ResolvedPiece = {
-	piece: Piece,
+--[[ What a look is made of ]]
+
+-- A texture and the colour it is tinted. White leaves it as drawn.
+export type Layer = {
+	texture: string,
 	color: RGB,
 }
 
--- Every welded piece a look is made of, each with its colour already
--- resolved from the look's four tints.
---
--- This is the whole translation from "what the player chose" to "what the
--- server welds on". Face, hair, markings and garb in that order; a piece
--- with its own `color` keeps it, one with a `tint` takes that colour, and
--- anything with neither falls back to skin.
-function AppearanceDefs.piecesFor(look: Look): { ResolvedPiece }
+-- Everything the server puts on a body for one look, colours resolved.
+export type Outfit = {
+	skin: RGB,
+	-- The catalogue accessory, if any, and the colour it is dyed.
+	hair: number?,
+	hat: number?,
+	hairColor: RGB,
+	shirt: Layer,
+	pants: Layer,
+	overlay: Layer,
+	-- Head decals, bottom first: marking, face, eyes.
+	decals: { Layer },
+}
+
+local WHITE: RGB = { 255, 255, 255 }
+
+-- The whole translation from "what the player chose" to "what the server
+-- puts on the body", with every colour already resolved from the look's
+-- tints. Pure, so the tests can build every combination.
+function AppearanceDefs.outfitFor(look: Look): Outfit
 	local tints: { [string]: RGB } = {
 		skin = AppearanceDefs.colorOf(AppearanceDefs.SKIN_TONES, look.skin),
 		hair = AppearanceDefs.colorOf(AppearanceDefs.HAIR_COLORS, look.hairColor),
 		garb = AppearanceDefs.colorOf(AppearanceDefs.GARB_COLORS, look.garbColor),
+		legwear = AppearanceDefs.colorOf(AppearanceDefs.GARB_COLORS, look.legwearColor),
 		trim = AppearanceDefs.colorOf(AppearanceDefs.TRIM_COLORS, look.trimColor),
 	}
 
-	local resolved: { ResolvedPiece } = {}
-	local sources = {
-		AppearanceDefs.option(AppearanceDefs.FACES, look.face),
-		AppearanceDefs.option(AppearanceDefs.HAIR, look.hair),
-		AppearanceDefs.option(AppearanceDefs.MARKINGS, look.marking),
-		AppearanceDefs.option(AppearanceDefs.GARB, look.garb),
-	}
+	local hair: HairOption = AppearanceDefs.option(AppearanceDefs.HAIR, look.hair)
+	local face: FaceOption = AppearanceDefs.option(AppearanceDefs.FACES, look.face)
+	local marking: MarkingOption = AppearanceDefs.option(AppearanceDefs.MARKINGS, look.marking)
+	local garb: GarbOption = AppearanceDefs.option(AppearanceDefs.GARB, look.garb)
 
-	for _, source in sources do
-		for _, piece in source.pieces or {} do
-			local color = piece.color or (piece.tint and tints[piece.tint]) or tints.skin
-			table.insert(resolved, { piece = piece, color = color })
-		end
+	local decals: { Layer } = {}
+	if marking.texture then
+		table.insert(decals, {
+			texture = marking.texture,
+			color = marking.color or (marking.tint and tints[marking.tint]) or WHITE,
+		})
 	end
+	table.insert(decals, { texture = face.face, color = face.faceTint and tints[face.faceTint] or WHITE })
+	table.insert(decals, { texture = face.eyes, color = face.eyeColor or WHITE })
 
-	return resolved
+	return {
+		skin = tints.skin,
+		hair = hair.hair,
+		hat = hair.hat,
+		hairColor = tints[hair.tint or "hair"],
+		shirt = { texture = garb.shirt, color = tints.garb },
+		pants = { texture = garb.pants, color = tints.legwear },
+		overlay = { texture = garb.overlay, color = tints.trim },
+		decals = decals,
+	}
 end
 
 return AppearanceDefs

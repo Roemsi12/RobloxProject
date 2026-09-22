@@ -8,7 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AppearanceDefs = require(Shared.AppearanceDefs)
-local RigDefs = require(Shared.RigDefs)
+local AvatarTextures = require(Shared.AvatarTextures)
 
 local JestGlobals = require(ReplicatedStorage.DevPackages.JestGlobals)
 local describe = JestGlobals.describe
@@ -21,21 +21,20 @@ local function check(label: string, value: boolean)
 	expect({ label, value }).toEqual({ label, true })
 end
 
-local R15_PARTS = RigDefs.partNames()
-
--- Whether a name is one of the fifteen R15 parts.
-local function isPart(name: string): boolean
-	return table.find(R15_PARTS, name) ~= nil
-end
-
--- Runs a check against every piece of every look option, labelled
--- "option/piece".
-local function eachPiece(callback: (label: string, piece: AppearanceDefs.Piece) -> ())
-	for _, list in { AppearanceDefs.HAIR, AppearanceDefs.FACES, AppearanceDefs.MARKINGS, AppearanceDefs.GARB } do
-		for _, option in list do
-			for _, piece in option.pieces or {} do
-				callback(`{option.id}/{piece.name}`, piece)
-			end
+-- Every texture name a look can ask for, labelled by the choice that asks.
+local function eachTexture(callback: (label: string, name: string) -> ())
+	for _, garb in AppearanceDefs.GARB do
+		callback(`garb {garb.id} shirt`, garb.shirt)
+		callback(`garb {garb.id} pants`, garb.pants)
+		callback(`garb {garb.id} overlay`, garb.overlay)
+	end
+	for _, face in AppearanceDefs.FACES do
+		callback(`face {face.id}`, face.face)
+		callback(`face {face.id} eyes`, face.eyes)
+	end
+	for _, marking in AppearanceDefs.MARKINGS do
+		if marking.texture then
+			callback(`marking {marking.id}`, marking.texture)
 		end
 	end
 end
@@ -103,44 +102,29 @@ describe("Appearance categories", function()
 	end)
 end)
 
-describe("Appearance pieces", function()
-	it("hangs every piece on a real R15 part", function()
-		eachPiece(function(label, piece)
-			check(`{label} attaches to {piece.attachTo}`, isPart(piece.attachTo))
+describe("Appearance textures and hair", function()
+	-- A texture name AvatarTextures has never heard of is a layer that is
+	-- silently never worn, whatever gets uploaded.
+	it("names only textures AvatarTextures knows", function()
+		eachTexture(function(label, name)
+			check(`{label}: {name}`, AvatarTextures[name] ~= nil)
 		end)
 	end)
 
-	-- A piece that reaches a long way from the part it hangs on swings through
-	-- the world when that part moves. Nothing here should be bigger than the
-	-- body wearing it.
-	it("keeps every piece a sane size, close to its part", function()
-		eachPiece(function(label, piece)
-			for axis = 1, 3 do
-				check(`{label} size {axis}`, piece.size[axis] > 0 and piece.size[axis] <= 3)
-				check(`{label} offset {axis}`, math.abs(piece.offset[axis]) <= 2.5)
-			end
-		end)
-	end)
-
-	it("gives every piece a name, unique within its option", function()
-		for _, list in { AppearanceDefs.HAIR, AppearanceDefs.FACES, AppearanceDefs.MARKINGS, AppearanceDefs.GARB } do
-			for _, option in list do
-				local seen: { [string]: boolean } = {}
-				for _, piece in option.pieces or {} do
-					check(`{option.id}.{piece.name} unique`, piece.name ~= "" and not seen[piece.name])
-					seen[piece.name] = true
-				end
+	it("gives every hairstyle at most one catalogue item, and a real id", function()
+		for _, hair in AppearanceDefs.HAIR do
+			check(`{hair.id} not both hair and hat`, not (hair.hair and hair.hat))
+			for _, id in { hair.hair, hair.hat } do
+				check(`{hair.id} id is a positive whole number`, math.floor(id) == id and id > 0)
 			end
 		end
 	end)
 
-	-- Legs and hips are where a garb piece would clip through its own stride,
-	-- and nothing in the editor is worth that.
-	it("never dresses the legs", function()
-		local legs = { "RightUpperLeg", "RightLowerLeg", "RightFoot", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot" }
-		eachPiece(function(label, piece)
-			check(`{label} leaves the legs alone`, table.find(legs, piece.attachTo) == nil)
-		end)
+	-- The first entry is the fallback for an unknown id, and a fallback
+	-- should never put something on a head the player didn't pick.
+	it("falls back to no hair and no marking", function()
+		check("first hair is bare", AppearanceDefs.HAIR[1].hair == nil and AppearanceDefs.HAIR[1].hat == nil)
+		check("first marking is bare", AppearanceDefs.MARKINGS[1].texture == nil)
 	end)
 end)
 
@@ -160,6 +144,7 @@ describe("AppearanceDefs.sanitize", function()
 			marking = "nonsense",
 			garb = "robes",
 			garbColor = "crimson",
+			legwearColor = "moss",
 			trimColor = "nonsense",
 		})
 
@@ -168,6 +153,7 @@ describe("AppearanceDefs.sanitize", function()
 		expect(clean.face).toBe("grim")
 		expect(clean.garb).toBe("robes")
 		expect(clean.garbColor).toBe("crimson")
+		expect(clean.legwearColor).toBe("moss")
 
 		local fallback = AppearanceDefs.default()
 		expect(clean.skin).toBe(fallback.skin)
@@ -189,30 +175,7 @@ describe("AppearanceDefs.sanitize", function()
 	end)
 end)
 
-describe("AppearanceDefs.piecesFor", function()
-	it("resolves every piece to a colour", function()
-		local look = AppearanceDefs.default()
-		local resolved = AppearanceDefs.piecesFor(look)
-		check("builds something", #resolved > 0)
-		for _, entry in resolved do
-			local rgb = entry.color
-			check(`{entry.piece.name} coloured`, typeof(rgb) == "table" and #rgb == 3)
-		end
-	end)
-
-	it("tints a piece with the colour its look chose", function()
-		local look = AppearanceDefs.default()
-		look.hair = "long"
-		look.hairColor = "white"
-
-		local white = AppearanceDefs.colorOf(AppearanceDefs.HAIR_COLORS, "white")
-		for _, entry in AppearanceDefs.piecesFor(look) do
-			if entry.piece.tint == "hair" then
-				expect(entry.color).toEqual(white)
-			end
-		end
-	end)
-
+describe("AppearanceDefs.outfitFor", function()
 	-- Every combination has to build, because every combination is reachable
 	-- from the menu.
 	it("builds every combination of hair, face, marking and garb", function()
@@ -222,34 +185,54 @@ describe("AppearanceDefs.piecesFor", function()
 					for _, garb in AppearanceDefs.GARB do
 						local look = AppearanceDefs.default()
 						look.hair, look.face, look.marking, look.garb = hair.id, face.id, marking.id, garb.id
-						local ok = pcall(AppearanceDefs.piecesFor, look)
-						check(`{hair.id}/{face.id}/{marking.id}/{garb.id}`, ok)
+						local ok, outfit = pcall(AppearanceDefs.outfitFor, look)
+						local label = `{hair.id}/{face.id}/{marking.id}/{garb.id}`
+						check(label, ok)
+						if ok then
+							check(`{label} has a face and eyes`, #outfit.decals >= 2)
+							for _, layer in outfit.decals do
+								check(`{label} {layer.texture} coloured`, #layer.color == 3)
+							end
+						end
 					end
 				end
 			end
 		end
 	end)
 
-	-- Two pieces with the same name on the same part would weld on top of each
-	-- other, and only one of them would ever be seen.
-	it("never collides two piece names on one part", function()
-		for _, hair in AppearanceDefs.HAIR do
-			for _, face in AppearanceDefs.FACES do
-				for _, marking in AppearanceDefs.MARKINGS do
-					for _, garb in AppearanceDefs.GARB do
-						local look = AppearanceDefs.default()
-						look.hair, look.face, look.marking, look.garb = hair.id, face.id, marking.id, garb.id
+	it("tints each garment with its own colour", function()
+		local look = AppearanceDefs.default()
+		look.garbColor, look.legwearColor, look.trimColor = "crimson", "moss", "gold"
+		local outfit = AppearanceDefs.outfitFor(look)
 
-						local seen: { [string]: boolean } = {}
-						for _, entry in AppearanceDefs.piecesFor(look) do
-							local key = `{entry.piece.attachTo}/{entry.piece.name}`
-							check(`{hair.id}+{face.id}+{marking.id}+{garb.id}: {key}`, not seen[key])
-							seen[key] = true
-						end
-					end
-				end
-			end
-		end
+		expect(outfit.shirt.color).toEqual(AppearanceDefs.colorOf(AppearanceDefs.GARB_COLORS, "crimson"))
+		expect(outfit.pants.color).toEqual(AppearanceDefs.colorOf(AppearanceDefs.GARB_COLORS, "moss"))
+		expect(outfit.overlay.color).toEqual(AppearanceDefs.colorOf(AppearanceDefs.TRIM_COLORS, "gold"))
+	end)
+
+	it("dyes hair the hair colour and a hood the garb colour", function()
+		local look = AppearanceDefs.default()
+		look.hairColor, look.garbColor = "white", "moss"
+
+		look.hair = "long"
+		expect(AppearanceDefs.outfitFor(look).hairColor).toEqual(AppearanceDefs.colorOf(AppearanceDefs.HAIR_COLORS, "white"))
+
+		look.hair = "hooded"
+		local hooded = AppearanceDefs.outfitFor(look)
+		check("a hood is a hat", hooded.hat ~= nil and hooded.hair == nil)
+		expect(hooded.hairColor).toEqual(AppearanceDefs.colorOf(AppearanceDefs.GARB_COLORS, "moss"))
+	end)
+
+	-- Marking under the face, eyes on top of both: a mask has to cover a
+	-- scar, and eyes have to show through a mask's slits.
+	it("stacks marking, face, then eyes", function()
+		local look = AppearanceDefs.default()
+		look.marking, look.face = "scar", "masked"
+		local decals = AppearanceDefs.outfitFor(look).decals
+		expect(#decals).toBe(3)
+		expect(decals[1].texture).toBe("mark_scar")
+		expect(decals[2].texture).toBe("face_mask")
+		expect(decals[3].texture).toBe("eyes_slits")
 	end)
 end)
 

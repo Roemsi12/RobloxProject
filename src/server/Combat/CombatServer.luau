@@ -38,10 +38,13 @@ local Loadout = require(Shared.Loadout)
 local ParryMath = require(Shared.ParryMath)
 local PostureMath = require(Shared.PostureMath)
 local Remotes = require(Shared.Remotes)
+local SkillTreeDefs = require(Shared.SkillTreeDefs)
+local TalentMath = require(Shared.TalentMath)
 
 local Characters = require(script.Parent.Characters)
 local EnemyAI = require(script.Parent.EnemyAI)
 local PlayerCombatState = require(script.Parent.PlayerCombatState)
+local Shots = require(script.Parent.Shots)
 local EquipService = require(script.Parent.Parent.EquipService)
 local ProgressionService = require(script.Parent.Parent.Progression.ProgressionService)
 local PvPCombatServer = require(script.Parent.Parent.PvP.PvPCombatServer)
@@ -85,6 +88,10 @@ type SwingProfile = {
 	range: number,
 	arcDegrees: number,
 	damageMultiplier: number,
+	-- The last step of a combo, and a critical: moments some skill-tree
+	-- mechanics key off (`finisherStagger`, `markOnCrit`).
+	finisher: boolean?,
+	critical: boolean?,
 }
 
 local enemies: { [string]: EnemyAI.Enemy } = {}
@@ -175,14 +182,45 @@ local function applyBleed(player: Player, enemy: EnemyAI.Enemy, attackId: string
 	end)
 end
 
+-- Damage a skill-tree mechanic deals to an enemy, outside any swing: a bleed,
+-- a counter-blow off a block, a hit carried on to a second enemy. Declared
+-- here because the enemy-attack section below needs it, and defined with the
+-- rest of the mechanics under "Player swings", next to the kill path it ends
+-- in.
+local damageEnemy: (player: Player, enemy: EnemyAI.Enemy, amount: number) -> boolean
+
+-- A ward on a player: until when, and the share of damage it turns away.
+-- Never shortens or weakens one already running — a mechanic's small ward
+-- landing on top of an ability's big one must not replace it.
+local function grantWard(state: PlayerCombatState.State, untilTime: number, reduction: number, now: number)
+	local active = now < state.wardUntil
+	state.wardReduction = math.max(if active then state.wardReduction else 0, reduction)
+	state.wardUntil = math.max(state.wardUntil, untilTime)
+end
+
+type HealOptions = {
+	-- No HealBurst to the players healed: for the small, constant heals the
+	-- skill-tree mechanics give out, which would otherwise flash the screen
+	-- on every swing.
+	silent: boolean?,
+	-- Whether the healer's `healWard` applies. Only the heals a player times
+	-- (a parry, an ability, a kill) carry it; a ward on every trickle would
+	-- be a ward that never ends.
+	ward: boolean?,
+}
+
 -- Burst heal for the parrying player and every living player near them. A
 -- payoff read from WeaponDefs rather than a check on class name, so any
 -- future weapon can carry it.
-local function applyBurstHeal(healer: Player, amount: number, radius: number)
+local function applyBurstHeal(healer: Player, amount: number, radius: number, options: HealOptions?)
 	local healerRoot = Characters.getRoot(healer)
 	if not healerRoot then
 		return
 	end
+
+	local silent = options ~= nil and options.silent == true
+	local wardFor = if options and options.ward then ProgressionService.modifiers(healer).healWard else 0
+	local now = Workspace:GetServerTimeNow()
 
 	local origin = Characters.flat(healerRoot.Position)
 
@@ -201,8 +239,14 @@ local function applyBurstHeal(healer: Player, amount: number, radius: number)
 		humanoid.Health = DamageMath.applyHealing(before, humanoid.MaxHealth, amount)
 
 		local healed = humanoid.Health - before
-		if healed > 0 then
+		if healed > 0 and not silent then
 			Remotes.get("HealBurst"):FireClient(player, { amount = healed, healerName = healer.Name })
+		end
+
+		if wardFor > 0 then
+			local state = PlayerCombatState.peek(player)
+			grantWard(state, now + wardFor, TalentMath.HEAL_WARD_REDUCTION, now)
+			PlayerCombatState.publish(player)
 		end
 	end
 end
@@ -324,14 +368,27 @@ local function resolveParried(enemy: EnemyAI.Enemy, attack: ActiveAttack, parrie
 		local restore = PlayerCombatState.limits(player).parryRestore
 		PlayerCombatState.setPosture(state, PostureMath.afterParry(state.posture, restore), now, false)
 
-		staggerFor = math.max(staggerFor, DamageMath.staggerDuration(CombatConstants.STAGGER_DURATION, payoff.staggerMultiplier))
+		local mods = ProgressionService.modifiers(player)
+		local stagger = DamageMath.staggerDuration(CombatConstants.STAGGER_DURATION, payoff.staggerMultiplier)
+		-- `precisionStagger`: a split-second parry, not merely a good one,
+		-- opens the enemy for longer.
+		local pressAt = state.parryPressAt
+		if mods.precisionStagger > 0 and pressAt and TalentMath.isPreciseParry(pressAt, attack.impactTime) then
+			stagger += mods.precisionStagger
+		end
+		staggerFor = math.max(staggerFor, stagger)
+
+		-- `parryWard`: the blow you turned leaves you braced for the next.
+		if mods.parryWard > 0 then
+			grantWard(state, now + mods.parryWard, TalentMath.PARRY_WARD_REDUCTION, now)
+		end
 
 		if payoff.riposteDuration > 0 then
 			state.riposteUntil = now + payoff.riposteDuration
 		end
 		if payoff.burstHeal > 0 then
-			local healing = payoff.burstHeal * (1 + ProgressionService.modifiers(player).healPower)
-			applyBurstHeal(player, healing, payoff.burstHealRadius)
+			local healing = payoff.burstHeal * (1 + mods.healPower)
+			applyBurstHeal(player, healing, payoff.burstHealRadius, { ward = true })
 		end
 
 		Remotes.get("ParryResult"):FireClient(player, {
@@ -396,17 +453,37 @@ local function resolveLanded(enemy: EnemyAI.Enemy, attack: ActiveAttack, victims
 			PlayerCombatState.stun(state, CombatConstants.PLAYER_HIT_STUN, now)
 		end
 
-		if block.damage > 0 then
+		-- `blockReflect`: a blocked blow comes back at whoever threw it.
+		if block.outcome == "blocked" and mods.blockReflect > 0 and incoming > 0 then
+			damageEnemy(player, enemy, incoming * mods.blockReflect)
+		end
+
+		local healthDamage = block.damage
+		if healthDamage > 0 then
+			-- `manaShield`: part of a hit that got through is paid in posture
+			-- instead, as far as there is posture to pay it with.
+			if mods.manaShield > 0 then
+				local room = PlayerCombatState.limits(player).max - state.posture
+				local toHealth, toPosture = TalentMath.manaShieldSplit(healthDamage, mods.manaShield, room)
+				healthDamage = toHealth
+				if toPosture > 0 then
+					PlayerCombatState.setPosture(state, state.posture + toPosture, now, true)
+				end
+			end
+
+			-- Taking a hit breaks a run of hits (`frenzy`).
+			state.frenzyStacks = 0
+
 			local humanoid = Characters.getHumanoid(player)
 			if humanoid then
 				-- TakeDamage rather than subtracting Health directly, so a
 				-- ForceField is respected.
-				humanoid:TakeDamage(block.damage)
+				humanoid:TakeDamage(healthDamage)
 			end
 		end
 
 		Remotes.get("PlayerHit"):FireClient(player, {
-			amount = block.damage,
+			amount = healthDamage,
 			sourceId = enemy.id,
 			attackId = attack.attackId,
 			blocked = block.outcome == "blocked",
@@ -648,6 +725,12 @@ local function onEnemyKilled(enemy: EnemyAI.Enemy, killer: Player)
 	-- Chest unlocks and payouts hang off this.
 	EnemyAI.fireDeath(enemy, killer)
 
+	-- `killHeal`: what falls feeds whoever is standing near it.
+	local mods = ProgressionService.modifiers(killer)
+	if mods.killHeal > 0 then
+		applyBurstHeal(killer, mods.killHeal * (1 + mods.healPower), TalentMath.KILL_HEAL_RADIUS, { ward = true })
+	end
+
 	if staysDead[enemy.id] then
 		return
 	end
@@ -658,6 +741,18 @@ local function onEnemyKilled(enemy: EnemyAI.Enemy, killer: Player)
 			broadcastEnemyHealth(enemy)
 		end
 	end)
+end
+
+damageEnemy = function(player: Player, enemy: EnemyAI.Enemy, amount: number): boolean
+	if not enemy.alive or enemies[enemy.id] ~= enemy or amount <= 0 then
+		return false
+	end
+	local killed = EnemyAI.applyDamage(enemy, amount)
+	broadcastEnemyHealth(enemy)
+	if killed then
+		onEnemyKilled(enemy, player)
+	end
+	return killed
 end
 
 --[[ Player swings ]]
@@ -739,6 +834,226 @@ local function findSwingTarget(root: BasePart, profile: SwingProfile): EnemyAI.E
 	return best
 end
 
+--[[ Skill-tree mechanics ]]
+
+-- The nodes that change what happens in a fight rather than adding to a number
+-- (SkillTreeDefs, `mechanic`). The rules are TalentMath's; this is where each
+-- one is applied. Every one is read off the player's modifiers, never off a
+-- class name, so any tree could carry any of them.
+
+-- enemyId -> a mark a critical left on it (`markOnCrit`): until when, and how
+-- much more damage it takes, from anyone.
+local marks: { [string]: { untilTime: number, bonus: number } } = {}
+
+-- The extra damage `enemy` takes right now from a mark, or 0.
+local function markBonus(enemy: EnemyAI.Enemy, now: number): number
+	local mark = marks[enemy.id]
+	if not mark then
+		return 0
+	end
+	if now >= mark.untilTime or not enemy.alive then
+		marks[enemy.id] = nil
+		return 0
+	end
+	return mark.bonus
+end
+
+-- Staggers an enemy from a mechanic (`finisherStagger`). Hyper armour holds,
+-- as it does against a flinch: a boss mid-slam is not knocked out of it by
+-- the end of a combo.
+local function staggerEnemy(enemy: EnemyAI.Enemy, duration: number)
+	if not enemy.alive or duration <= 0 then
+		return
+	end
+	local attack = activeAttacks[enemy.id]
+	if attack then
+		if attack.def.hyperArmor then
+			return
+		end
+		attack.interrupted = true
+	end
+	task.spawn(holdEnemyState, enemy, "staggered", "stagger", duration)
+end
+
+-- Bleeds `total` out of an enemy over TalentMath.BLEED_DURATION (`bleed`).
+-- Each hit opens its own wound, so a flurry stacks them.
+local function bleedEnemy(player: Player, enemy: EnemyAI.Enemy, total: number)
+	if total <= 0 then
+		return
+	end
+	local tick = TalentMath.bleedTick(total)
+	task.spawn(function()
+		for _ = 1, TalentMath.BLEED_TICKS do
+			task.wait(TalentMath.BLEED_DURATION / TalentMath.BLEED_TICKS)
+			if not damageEnemy(player, enemy, tick) and not enemy.alive then
+				return
+			end
+		end
+	end)
+end
+
+-- Living enemies within `radius` of `around`, nearest first, leaving out
+-- `except`.
+local function enemiesNear(around: Vector3, radius: number, except: EnemyAI.Enemy?): { EnemyAI.Enemy }
+	local found = {}
+	local distances: { [EnemyAI.Enemy]: number } = {}
+	local flatAround = Characters.flat(around)
+	for _, enemy in enemies do
+		if enemy.alive and enemy ~= except then
+			local distance = DamageMath.horizontalDistance(flatAround, Characters.flat(enemy.root.Position))
+			if distance <= radius then
+				table.insert(found, enemy)
+				distances[enemy] = distance
+			end
+		end
+	end
+	table.sort(found, function(a, b)
+		return distances[a] < distances[b]
+	end)
+	return found
+end
+
+-- The nearest enemy beyond `target` along the attacker's line, within
+-- PIERCE_REACH of it (`pierce`).
+local function enemyBehind(root: BasePart, target: EnemyAI.Enemy): EnemyAI.Enemy?
+	local origin = Characters.flat(root.Position)
+	local facing = Characters.flat(root.CFrame.LookVector)
+	local targetDistance = DamageMath.horizontalDistance(origin, Characters.flat(target.root.Position))
+	local best: EnemyAI.Enemy? = nil
+	local bestDistance = math.huge
+	for _, enemy in enemies do
+		if not enemy.alive or enemy == target then
+			continue
+		end
+		local position = Characters.flat(enemy.root.Position)
+		local distance = DamageMath.horizontalDistance(origin, position)
+		local inLine = DamageMath.isInHitVolume({
+			attackerPos = origin,
+			attackerFacing = facing,
+			targetPos = position,
+			range = targetDistance + TalentMath.PIERCE_REACH,
+			arcDegrees = TalentMath.PIERCE_ARC,
+		})
+		if inLine and distance > targetDistance and distance < bestDistance then
+			best = enemy
+			bestDistance = distance
+		end
+	end
+	return best
+end
+
+-- The nearest other enemy inside the swing's own volume (`multishot`).
+local function secondTarget(root: BasePart, profile: SwingProfile, target: EnemyAI.Enemy): EnemyAI.Enemy?
+	local origin = Characters.flat(root.Position)
+	local facing = Characters.flat(root.CFrame.LookVector)
+	local best: EnemyAI.Enemy? = nil
+	local bestDistance = math.huge
+	for _, enemy in enemies do
+		if not enemy.alive or enemy == target then
+			continue
+		end
+		local position = Characters.flat(enemy.root.Position)
+		local inVolume = DamageMath.isInHitVolume({
+			attackerPos = origin,
+			attackerFacing = facing,
+			targetPos = position,
+			range = profile.range,
+			-- A second arrow can be put a little wider than the first.
+			arcDegrees = math.max(profile.arcDegrees * 2, 45),
+		})
+		local distance = DamageMath.horizontalDistance(origin, position)
+		if inVolume and distance < bestDistance then
+			best = enemy
+			bestDistance = distance
+		end
+	end
+	return best
+end
+
+-- Heals one player by `amount` with no fanfare: lifesteal on every hit
+-- would otherwise flash the screen on every swing.
+local function healQuietly(player: Player, amount: number)
+	local humanoid = Characters.getHumanoid(player)
+	if humanoid and humanoid.Health > 0 and amount > 0 then
+		humanoid.Health = DamageMath.applyHealing(humanoid.Health, humanoid.MaxHealth, amount)
+	end
+end
+
+type Landed = {
+	player: Player,
+	weaponId: string,
+	state: PlayerCombatState.State,
+	mods: SkillTreeDefs.Modifiers,
+	root: BasePart,
+	target: EnemyAI.Enemy,
+	-- What the swing did to the target, after every bonus.
+	damage: number,
+	killed: boolean,
+	profile: SwingProfile,
+	riposte: boolean,
+	now: number,
+}
+
+-- Everything the mechanics do once a swing has landed. The damage is already
+-- dealt; what follows is what the tree adds to it.
+local function afterSwingLanded(hit: Landed)
+	local mods = hit.mods
+	local player = hit.player
+
+	if mods.lifesteal > 0 then
+		healQuietly(player, hit.damage * mods.lifesteal)
+	end
+	if mods.healOnHit > 0 then
+		applyBurstHeal(player, mods.healOnHit * (1 + mods.healPower), TalentMath.HEAL_ON_HIT_RADIUS, { silent = true })
+	end
+
+	hit.state.frenzyStacks = TalentMath.nextFrenzy(hit.state.frenzyStacks)
+
+	if hit.riposte and mods.riposteChain > 0 then
+		hit.state.riposteUntil += mods.riposteChain
+		PlayerCombatState.publish(player)
+	end
+
+	if not hit.killed then
+		if hit.profile.critical and mods.markOnCrit > 0 then
+			marks[hit.target.id] = { untilTime = hit.now + TalentMath.MARK_DURATION, bonus = mods.markOnCrit }
+			Remotes.get("EnemyMarked"):FireAllClients({ enemyId = hit.target.id, duration = TalentMath.MARK_DURATION })
+		end
+		if hit.profile.finisher and mods.finisherStagger > 0 then
+			staggerEnemy(hit.target, mods.finisherStagger)
+		end
+		if mods.bleed > 0 then
+			bleedEnemy(player, hit.target, hit.damage * mods.bleed)
+		end
+	end
+
+	-- The ones that reach past the target, worked out from where it stood.
+	if mods.pierce > 0 then
+		local behind = enemyBehind(hit.root, hit.target)
+		if behind then
+			damageEnemy(player, behind, TalentMath.carried(hit.damage, mods.pierce))
+		end
+	end
+	if mods.multishot > 0 then
+		local second = secondTarget(hit.root, hit.profile, hit.target)
+		if second then
+			Shots.loose(player, hit.weaponId, hit.root, second.root, hit.profile.range)
+			damageEnemy(player, second, TalentMath.carried(hit.damage, mods.multishot))
+		end
+	end
+	if mods.chainArc > 0 then
+		local arcs = enemiesNear(hit.target.root.Position, TalentMath.CHAIN_RADIUS, hit.target)
+		for index = 1, math.min(#arcs, TalentMath.CHAIN_JUMPS) do
+			local struck = arcs[index]
+			Remotes.get("ChainArc"):FireAllClients({
+				from = hit.target.root.Position,
+				to = struck.root.Position,
+			})
+			damageEnemy(player, struck, TalentMath.carried(hit.damage, mods.chainArc))
+		end
+	end
+end
+
 -- Resolves a player's swing when its windup ends: finds what was in range
 -- and in arc, applies damage, and reports the outcome back.
 --
@@ -767,11 +1082,14 @@ local function resolveSwing(player: Player, weaponId: string, profile: SwingProf
 	end
 
 	local target = findSwingTarget(root, profile)
+	Shots.loose(player, weaponId, root, if target then target.root else nil, profile.range)
 	if not target then
 		local now = Workspace:GetServerTimeNow()
 		state.attackReadyAt = math.max(state.attackReadyAt, now + CombatConstants.MISS_RECOVERY)
 		state.comboStep = 0
 		state.comboExpiresAt = 0
+		-- A miss ends a run of hits (`frenzy`).
+		state.frenzyStacks = 0
 		attackResult(player, { hit = false, reason = "missed", damage = 0, riposte = false })
 		PlayerCombatState.publish(player)
 		return
@@ -792,8 +1110,23 @@ local function resolveSwing(player: Player, weaponId: string, profile: SwingProf
 	)
 	local backstab = if behind then mods.backstab else 0
 
+	-- What the tree's mechanics add to this hit (TalentMath.outgoingBonus).
+	local humanoid = Characters.getHumanoid(player)
+	local ambush = mods.dodgeStrike > 0 and TalentMath.isAmbush(state.dodgeStartedAt, state.ambushSpentFor, now)
+	if ambush then
+		state.ambushSpentFor = state.dodgeStartedAt
+	end
+	local talent = TalentMath.outgoingBonus({
+		mods = mods,
+		targetHealth = target.health / target.def.maxHealth,
+		ownHealth = if humanoid and humanoid.MaxHealth > 0 then humanoid.Health / humanoid.MaxHealth else 1,
+		frenzyStacks = state.frenzyStacks,
+		ambush = ambush,
+		mark = markBonus(target, now),
+	})
+
 	local base = EquipService.getDamage(player, weaponId) * profile.damageMultiplier
-	local damage = DamageMath.resolveOutgoing(base * (1 + mods.damage + backstab), {
+	local damage = DamageMath.resolveOutgoing(base * (1 + mods.damage + backstab + talent), {
 		targetStaggered = target.state == "staggered",
 		riposteActive = riposteActive,
 		riposteMultiplier = weapon.payoff.riposteMultiplier + mods.riposte,
@@ -816,6 +1149,20 @@ local function resolveSwing(player: Player, weaponId: string, profile: SwingProf
 	if killed then
 		onEnemyKilled(target, player)
 	end
+
+	afterSwingLanded({
+		player = player,
+		weaponId = weaponId,
+		state = state,
+		mods = mods,
+		root = root,
+		target = target,
+		damage = damage,
+		killed = killed,
+		profile = profile,
+		riposte = riposteActive,
+		now = now,
+	})
 end
 
 -- Checks shared by every attack press. Returns the weapon id if the player
@@ -892,6 +1239,7 @@ local function onAttackRequest(player: Player)
 		range = attack.range,
 		arcDegrees = attack.arcDegrees,
 		damageMultiplier = timing.damageMultiplier,
+		finisher = step == #attack.combo,
 	}, now)
 end
 
@@ -928,6 +1276,7 @@ local function onCriticalRequest(player: Player)
 		range = critical.range,
 		arcDegrees = critical.arcDegrees,
 		damageMultiplier = critical.damageMultiplier * (1 + mods.criticalDamage),
+		critical = true,
 	}, now)
 	PlayerCombatState.publish(player)
 end
@@ -1030,8 +1379,14 @@ local function onDodgeRequest(player: Player, payload: unknown)
 
 	state.guarding = false
 	state.dodgeStartedAt = attemptTime
-	local dodgeCooldown = CombatConstants.DODGE_COOLDOWN * (1 - ProgressionService.modifiers(player).dodgeCooldown)
+	local mods = ProgressionService.modifiers(player)
+	local dodgeCooldown = CombatConstants.DODGE_COOLDOWN * (1 - mods.dodgeCooldown)
 	state.dodgeReadyAt = now + dodgeCooldown
+
+	-- `dodgeReload`: every dodge buys back some of the critical's cooldown.
+	if mods.dodgeReload > 0 then
+		state.criticalReadyAt = math.max(now, state.criticalReadyAt - mods.dodgeReload)
+	end
 
 	-- The direction is the client's to choose and nothing turns on it, so it
 	-- is passed on once it has been checked against the four that exist.
@@ -1076,7 +1431,10 @@ end
 -- kill if it was one. Split out because three ability kinds all land
 -- damage the same way and only differ in what they hit.
 local function hitWithAbility(player: Player, enemy: EnemyAI.Enemy, damage: number, stagger: number)
-	local killed = EnemyAI.applyDamage(enemy, damage)
+	-- A mark (`markOnCrit`) is on the enemy, not the swing, so abilities pay
+	-- it too — whoever put it there.
+	local marked = damage * (1 + markBonus(enemy, Workspace:GetServerTimeNow()))
+	local killed = EnemyAI.applyDamage(enemy, marked)
 	broadcastEnemyHealth(enemy)
 
 	if killed then
@@ -1136,7 +1494,7 @@ end
 -- A mend: the Healer's rescue, which unlike the parry heal asks nothing of
 -- you first.
 local function castMend(player: Player, _root: BasePart, def: AbilityDefs.AbilityDef, power: number)
-	applyBurstHeal(player, power, def.radius)
+	applyBurstHeal(player, power, def.radius, { ward = true })
 end
 
 -- A ward: for a few seconds, less damage and a guard that holds.
@@ -1317,6 +1675,27 @@ function CombatServer.start()
 				maxHealth = enemy.def.maxHealth,
 				alive = enemy.alive,
 			})
+		end
+	end)
+
+	-- `guardAura`: a guard held up mends the player behind it and everyone
+	-- near them, on its own slow clock.
+	local sinceAura = 0
+	RunService.Heartbeat:Connect(function(deltaTime)
+		sinceAura += deltaTime
+		if sinceAura < TalentMath.AURA_TICK then
+			return
+		end
+		local elapsed = sinceAura
+		sinceAura = 0
+		for _, player in Players:GetPlayers() do
+			if not PlayerCombatState.peek(player).guarding or not Characters.isAlive(player) or PvPCombatServer.isDueling(player) then
+				continue
+			end
+			local mods = ProgressionService.modifiers(player)
+			if mods.guardAura > 0 then
+				applyBurstHeal(player, mods.guardAura * elapsed * (1 + mods.healPower), TalentMath.AURA_RADIUS, { silent = true })
+			end
 		end
 	end)
 

@@ -50,6 +50,10 @@ SoundDefs.SOUNDS = {
 	swing_Bow = { id = SNAP, volume = 0.55, pitchMin = 0.9, pitchMax = 1.0 },
 	swing_Focus = { id = SWORD_LUNGE, volume = 0.5, pitchMin = 1.05, pitchMax = 1.18 },
 
+	-- An arrow leaving the string, and striking home (BowVFX).
+	arrow_loose = { id = SNAP, volume = 0.6, pitchMin = 1.35, pitchMax = 1.5 },
+	arrow_hit = { id = COLLIDE, volume = 0.55, pitchMin = 1.45, pitchMax = 1.6 },
+
 	-- Your blow landing on an enemy; a riposte lands lower and louder.
 	hit = { id = COLLIDE, volume = 0.8, pitchMin = 0.85, pitchMax = 1.0 },
 	hit_riposte = { id = COLLIDE, volume = 1.0, pitchMin = 0.6, pitchMax = 0.68 },

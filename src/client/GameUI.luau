@@ -1,13 +1,15 @@
 --!strict
 -- Player-facing feedback: damage and heal flashes, equipped weapon, currency,
--- loot and upgrade messages, the inventory panel (I), and duel status.
+-- loot and upgrade messages, duel status, and the game menu (M) with its
+-- skill tree, inventory and controls tabs.
 --
 -- Separate from DebugHUD on purpose. DebugHUD is a tuning instrument that
 -- goes away at build-order step 10; this is the game's actual UI, kept as
 -- plain labels until then. It renders what the server reports and never
 -- computes an outcome itself.
 --
--- Laid out to stay clear of DebugHUD, which owns the top-left corner.
+-- Laid out to stay clear of DebugHUD, which owns the top-left corner below
+-- the menu button.
 --
 -- Every panel is built by a `build*` function that returns the closure which
 -- updates it, and `GameUI.start` at the bottom is the only place that talks to
@@ -16,11 +18,12 @@
 -- it. The sections, in order:
 --
 --   Widget helpers            panels, labels, flashes
---   The inventory panel       (I)
+--   The inventory panel       the menu's Inventory tab
 --   The dungeon HUD           run progress, boss bar, announcements
 --   The chest's loot menu
---   Levels and the skill tree
+--   Levels and the skill tree the menu's Skill Tree tab, and the XP bar
 --   The combat HUD            posture and cooldowns
+--   The game menu             the window, its tabs, and the on-screen button
 --   Wiring it to the server
 
 local ContextActionService = game:GetService("ContextActionService")
@@ -72,11 +75,16 @@ local unlockedAbilities: { [number]: string } = {}
 local ABILITY_KEY_NAMES = { "Z", "X", "C" }
 
 local INVENTORY_ACTION = "ToggleInventory"
+-- The game menu (buildMenu), and the key the on-screen button says it is on.
+local MENU_ACTION = "ToggleMenu"
+local MENU_KEY = "M"
 local SKILLS_ACTION = "ToggleSkills"
 local CLOSE_LOOT_ACTION = "CloseLoot"
 
 -- Levels are their own colour: not the gold of coins, not the red of a fight.
 local XP_COLOR = Color3.fromRGB(150, 200, 255)
+-- Skill-tree nodes carrying a mechanic (SkillTreeDefs.isMechanic).
+local MECHANIC_COLOR = Color3.fromRGB(215, 140, 255)
 
 local GOLD = Color3.fromRGB(255, 215, 0)
 local GOOD = Color3.fromRGB(120, 255, 120)
@@ -906,9 +914,9 @@ local NODE_HEIGHT = 56
 -- sends progression — which can be well before that. Reading it then would
 -- stack every node in the top-left corner.
 local PANEL_WIDTH = 900
-local PANEL_HEIGHT = 520
+local PANEL_HEIGHT = 560
 local CANVAS_WIDTH = PANEL_WIDTH - 24
-local CANVAS_HEIGHT = PANEL_HEIGHT - 108
+local CANVAS_HEIGHT = PANEL_HEIGHT - 126
 
 -- One skill-tree node. Returns a function that re-reads the player's
 -- progression and restyles the node — affordable, taken, or locked — so
@@ -931,6 +939,28 @@ local function buildNodeButton(
 	button.Parent = parent
 	stylePanel(button)
 	place(button, node.column, node.tier)
+
+	-- A node that changes how the class fights, rather than adding to a
+	-- number, wears its own colour and a small diamond — those are the nodes
+	-- worth reading first.
+	local mechanic = SkillTreeDefs.isMechanic(node)
+	if mechanic then
+		local stroke = button:FindFirstChildOfClass("UIStroke")
+		if stroke then
+			stroke.Color = MECHANIC_COLOR
+			stroke.Transparency = 0.1
+			stroke.Thickness = 2
+		end
+		local gem = Instance.new("Frame")
+		gem.AnchorPoint = Vector2.new(0.5, 0.5)
+		gem.Position = UDim2.fromOffset(9, 9)
+		gem.Size = UDim2.fromOffset(7, 7)
+		gem.Rotation = 45
+		gem.BackgroundColor3 = MECHANIC_COLOR
+		gem.BorderSizePixel = 0
+		gem.ZIndex = 5
+		gem.Parent = button
+	end
 
 	local title = Instance.new("TextLabel")
 	title.Size = UDim2.new(1, -10, 0, 30)
@@ -1014,19 +1044,17 @@ local function buildBranch(parent: Instance, fromX: number, fromY: number, toX: 
 	end
 end
 
--- The tree panel (K). Each weapon's tree is drawn once, the first time it is
--- needed, and shown or hidden after that — swapping class at an altar shouldn't
--- pay to rebuild a tree you already looked at.
-local function buildSkillPanel(gui: ScreenGui, onSpend: (string) -> ()): (Frame, (Progression) -> ())
+-- The tree, as the menu's Skill Tree tab (buildMenu). Each weapon's tree is
+-- drawn once, the first time it is needed, and shown or hidden after that —
+-- swapping class at an altar shouldn't pay to rebuild a tree you already
+-- looked at.
+local function buildSkillPanel(host: Instance, onSpend: (string) -> ()): (Frame, (Progression) -> ())
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
 	panel.Size = UDim2.fromOffset(PANEL_WIDTH, PANEL_HEIGHT)
-	panel.BackgroundColor3 = PANEL_COLOR
-	panel.BackgroundTransparency = 0.05
-	panel.Visible = false
-	panel.Parent = gui
-	stylePanel(panel)
+	panel.BackgroundTransparency = 1
+	panel.Parent = host
 
 	local heading = Instance.new("TextLabel")
 	heading.Size = UDim2.new(1, -24, 0, 24)
@@ -1054,8 +1082,8 @@ local function buildSkillPanel(gui: ScreenGui, onSpend: (string) -> ()): (Frame,
 	-- One line at the bottom for whatever the pointer is over, rather than
 	-- every node shouting its numbers at once.
 	local detail = Instance.new("TextLabel")
-	detail.Size = UDim2.new(1, -24, 0, 34)
-	detail.Position = UDim2.new(0, 12, 1, -42)
+	detail.Size = UDim2.new(1, -24, 0, 54)
+	detail.Position = UDim2.new(0, 12, 1, -60)
 	detail.BackgroundTransparency = 1
 	detail.Font = Enum.Font.Gotham
 	detail.TextSize = 13
@@ -1095,7 +1123,8 @@ local function buildSkillPanel(gui: ScreenGui, onSpend: (string) -> ()): (Frame,
 		local state = latest
 		local bought = if state then state.skills[node.id] or 0 else 0
 		local perRank = table.concat(SkillTreeDefs.describe(node.effects, 1), "   ")
-		local line = `{node.name}  ({bought}/{node.maxRank})  —  {node.description}`
+		local tag = if SkillTreeDefs.isMechanic(node) then "  ◆ MECHANIC" else ""
+		local line = `{node.name}  ({bought}/{node.maxRank}){tag}  —  {node.description}`
 
 		-- A capstone's real payoff is the key it unlocks, so it leads.
 		local granted = if node.ability then AbilityDefs.get(node.ability) else nil
@@ -1272,7 +1301,7 @@ local function buildLevelBar(gui: ScreenGui): (Progression) -> ()
 		local text = `Level {state.level}`
 		if state.points - state.spent > 0 then
 			-- The one thing worth interrupting for: a point going unspent.
-			text ..= `  ·  {state.points - state.spent} point(s) to spend  [K]`
+			text ..= `  ·  {state.points - state.spent} point(s) to spend  [{MENU_KEY}]`
 		end
 		if label.Text ~= text then
 			label.Text = text
@@ -1393,6 +1422,266 @@ local function buildCombatHUD(gui: ScreenGui)
 	end)
 end
 
+--[[ The game menu ]]
+
+-- One window for everything that is not the fight itself: the skill tree, the
+-- inventory, and the controls. Opened with M, or with the button that always
+-- sits at the top-left of the screen — which is also how a new player finds
+-- out there is a menu at all, and which key it is on. K and I still work, as
+-- shortcuts straight to their tabs.
+
+local MENU_WIDTH = PANEL_WIDTH + 24
+local TAB_HEIGHT = 40
+local MENU_HEIGHT = PANEL_HEIGHT + TAB_HEIGHT + 20
+
+export type MenuTab = { id: string, title: string, key: string? }
+
+-- Every key the game uses, for the Controls tab. Written out rather than read
+-- from the bindings, because a list of actions is the wrong order to explain
+-- them in: this is the order a new player needs them.
+local CONTROLS: { { string } } = {
+	{ "Left click", "Attack — keep clicking for a 4-hit combo" },
+	{ "R", "Critical: a heavy attack on a cooldown" },
+	{ "Right click", "Feint: cancel a swing early in its windup" },
+	{ "F", "Parry just before a hit lands; hold to block" },
+	{ "Q", "Dodge roll" },
+	{ "Z / X / C", "Abilities, unlocked at the end of each skill branch" },
+	{ "E", "Use: weapon altars, the anvil, chests, the mirror" },
+	{ "Left Shift", "Toggle camera lock" },
+	{ MENU_KEY, "Open or close this menu" },
+	{ "K", "Skill tree" },
+	{ "I", "Inventory" },
+}
+
+-- The menu window with its tab bar, and a content frame per tab. Returns the
+-- window, a function to show a tab by id (opening the window), and a function
+-- to close it.
+local function buildMenu(gui: ScreenGui, tabs: { MenuTab }): (Frame, { [string]: Frame }, (string) -> (), () -> (), () -> string)
+	local window = Instance.new("Frame")
+	window.Name = "GameMenu"
+	window.AnchorPoint = Vector2.new(0.5, 0.5)
+	window.Position = UDim2.fromScale(0.5, 0.5)
+	window.Size = UDim2.fromOffset(MENU_WIDTH, MENU_HEIGHT)
+	window.BackgroundColor3 = PANEL_COLOR
+	window.BackgroundTransparency = 0.04
+	window.Visible = false
+	window.ZIndex = 10
+	window.Parent = gui
+	stylePanel(window)
+
+	-- Shrinks to fit a small screen rather than running off it. Recomputed
+	-- whenever the screen changes size, which on a phone is every rotation.
+	local fit = Instance.new("UIScale")
+	fit.Parent = window
+	local camera = Workspace.CurrentCamera
+	local function refit()
+		local viewport = if camera then camera.ViewportSize else Vector2.new(1280, 720)
+		fit.Scale = math.min(1, (viewport.X - 32) / MENU_WIDTH, (viewport.Y - 96) / MENU_HEIGHT)
+	end
+	refit()
+	if camera then
+		camera:GetPropertyChangedSignal("ViewportSize"):Connect(refit)
+	end
+
+	local bar = Instance.new("Frame")
+	bar.Size = UDim2.new(1, -24, 0, TAB_HEIGHT - 6)
+	bar.Position = UDim2.fromOffset(12, 10)
+	bar.BackgroundTransparency = 1
+	bar.Parent = window
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.Padding = UDim.new(0, 8)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = bar
+
+	local closeButton = Instance.new("TextButton")
+	closeButton.AnchorPoint = Vector2.new(1, 0)
+	closeButton.Position = UDim2.new(1, -12, 0, 10)
+	closeButton.Size = UDim2.fromOffset(34, TAB_HEIGHT - 6)
+	closeButton.BackgroundColor3 = PANEL_COLOR
+	closeButton.Font = Enum.Font.GothamBold
+	closeButton.TextSize = 18
+	closeButton.TextColor3 = Color3.fromRGB(230, 220, 205)
+	closeButton.Text = "✕"
+	closeButton.Parent = window
+	stylePanel(closeButton)
+
+	local body = Instance.new("Frame")
+	body.Position = UDim2.fromOffset(12, TAB_HEIGHT + 10)
+	body.Size = UDim2.new(1, -24, 1, -(TAB_HEIGHT + 20))
+	body.BackgroundTransparency = 1
+	body.Parent = window
+
+	local contents: { [string]: Frame } = {}
+	local buttons: { [string]: TextButton } = {}
+	local current = tabs[1].id
+
+	local function showTab(id: string)
+		current = id
+		for tabId, content in contents do
+			content.Visible = tabId == id
+		end
+		for tabId, button in buttons do
+			local on = tabId == id
+			button.BackgroundColor3 = if on then Color3.fromRGB(60, 50, 38) else PANEL_COLOR
+			button.TextColor3 = if on then Color3.fromRGB(255, 215, 140) else Color3.fromRGB(190, 182, 170)
+		end
+	end
+
+	for index, tab in tabs do
+		local button = Instance.new("TextButton")
+		button.LayoutOrder = index
+		button.Size = UDim2.fromOffset(150, TAB_HEIGHT - 6)
+		button.Font = Enum.Font.GothamBold
+		button.TextSize = 15
+		button.AutoButtonColor = false
+		button.Text = if tab.key then `{tab.title}  [{tab.key}]` else tab.title
+		button.Parent = bar
+		stylePanel(button)
+		buttons[tab.id] = button
+
+		local content = Instance.new("Frame")
+		content.Size = UDim2.fromScale(1, 1)
+		content.BackgroundTransparency = 1
+		content.Visible = false
+		content.Parent = body
+		contents[tab.id] = content
+
+		button.MouseButton1Click:Connect(function()
+			showTab(tab.id)
+		end)
+	end
+	showTab(current)
+
+	local function open(id: string)
+		showTab(id)
+		window.Visible = true
+	end
+	local function close()
+		window.Visible = false
+	end
+	closeButton.MouseButton1Click:Connect(close)
+
+	return window, contents, open, close, function()
+		return current
+	end
+end
+
+-- The Controls tab: two columns, the key and what it does.
+local function buildControls(parent: Instance)
+	local list = Instance.new("Frame")
+	list.AnchorPoint = Vector2.new(0.5, 0)
+	list.Position = UDim2.new(0.5, 0, 0, 12)
+	list.Size = UDim2.fromOffset(620, #CONTROLS * 38)
+	list.BackgroundTransparency = 1
+	list.Parent = parent
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 6)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = list
+
+	for index, row in CONTROLS do
+		local line = Instance.new("Frame")
+		line.LayoutOrder = index
+		line.Size = UDim2.new(1, 0, 0, 32)
+		line.BackgroundColor3 = PANEL_COLOR
+		line.BackgroundTransparency = 0.3
+		line.Parent = list
+		stylePanel(line)
+
+		local key = Instance.new("TextLabel")
+		key.Size = UDim2.fromOffset(150, 32)
+		key.BackgroundTransparency = 1
+		key.Font = Enum.Font.GothamBold
+		key.TextSize = 15
+		key.TextColor3 = Color3.fromRGB(255, 215, 140)
+		key.Text = row[1]
+		key.Parent = line
+
+		local what = Instance.new("TextLabel")
+		what.Position = UDim2.fromOffset(160, 0)
+		what.Size = UDim2.new(1, -170, 1, 0)
+		what.BackgroundTransparency = 1
+		what.Font = Enum.Font.Gotham
+		what.TextSize = 15
+		what.TextXAlignment = Enum.TextXAlignment.Left
+		what.TextColor3 = Color3.fromRGB(215, 210, 200)
+		what.Text = row[2]
+		what.Parent = line
+	end
+end
+
+-- The button that is always on screen: an icon, the word, and the key, so the
+-- menu is findable without being told. A dot lights on it while there are
+-- skill points waiting, because the tree is the thing most worth opening the
+-- menu for. Returns the button and a function to set the dot.
+local function buildMenuButton(gui: ScreenGui): (TextButton, (boolean) -> ())
+	local button = Instance.new("TextButton")
+	button.Name = "MenuButton"
+	button.Position = UDim2.fromOffset(16, 12)
+	button.Size = UDim2.fromOffset(128, 44)
+	button.BackgroundColor3 = PANEL_COLOR
+	button.BackgroundTransparency = 0.15
+	button.AutoButtonColor = true
+	button.Text = ""
+	button.Parent = gui
+	stylePanel(button)
+
+	-- Three bars: the shape everyone already reads as "menu".
+	for index = 0, 2 do
+		local bar = Instance.new("Frame")
+		bar.Position = UDim2.fromOffset(12, 13 + index * 7)
+		bar.Size = UDim2.fromOffset(20, 3)
+		bar.BackgroundColor3 = Color3.fromRGB(235, 225, 210)
+		bar.BorderSizePixel = 0
+		bar.Parent = button
+	end
+
+	local label = Instance.new("TextLabel")
+	label.Position = UDim2.fromOffset(40, 0)
+	label.Size = UDim2.fromOffset(50, 44)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 16
+	label.TextColor3 = Color3.fromRGB(235, 225, 210)
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Text = "Menu"
+	label.Parent = button
+
+	-- The key, drawn as a keycap.
+	local keycap = Instance.new("TextLabel")
+	keycap.AnchorPoint = Vector2.new(1, 0.5)
+	keycap.Position = UDim2.new(1, -10, 0.5, 0)
+	keycap.Size = UDim2.fromOffset(24, 24)
+	keycap.BackgroundColor3 = Color3.fromRGB(235, 225, 210)
+	keycap.Font = Enum.Font.GothamBlack
+	keycap.TextSize = 14
+	keycap.TextColor3 = PANEL_COLOR
+	keycap.Text = MENU_KEY
+	keycap.Parent = button
+	local keycapCorner = Instance.new("UICorner")
+	keycapCorner.CornerRadius = UDim.new(0, 5)
+	keycapCorner.Parent = keycap
+
+	local dot = Instance.new("Frame")
+	dot.AnchorPoint = Vector2.new(0.5, 0.5)
+	dot.Position = UDim2.new(1, -2, 0, 2)
+	dot.Size = UDim2.fromOffset(12, 12)
+	dot.BackgroundColor3 = GOOD
+	dot.Visible = false
+	dot.Parent = button
+	local dotCorner = Instance.new("UICorner")
+	dotCorner.CornerRadius = UDim.new(1, 0)
+	dotCorner.Parent = dot
+
+	return button, function(lit: boolean)
+		if lit and not dot.Visible then
+			bump(dot)
+		end
+		dot.Visible = lit
+	end
+end
+
 --[[ Wiring it to the server ]]
 
 -- Everything above builds a panel and hands back the function that updates it.
@@ -1431,14 +1720,29 @@ function GameUI.start()
 	buildDungeonHUD(gui)
 	buildCombatHUD(gui)
 
+	local menu, tabs, openMenu, closeMenu, currentTab = buildMenu(gui, {
+		{ id = "skills", title = "Skill Tree", key = "K" },
+		{ id = "inventory", title = "Inventory", key = "I" },
+		{ id = "controls", title = "Controls" },
+	})
+	local menuButton, setMenuDot = buildMenuButton(gui)
+
+	-- The inventory lives in its tab now, centred in it, rather than pinned
+	-- to the side of the screen.
 	local inventoryPanel, renderInventory, inventoryWeapon = buildInventory(gui)
+	inventoryPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+	inventoryPanel.Position = UDim2.fromScale(0.5, 0.5)
+	inventoryPanel.Visible = true
+	inventoryPanel.Parent = tabs.inventory
+
+	buildControls(tabs.controls)
 
 	local lootPanel, refreshLoot, closeLoot = buildLootPanel(gui, function(chestId, slot, coins)
 		Remotes.get("ChestTakeItem"):FireServer({ chestId = chestId, slot = slot, coins = coins })
 	end)
 
 	local updateLevel = buildLevelBar(gui)
-	local skillPanel, refreshSkills = buildSkillPanel(gui, function(nodeId)
+	local _, refreshSkills = buildSkillPanel(tabs.skills, function(nodeId)
 		-- The server decides; this only asks. The panel redraws when the
 		-- ProgressionChanged that follows a successful spend arrives, so a
 		-- refusal simply leaves it as it was.
@@ -1461,11 +1765,12 @@ function GameUI.start()
 		unlockedAbilities = if state.weaponId then SkillTreeDefs.abilities(state.weaponId, state.skills) else {}
 		updateLevel(state)
 		refreshSkills(state)
+		setMenuDot(state.weaponId ~= nil and state.points - state.spent > 0)
 	end)
 
 	Remotes.get("LevelGained").OnClientEvent:Connect(function(payload)
 		local points = payload.points or 1
-		flashLevel(`Level {payload.level} — {points} skill point(s). Press K`, XP_COLOR, 4)
+		flashLevel(`Level {payload.level} — {points} skill point(s). Open the menu [{MENU_KEY}]`, XP_COLOR, 4)
 	end)
 
 	-- Only ever false in Studio: a live server kicks rather than run a session
@@ -1525,10 +1830,10 @@ function GameUI.start()
 	-- remembering to hand the cursor back — a close path that forgot is what
 	-- made an open chest impossible to get out of.
 	local function updateCursor()
-		CameraLock.setCursorFree(lootPanel.Visible or skillPanel.Visible)
+		CameraLock.setCursorFree(lootPanel.Visible or menu.Visible)
 	end
 	lootPanel:GetPropertyChangedSignal("Visible"):Connect(updateCursor)
-	skillPanel:GetPropertyChangedSignal("Visible"):Connect(updateCursor)
+	menu:GetPropertyChangedSignal("Visible"):Connect(updateCursor)
 
 	Remotes.get("ChestOpened").OnClientEvent:Connect(refreshLoot)
 
@@ -1599,35 +1904,71 @@ function GameUI.start()
 		flashDuel(payload.message, if payload.success then GOOD else BAD, 2)
 	end)
 
+	-- The menu needs the mouse, which the locked camera is holding. Opening
+	-- and closing it is all these do; updateCursor above hands the pointer
+	-- over and takes it back.
+	--
+	-- M (and the button) toggles the menu on whichever tab it was last left
+	-- on. K and I go straight to their tab, and close the menu if it is
+	-- already showing that tab, so each still works as the toggle it was.
+	local function toggleMenu()
+		if menu.Visible then
+			closeMenu()
+		else
+			openMenu(currentTab())
+		end
+	end
+
+	local function toggleTab(id: string)
+		if menu.Visible and currentTab() == id then
+			closeMenu()
+		else
+			openMenu(id)
+		end
+	end
+
+	menuButton.MouseButton1Click:Connect(toggleMenu)
+
+	ContextActionService:BindAction(MENU_ACTION, function(_, inputState)
+		if inputState == Enum.UserInputState.Begin then
+			toggleMenu()
+		end
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.KeyCode.M)
+
+	ContextActionService:BindAction(SKILLS_ACTION, function(_, inputState)
+		if inputState == Enum.UserInputState.Begin then
+			toggleTab("skills")
+		end
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.KeyCode.K)
+
 	ContextActionService:BindAction(INVENTORY_ACTION, function(_, inputState)
 		if inputState == Enum.UserInputState.Begin then
-			inventoryPanel.Visible = not inventoryPanel.Visible
+			toggleTab("inventory")
 		end
 		return Enum.ContextActionResult.Sink
 	end, false, Enum.KeyCode.I)
 
-	-- Esc tries to close the loot menu before Roblox's own menu sees it. It
-	-- does not always get the chance — the engine keeps that key for itself in
-	-- some contexts — which is why the panel carries a ✕ button as well, and
-	-- why Backspace is bound alongside as a keyboard way out that nothing else
-	-- is competing for.
+	-- Esc tries to close the loot menu or the game menu before Roblox's own
+	-- menu sees it. It does not always get the chance — the engine keeps that
+	-- key for itself in some contexts — which is why both carry a ✕ button as
+	-- well, and why Backspace is bound alongside as a keyboard way out that
+	-- nothing else is competing for.
 	ContextActionService:BindAction(CLOSE_LOOT_ACTION, function(_, inputState)
-		if inputState ~= Enum.UserInputState.Begin or not lootPanel.Visible then
+		if inputState ~= Enum.UserInputState.Begin then
 			return Enum.ContextActionResult.Pass
 		end
-		closeLoot()
-		return Enum.ContextActionResult.Sink
-	end, false, Enum.KeyCode.Escape, Enum.KeyCode.Backspace)
-
-	-- The tree panel needs the mouse, which the locked camera is holding.
-	-- Toggling it is all this does; updateCursor above hands the pointer over
-	-- and takes it back.
-	ContextActionService:BindAction(SKILLS_ACTION, function(_, inputState)
-		if inputState == Enum.UserInputState.Begin then
-			skillPanel.Visible = not skillPanel.Visible
+		if lootPanel.Visible then
+			closeLoot()
+			return Enum.ContextActionResult.Sink
 		end
-		return Enum.ContextActionResult.Sink
-	end, false, Enum.KeyCode.K)
+		if menu.Visible then
+			closeMenu()
+			return Enum.ContextActionResult.Sink
+		end
+		return Enum.ContextActionResult.Pass
+	end, false, Enum.KeyCode.Escape, Enum.KeyCode.Backspace)
 end
 
 return GameUI

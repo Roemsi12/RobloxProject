@@ -40,6 +40,9 @@ local REMOTE_EVENTS = {
 	"AttackResult",
 	"HealBurst",
 	"PlayerCombatAction",
+	"PlayerShot",
+	"ChainArc",
+	"EnemyMarked",
 	"CombatStateChanged",
 
 	-- Server -> Client: profile, equipment and economy

@@ -24,6 +24,7 @@ local Remotes = require(Shared.Remotes)
 
 local Characters = require(script.Parent.Parent.Combat.Characters)
 local PlayerCombatState = require(script.Parent.Parent.Combat.PlayerCombatState)
+local Shots = require(script.Parent.Parent.Combat.Shots)
 local EquipService = require(script.Parent.Parent.EquipService)
 local ProgressionService = require(script.Parent.Parent.Progression.ProgressionService)
 local ArenaService = require(script.Parent.ArenaService)
@@ -86,6 +87,7 @@ local function resolveSwing(attacker: Player, attackerDuelist: Duelist.Duelist, 
 	})
 
 	Duelist.holdState(attackerDuelist, "recover", weapon.attack.recovery)
+	Shots.loose(attacker, swing.weaponId, attackerRoot, if inVolume then opponentRoot else nil, weapon.attack.range)
 
 	if not inVolume then
 		attackResult(attacker, { hit = false, reason = "missed", damage = 0, riposte = false })

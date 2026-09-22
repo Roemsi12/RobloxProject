@@ -44,10 +44,20 @@ export type PieceDef = {
 	glow: boolean?,
 }
 
+-- How a model built standing up is held in the fist: moved by `offset`, then
+-- turned by `rotation` (degrees), the same order a piece is placed in.
+export type Hold = {
+	offset: Vec3,
+	rotation: Vec3,
+}
+
 export type WeaponModelDef = {
 	pieces: { PieceDef },
 	-- Upgrade glow colour on the `glow` pieces.
 	glowColor: RGB,
+	-- Applied to every piece on a hand, and only in a hand: a display stand
+	-- shows the model the way it was built. See STANDING_HAFT.
+	hold: Hold?,
 }
 
 export type UpgradeLook = {
@@ -228,10 +238,23 @@ end
 
 --[[ Staff: a gnarled stave with an orb caged in gold claws ]]
 
--- Gripped below the middle, so it stands upright at rest with the orb above
--- the head, and swings through level like a quarterstaff when the arm comes
--- forward. (A hand's +Y runs up the forearm, so a staff reaching only upward
--- from the grip would point back through the body mid-swing.)
+-- The staff and the greataxe are built standing up, haft along +Y, because
+-- that is how they are easiest to read and how their display stands show
+-- them. They used to be *held* that way too: the haft ran up the hand's +Y,
+-- parallel to the forearm and half a stud in front of it, which made every
+-- one of them an extension of the arm rather than a thing in the fist — and
+-- left no haft anywhere near the other hand.
+--
+-- In the hand they are turned so the haft runs through the fist along -Z,
+-- the way a sword's grip does, with the head toward -Z: exactly the axes
+-- GripSolver poses weapons by. `offset` first centres the haft (which sits a
+-- little in front of the grip as built) on the fist.
+local function standingHaft(depth: number): Hold
+	return { offset = { 0, depth, 0 }, rotation = { -90, 0, 0 } }
+end
+
+-- Gripped below the middle, a hand's width off the butt, so there is haft
+-- above the fist for the other hand and the orb well clear of both.
 local function staff(): { PieceDef }
 	local z = -0.5
 	return {
@@ -336,41 +359,91 @@ end
 
 --[[ Longbow: a recurve, held in the off hand ]]
 
--- Held left so the right hand keeps the draw, which is also what leaves the
--- right arm free to be animated pulling a string that is not simulated. The
--- limbs are built as three straight segments each rather than a curve: at this
--- scale the eye reads the kink as a recurve and nothing is lost.
+-- Held left so the right hand keeps the draw.
+--
+-- Built in the fist's own axes, which is the only way a bow held out at a
+-- target stands upright: the riser runs through the fist along Z, so with the
+-- arm raised the upper limb (-Z) points at the sky. The string is on the
+-- hand's +Y side — back along the forearm, toward the archer — and the arrow
+-- lies across the riser along -Y, which is forward once the arm is up.
+--
+-- The first version had all of that turned a quarter off: limbs up the
+-- forearm, so a bow raised to shoot lay flat along the arm with the string in
+-- front of the grip.
+--
+-- The limbs sweep back from the riser toward the string and the tips curl
+-- forward again: a recurve's "D" with a flick at each end, as straight
+-- segments. The string and the nocked arrow here are the bow at rest;
+-- BowVFX draws the string back to the hand on the draw and looses the arrow.
+local BOW_BRACE = 0.62
+local BOW_NOCK = 3.25
+-- Where the arrow lies: beside the riser on the inside, on the shelf.
+local ARROW_X = 0.17
+local ARROW_Z = -0.32
+local ARROW_LENGTH = 2.9
+
+WeaponModelDefs.BOW = {
+	-- The string's two ends and its resting line, in the bow hand's grip space.
+	braceY = BOW_BRACE,
+	nockZ = BOW_NOCK,
+	arrowX = ARROW_X,
+	arrowZ = ARROW_Z,
+	arrowLength = ARROW_LENGTH,
+}
+
+-- A straight piece from one point to another in the bow's Y-Z plane, `x` to
+-- the side. The shape every limb segment is.
+local function span(name: string, hand: string, from: { number }, to: { number }, width: number, thick: number, color: RGB, x: number?): PieceDef
+	local dy, dz = to[1] - from[1], to[2] - from[2]
+	local len = math.sqrt(dy * dy + dz * dz)
+	return {
+		name = name,
+		attachTo = hand,
+		size = { width, thick, len },
+		offset = { x or 0, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2 },
+		rotation = { math.deg(math.atan2(-dy, dz)), 0, 0 },
+		color = color,
+		material = "Wood",
+	}
+end
+
 local function longbow(): { PieceDef }
 	local hand = "LeftHand"
-	-- One limb of the bow, upper or lower. `sign` mirrors it: +1 above the
-	-- grip, -1 below. Three straight segments rather than a curve — at this
-	-- size the eye reads the kink as a recurve.
+	local wood = Palette.shade(OAK, 0.9)
+
+	-- One limb. `sign` is -1 for the upper (toward -Z) and +1 for the lower.
+	-- Points are { y, z }.
 	local function limb(name: string, sign: number): { PieceDef }
+		local root = { 0, sign * 0.6 }
+		local knee = { 0.22, sign * 1.7 }
+		local sweep = { BOW_BRACE + 0.1, sign * 2.85 }
+		local tip = { BOW_BRACE, sign * (BOW_NOCK + 0.12) }
 		return {
-			{ name = `Bow{name}Inner`, attachTo = hand, size = { 0.2, 1.5, 0.3 }, offset = { 0, sign * 0.9, -0.1 }, rotation = { sign * 6, 0, 0 }, color = Palette.shade(OAK, 0.9), material = "Wood" },
-			{ name = `Bow{name}Outer`, attachTo = hand, size = { 0.18, 1.4, 0.26 }, offset = { 0, sign * 2.2, 0.24 }, rotation = { sign * 20, 0, 0 }, color = Palette.shade(OAK, 0.9), material = "Wood" },
-			{ name = `Bow{name}Recurve`, attachTo = hand, size = { 0.16, 0.7, 0.22 }, offset = { 0, sign * 3.0, -0.1 }, rotation = { sign * -34, 0, 0 }, color = Palette.shade(OAK, 0.75), material = "Wood" },
-			{ name = `Bow{name}Nock`, attachTo = hand, size = { 0.14, 0.2, 0.18 }, offset = { 0, sign * 3.3, -0.36 }, color = IRON, material = "Metal" },
-			{ name = `Bow{name}Band`, attachTo = hand, size = { 0.22, 0.14, 0.32 }, offset = { 0, sign * 1.62, 0.06 }, color = BRIGHT_GOLD, material = "Metal" },
+			span(`Bow{name}Inner`, hand, root, knee, 0.22, 0.3, wood),
+			span(`Bow{name}Outer`, hand, knee, sweep, 0.2, 0.24, wood),
+			span(`Bow{name}Recurve`, hand, sweep, tip, 0.18, 0.2, Palette.shade(OAK, 0.75)),
+			{ name = `Bow{name}Nock`, attachTo = hand, size = { 0.2, 0.18, 0.16 }, offset = { 0, BOW_BRACE, sign * BOW_NOCK }, color = IRON, material = "Metal" },
+			{ name = `Bow{name}Band`, attachTo = hand, size = { 0.26, 0.36, 0.14 }, offset = { 0, 0.1, sign * 1.15 }, rotation = { sign * -11, 0, 0 }, color = BRIGHT_GOLD, material = "Metal" },
 		}
 	end
 
 	local body: { PieceDef } = {
-		{ name = "BowRiser", attachTo = hand, size = { 0.26, 1.1, 0.42 }, offset = { 0, 0, -0.06 }, color = Palette.shade(OAK, 0.7), material = "Wood" },
-		{ name = "BowGrip", attachTo = hand, size = { 0.6, 0.3, 0.3 }, offset = { 0, 0, -0.06 }, rotation = UPRIGHT, color = DARK_LEATHER, material = "Fabric", shape = "Cylinder" },
-		{ name = "BowShelf", attachTo = hand, size = { 0.34, 0.12, 0.3 }, offset = { 0, 0.34, -0.22 }, color = IRON, material = "Metal" },
-		jewel("BowRiserStone", hand, { 0, -0.34, -0.26 }, 0.16, Palette.MOSS),
+		{ name = "BowRiser", attachTo = hand, size = { 0.26, 0.42, 1.3 }, offset = { 0, -0.04, 0 }, color = Palette.shade(OAK, 0.7), material = "Wood" },
+		{ name = "BowGrip", attachTo = hand, size = { 0.62, 0.34, 0.34 }, offset = { 0, 0, 0.08 }, rotation = ALONG_BLADE, color = DARK_LEATHER, material = "Fabric", shape = "Cylinder" },
+		{ name = "BowShelf", attachTo = hand, size = { 0.16, 0.34, 0.1 }, offset = { ARROW_X - 0.04, -0.02, ARROW_Z + 0.08 }, color = IRON, material = "Metal" },
+		jewel("BowRiserStone", hand, { 0, -0.28, -0.46 }, 0.16, Palette.MOSS),
 
-		-- The string, from nock to nock, passing in front of the grip.
-		{ name = "BowString", attachTo = hand, size = { 0.05, 6.7, 0.05 }, offset = { 0, 0, -0.36 }, color = Palette.ROPE, material = "Fabric" },
-		{ name = "BowServing", attachTo = hand, size = { 0.08, 0.6, 0.08 }, offset = { 0, 0, -0.36 }, color = Palette.LINEN, material = "Fabric" },
+		-- The string at rest, nock to nock, behind the grip.
+		{ name = "BowString", attachTo = hand, size = { 0.05, 0.05, 2 * BOW_NOCK }, offset = { 0, BOW_BRACE, 0 }, color = Palette.ROPE, material = "Fabric" },
+		{ name = "BowServing", attachTo = hand, size = { 0.08, 0.08, 0.6 }, offset = { 0, BOW_BRACE, ARROW_Z }, color = Palette.LINEN, material = "Fabric" },
 
-		-- A nocked arrow, so the weapon is never seen empty.
-		{ name = "ArrowShaft", attachTo = hand, size = { 0.07, 0.07, 2.6 }, offset = { 0, 0.02, -1.4 }, color = Palette.shade(OAK, 1.1), material = "Wood", shape = "Cylinder" },
-		{ name = "ArrowHead", attachTo = hand, size = { 0.1, 0.2, 0.4 }, offset = { 0, 0.02, -2.86 }, color = STEEL, material = "Metal", glow = true },
-		{ name = "ArrowFletchRight", attachTo = hand, size = { 0.04, 0.24, 0.5 }, offset = { 0.08, 0.02, -0.34 }, rotation = { 0, 0, -26 }, color = Palette.CRIMSON, material = "Fabric" },
-		{ name = "ArrowFletchLeft", attachTo = hand, size = { 0.04, 0.24, 0.5 }, offset = { -0.08, 0.02, -0.34 }, rotation = { 0, 0, 26 }, color = Palette.CRIMSON, material = "Fabric" },
-		{ name = "ArrowNock", attachTo = hand, size = { 0.09, 0.12, 0.14 }, offset = { 0, 0.02, -0.08 }, color = IRON },
+		-- A nocked arrow, so the weapon is never seen empty: nock on the
+		-- string, shaft across the shelf, head well past the riser.
+		{ name = "ArrowShaft", attachTo = hand, size = { ARROW_LENGTH, 0.07, 0.07 }, offset = { ARROW_X, BOW_BRACE - ARROW_LENGTH / 2, ARROW_Z }, rotation = UPRIGHT, color = Palette.shade(OAK, 1.1), material = "Wood", shape = "Cylinder" },
+		{ name = "ArrowHead", attachTo = hand, size = { 0.1, 0.4, 0.2 }, offset = { ARROW_X, BOW_BRACE - ARROW_LENGTH - 0.12, ARROW_Z }, color = STEEL, material = "Metal", glow = true },
+		{ name = "ArrowFletchA", attachTo = hand, size = { 0.04, 0.5, 0.22 }, offset = { ARROW_X, BOW_BRACE - 0.36, ARROW_Z - 0.08 }, color = Palette.CRIMSON, material = "Fabric" },
+		{ name = "ArrowFletchB", attachTo = hand, size = { 0.2, 0.5, 0.04 }, offset = { ARROW_X + 0.08, BOW_BRACE - 0.36, ARROW_Z + 0.04 }, color = Palette.CRIMSON, material = "Fabric" },
+		{ name = "ArrowNock", attachTo = hand, size = { 0.1, 0.12, 0.1 }, offset = { ARROW_X, BOW_BRACE - 0.04, ARROW_Z }, color = IRON },
 
 		-- The quiver, on the back where it belongs rather than on the bow.
 		{ name = "Quiver", attachTo = "UpperTorso", size = { 0.62, 1.9, 0.62 }, offset = { -0.7, 0.1, 0.72 }, rotation = { 14, 0, -18 }, color = LEATHER, material = "Fabric", shape = "Cylinder" },
@@ -439,11 +512,13 @@ WeaponModelDefs.MODELS = {
 	Staff = {
 		glowColor = Palette.ARCANE,
 		pieces = staff(),
+		hold = standingHaft(0.5),
 	},
 
 	Greataxe = {
 		glowColor = Palette.TORCH_EMBER,
 		pieces = greataxe(),
+		hold = standingHaft(0.4),
 	},
 
 	Rapier = {

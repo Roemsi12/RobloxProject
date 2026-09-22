@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local WeaponModelDefs = require(ReplicatedStorage.Shared.WeaponModelDefs)
 
+local AppearanceService = require(script.Parent.AppearanceService)
 local EquipService = require(script.Parent.EquipService)
 
 local WeaponVisuals = {}
@@ -50,6 +51,17 @@ local function pieceOffset(piece: WeaponModelDefs.PieceDef): CFrame
 	local rotation = piece.rotation or { 0, 0, 0 }
 	return CFrame.new(vec(piece.offset))
 		* CFrame.Angles(math.rad(rotation[1]), math.rad(rotation[2]), math.rad(rotation[3]))
+end
+
+-- How the model sits in the fist (WeaponModelDefs.Hold), or nothing for a
+-- model built the way it is held.
+local function holdOffset(def: WeaponModelDefs.WeaponModelDef): CFrame
+	local hold = def.hold
+	if not hold then
+		return CFrame.identity
+	end
+	local r = hold.rotation
+	return CFrame.new(vec(hold.offset)) * CFrame.Angles(math.rad(r[1]), math.rad(r[2]), math.rad(r[3]))
 end
 
 -- One piece of a weapon as a Part, including its upgrade glow: a light, a
@@ -205,6 +217,9 @@ local function attach(character: Model, weaponId: string, level: number)
 		elseif isFallback and gripName then
 			anchor = CFrame.new(0, -part0.Size.Y / 2, 0)
 		end
+		if gripName then
+			anchor *= holdOffset(def)
+		end
 
 		local part = makePiece(piece, def, level)
 		local c0 = anchor * pieceOffset(piece)
@@ -258,6 +273,10 @@ function WeaponVisuals.start()
 	EquipService.onChanged(function(player)
 		refresh(player)
 	end)
+
+	-- Applying a look can rebuild the hands the weapon was welded to, which
+	-- drops it on the floor. Weld it again once the body is done.
+	AppearanceService.onDressed(refresh)
 
 	Players.PlayerAdded:Connect(watchPlayer)
 	for _, player in Players:GetPlayers() do

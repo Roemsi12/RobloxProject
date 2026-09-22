@@ -103,6 +103,10 @@ export type Controller = {
 	-- (LocomotionMath). Zero on anything that isn't strafing.
 	twistHip: number,
 	twistShoulder: number,
+	-- Set when a joint or Animator is added to or removed from the rig, so
+	-- the next step finds them again (see `watchJoints`).
+	stale: boolean,
+	watch: { RBXScriptConnection },
 }
 
 --[[ Building a controller ]]
@@ -156,11 +160,15 @@ end
 -- case everything here is blended over the joints rather than replacing
 -- them. Enemy rigs built by RigAssembly pass false.
 --
--- Finds the joints once, here. A rig whose joints arrive late (replication)
--- gives a controller that animates nothing, which is what `jointCount` is
--- for: callers wait for the rig to be whole before constructing.
+-- Finds the joints here, and again whenever the rig's joints change. A
+-- player's body is rebuilt after it spawns — AppearanceService applies a
+-- HumanoidDescription on spawn and on every look change, which can swap the
+-- joints for new ones — and a controller holding the old ones animates
+-- nothing. Callers still wait for the rig to be whole before constructing,
+-- so the first frames aren't spent on half a rig.
 function RigAnimation.new(model: Model, rigId: string, external: boolean): Controller
-	return {
+	local controller: Controller
+	controller = {
 		model = model,
 		rigId = rigId,
 		joints = findJoints(model),
@@ -183,7 +191,28 @@ function RigAnimation.new(model: Model, rigId: string, external: boolean): Contr
 		scale = if external then 1 else RigDefs.scaleOf(rigId),
 		twistHip = 0,
 		twistShoulder = 0,
+		stale = false,
+		watch = {},
 	}
+
+	local function onChange(descendant: Instance)
+		if descendant:IsA("Motor6D") or descendant:IsA("AnimationConstraint") or descendant:IsA("Animator") then
+			controller.stale = true
+		end
+	end
+	table.insert(controller.watch, model.DescendantAdded:Connect(onChange))
+	table.insert(controller.watch, model.DescendantRemoving:Connect(onChange))
+
+	return controller
+end
+
+-- Finds the joints and Animator again after the rig changed under the
+-- controller. Anything written to a joint that has gone went with it.
+local function refreshJoints(controller: Controller)
+	controller.stale = false
+	controller.joints = findJoints(controller.model)
+	controller.animator = controller.model:FindFirstChildWhichIsA("Animator", true)
+	table.clear(controller.written)
 end
 
 -- How many joints were found: callers wait for a replicating rig to be whole.
@@ -502,6 +531,10 @@ end
 
 -- Advance one frame and pose the rig. Call from PreSimulation.
 function RigAnimation.step(controller: Controller, deltaTime: number)
+	if controller.stale then
+		refreshJoints(controller)
+	end
+
 	local now = clock()
 	local action = controller.action
 
@@ -640,6 +673,10 @@ end
 -- Releases every published track this controller loaded and forgets its
 -- layers. Call when the rig goes, or the Animator keeps the tracks alive.
 function RigAnimation.destroy(controller: Controller)
+	for _, connection in controller.watch do
+		connection:Disconnect()
+	end
+	table.clear(controller.watch)
 	for _, track in controller.tracks do
 		track:Stop(0)
 		track:Destroy()

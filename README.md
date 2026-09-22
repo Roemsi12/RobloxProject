@@ -44,8 +44,9 @@ is generated in this same server, well north of the hub.
 | **Z** / **X** / **C** | The abilities you unlocked in the skill tree |
 | **F2** | Combat debug readout — **Studio only** |
 | **Left Shift** | Toggle camera lock (on by default) |
-| **I** | Inventory |
-| **K** | Skills: your weapon's tree, and the points to spend in it |
+| **M** (or the Menu button, top-left) | The menu: skill tree, inventory, controls |
+| **I** | Inventory (the menu's Inventory tab) |
+| **K** | Skills: your weapon's tree, and the points to spend in it (the menu's Skill Tree tab) |
 | **E** at an altar, anvil, gate, chest or mirror | Take up a class, upgrade your weapon, queue for the dungeon, open a chest, change how you look |
 | **1 / 2 / 3** | Swap weapon instantly — **Studio only**, for tuning |
 
@@ -125,7 +126,8 @@ rojo serve test.project.json
 Everyone wears the same body. A player's own Roblox avatar is replaced on spawn
 with the default blocky R15 build — no bundle, no clothing, no accessories, at
 fixed proportions — and what they choose is what goes *on* it: build, skin,
-face, hair and its colour, markings, garb and two garb colours. Nine rows,
+face, hair and its colour, markings, garb, and the garb, legwear and trim
+colours. Ten rows,
 every one of them a list in
 [`src/shared/AppearanceDefs.luau`](src/shared/AppearanceDefs.luau).
 
@@ -142,6 +144,17 @@ the player trying to read it.
 > Settings → Avatar → Rig Type → R15**. Without it, players spawn as R6, and
 > `PlayerAnimation` skips R6 avatars entirely — no stances, no swings, no
 > rolls.
+
+> **Avatar textures have to be uploaded once.** Clothes, faces and markings
+> are our own PNGs in `art/avatar/textures`, and a game can only use images
+> that are on Roblox. Make an Open Cloud API key (create.roblox.com → Open
+> Cloud → API Keys, Assets API read + write), put it in `ROBLOX_API_KEY`, and
+> run `lune run upload-avatar --user-id <id>` (or `--group-id` if a
+> group owns the game). It writes the ids into
+> `src/shared/AvatarTextures.luau`. Until then players spawn with hair but
+> no clothes or face, and the server warns which textures are missing.
+> To change the art, edit `art/avatar/generate.py`, run it, check
+> `art/avatar/preview.png` (from `preview.py`), then re-upload with `--force`.
 
 Adding a hairstyle is a row in `AppearanceDefs.HAIR`. The editor is generated
 from `AppearanceDefs.CATEGORIES` and has no hardcoded choice in it, so nothing
@@ -193,6 +206,17 @@ Animation Editor:
    [`src/shared/AnimationIds.luau`](src/shared/AnimationIds.luau) under the rig and
    animation name. The game uses your version from then on.
 
+To see every player animation with its weapon in hand, and check that the
+weapon is held properly (nothing through the floor, the blade out in front at
+impact, both hands on a two-handed haft, the bow upright and drawn):
+
+```sh
+lune run weapon-poses              # every weapon
+lune run weapon-poses Bow swing_   # one weapon, matching animations
+```
+
+It writes `workbench/WeaponPoses-<weapon>.html` to open in a browser.
+
 The workbench script checks its output before reporting success, including solving
 every animation against the floor. Regenerating replaces the file, so publish (or keep
 your own copy of) anything in progress first.
@@ -202,11 +226,26 @@ your own copy of) anything in progress first.
 Every kill pays XP to everyone carrying a weapon, not just whoever landed the
 blow. Each level is a skill point, up to level 20.
 
-Points are spent in the tree of the weapon you are holding (**K**). Each
-weapon has its own tree of three branches, and its own points — picking up the
-daggers at level 15 gives you a full 14 points to spend in *their* tree
-without touching the sword's. No tree can be filled: 26 ranks, 19 points at
-the cap, so what you leave out matters as much as what you take.
+Points are spent in the tree of the weapon you are holding (the menu's Skill
+Tree tab: **M**, or **K** straight there). Each weapon has its own tree of three
+branches, and its own points — picking up the daggers at level 15 gives you a
+full 14 points to spend in *their* tree without touching the sword's. No tree
+can be filled: 19 nodes and 36–38 ranks, 19 points at the cap, so what you
+leave out matters as much as what you take.
+
+Every branch also carries a **mechanic** (the nodes with a purple edge and a ◆):
+something that changes how the class fights rather than a bigger number. Each
+class has three, and no two classes share one:
+
+| Class | Mechanics |
+|---|---|
+| Tank | blocked hits strike back · a parry wards you · combo finishers stagger |
+| Assassin | extra damage to wounded enemies · the first hit after a dodge · hits bleed |
+| Healer | heals ward whoever they touch · guarding heals you and allies · hits heal allies |
+| Berserker | lifesteal · more damage the lower your health · damage builds with hits in a row |
+| Duelist | a split-second parry staggers longer · riposte hits extend the riposte · thrusts pierce |
+| Ranger | criticals mark prey for the party · a second arrow at another enemy · dodging reloads the critical |
+| Mage | hits arc to nearby enemies · damage taken on posture instead · kills heal allies |
 
 Each branch ends in an **ability**, and finishing a branch is the only way to
 get one. The branch's position decides its key: leftmost is **Z**, then **X**,

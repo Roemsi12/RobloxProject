@@ -1480,8 +1480,15 @@ being asked for, and every animation keeps working.
 - **Built fresh, never edited from the character's own description.** Editing
   theirs means every field we forget to clear is a piece of catalogue avatar
   that survives, and the list of things Roblox can put on an avatar only grows.
-- **The look is welded on top, server-side**, like `WeaponVisuals` and for the
+- **The look is painted on, server-side**, like `WeaponVisuals` and for the
   same reason: everyone has to see the same character, not just its owner.
+  It started as blocks welded to the body, and read as exactly that. It is now
+  classic Shirt and Pants textures of our own, a chest ShirtGraphic, face and
+  marking decals, and a Roblox-made hair accessory. The art (`art/avatar`) is
+  drawn in greyscale because Roblox multiplies a clothing texture by its
+  `Color3`: one texture per garment takes every colour in the menu, and the
+  folds and seams stay in it. Hair has its texture stripped for the same
+  reason — a painted-on colour can't be tinted away.
 - **This is a readability decision as much as an art one.** A bundle that moves
   the shoulders makes a tell harder to read through no fault of the player
   trying to read it.
@@ -1492,7 +1499,7 @@ is in the README.
 
 ### The look is data, and unknown choices fall back field by field
 
-Nine categories, generated from one table. The editor has no hardcoded
+Ten categories, generated from one table. The editor has no hardcoded
 hairstyle in it, so adding one is a row.
 
 Saved looks break the rule the rest of `PlayerDataSchema` follows. Everywhere
@@ -1700,6 +1707,186 @@ That is the punish window — the thing a player earns by baiting an attack out
 and stepping in — and hitting into it did nothing at all. It also meant hitting
 into a flurry would not have broken one, so the fix was a prerequisite for
 chaining rather than a bonus alongside it.
+
+## Decisions made in the weapon-handling pass (Sept 2026)
+
+The brief *(from the repo owner)*: every weapon held properly, attacks that
+look good, and a bow that actually shoots an arrow. Nothing checked the weapon
+itself before this pass — the workbench solves bodies against the floor, but a
+body can be perfect while the thing in its hand is wrong — so the first piece
+of work was a way to see it: `lune run weapon-poses` draws every player
+animation with the weapon in hand, from three sides, and checks it. Every
+problem below was found there, and every fix was landed against it.
+
+### What was wrong
+
+- **Swings never set the wrist.** On a player, an action is laid over the
+  stance and a part it does not pose keeps the stance's pose (RigAnimation).
+  No swing posed a hand, so every swing was thrown with the stance's resting
+  wrist: the sword's dip, the daggers' points aimed at the floor. And with a
+  neutral wrist, a blade on a forward-swinging arm points at the sky — at the
+  moment of impact, on most cuts.
+- **The staff and greataxe were extensions of the forearm.** Their hafts ran
+  up the hand's +Y, parallel to the forearm and half a stud in front of it, so
+  neither was ever *in* a fist, and the second hand of a "two-handed" weapon
+  was two to four studs from the haft for most of every swing.
+- **The bow was held a quarter-turn off, by the wrong side of the body.** Its
+  limbs ran up the forearm, so a bow raised to shoot lay flat along the arm
+  with its string in front of the grip. And the archer turned *right* shoulder
+  forward — backwards for a bow held in the left hand.
+
+### Weapons are posed by where the weapon is
+
+**`GripSolver` turns "the fist here, the weapon pointing there, the edge
+leading" into shoulder, elbow and wrist angles**: two-bone IK for the arm, the
+wrist for the rest, and the off hand solved onto the haft of whatever the first
+hand holds. Joint angles are a fine way to pose a body and a poor way to pose a
+weapon: it sits at the end of three rotations nobody can add up by eye.
+
+- **Weapon poses are written in root space** — the character's own frame, -Z at
+  the target — and converted through each pose's own hips and waist. A strike
+  aims at something in front of the character whichever way the torso has
+  twisted on the way, and root space is where "in front" stays put. The torso
+  twist that drives a swing is still authored as angles, around it.
+- **Every weapon's haft or grip runs through the fist along -Z**, edge toward
+  -Y, as the sword always did. The staff and axe are still *built* standing up
+  (their display stands show them that way) and turned into the fist by a
+  model-level `hold` in WeaponModelDefs, applied to hand pieces only.
+- **One-handed swings get their wrists aimed over the finished strike**
+  (`aimBlades`): a direction per beat — windup, coil, impact, follow-through —
+  each solved from that keyframe's own arm, so the coil `strike` derives by
+  scaling the windup still carries a blade pointing the windup's way. The
+  authored arms and footwork were good and were kept.
+
+### Two-handed strikes are keyed by the weapon, not the joints
+
+`strike` builds a swing by interpolating joint angles and scaling them for the
+coil and follow-through. Neither survives two fists on one haft: two arms
+interpolated separately drift apart, an arm interpolated between two solved
+poses can take the weapon round the long way, and a scaled angle turns the head
+off the line of the cut. So **`heavyStrike` keeps `strike`'s body and moves the
+weapon along its own path** — the fist in a straight line, the haft turning at
+a steady rate between beats — solving both arms along the way, three times as
+densely through the snap into the hit.
+
+- **It starts from and returns to a ready pose**, the weapon held diagonally in
+  both hands, not rest: rest is arms hanging, which puts an axe head on the
+  floor. Its anticipation is the weight being lifted toward the windup rather
+  than a counter-move, for the same reason.
+- **The second fist slides up the haft** when it cannot reach its place, which
+  is what hands on a haft do, rather than letting go.
+- **The fists are a stud apart, not a stud and a third.** The stand-in's arms
+  are short for its shoulders; at 1.3 the second hand spent most of every
+  swing sliding.
+- **The walking stances stay one-handed** — the axe on the shoulder, the staff
+  as a walking stave. Carrying is not fighting.
+
+### The bow shoots, and the Ranger is still hitscan
+
+- **A shot is its own builder** (`shot`), not a strike: raise, draw to an
+  anchor under the jaw, release, follow-through, settle, every beat solved.
+  Scaling a bow arm's angles for a coil moves the bow off target, and the one
+  thing that must not move while a draw builds is the bow. The release — the
+  impact frame — is still at the anchor: the arrow leaves from there, and the
+  hand flies back after.
+- **The archer stands side-on, left shoulder at the target**, and the bow fist
+  is placed so the arrow line runs back through the anchor.
+- **The string is drawn on each client** (`BowVFX`). A welded string cannot
+  bend, so the built one is hidden and drawn as two segments to wherever the
+  string hand is while it is behind the string — no animation data about
+  strings at all — never further than the arrow is long.
+- **The arrow is a picture of a hit already decided.** The server still
+  resolves the shot where it is taken (the compromise in "Four classes" above
+  stands); at that moment `Shots` tells every client where it went
+  (`PlayerShot`), the string snaps straight and an arrow flies there. It flies
+  at 220 studs a second, so it arrives about when the hit shows. A `shot` on
+  the attack profile is what makes a weapon shoot, so this is a row, not a
+  branch, like everything else a class is.
+
+### Costs
+
+- **The solved animations are built at require time**, roughly half a second
+  under Lune for all of them. A one-off while the game loads; if it ever
+  matters, the two-handed resample rate is the knob.
+- **Poses are solved on the stand-in rig.** A real avatar with other
+  proportions holds the weapon a little differently — exactly as it plays
+  every other authored animation a little differently. The grip is still the
+  avatar's own grip attachment.
+
+## Decisions made in the menu and mechanics pass (Sept 2026)
+
+The brief *(from the repo owner)*: a menu with a tab for the skill tree, an
+icon on screen so players know which key opens it, and every skill tree
+expanded — "not just with stats already present but new mechanics for every
+class to make them more unique".
+
+### The menu
+
+- **One window, three tabs: Skill Tree, Inventory, Controls**, on **M**. The
+  skill tree and the inventory were separate panels on K and I that a new
+  player had no way to discover; they are now tabs of one window, and K and I
+  still work as shortcuts that open (or close) the menu on their tab.
+- **The button is always on screen, top-left, and wears its key** as a keycap,
+  so the menu is findable without being told. A dot lights on it while skill
+  points are waiting, because the tree is the thing most worth opening it for.
+  It sits above DebugHUD's corner, which starts lower.
+- **A Controls tab** lists every key in the order a new player needs them,
+  written out rather than read from the bindings for that reason.
+- **The window shrinks to fit the screen** (a UIScale from the viewport), so it
+  works on a small window or a phone instead of running off it.
+
+### Mechanics, not numbers
+
+Every tree was a root, three branches of four, and every node a bigger number.
+The classes differed in which numbers — which made them the same fighter with
+different stats. **Each branch now has a mechanic node beside its capstone and
+a mastery on the way to it**: 21 mechanics, three per class, and **no two
+classes share one** (tested).
+
+| Class | Bulwark / first branch | Second branch | Third branch |
+|---|---|---|---|
+| Tank | Retribution: blocked hits strike back | Bastion: a parry wards you | Shield Slam: combo finishers stagger |
+| Assassin | Coup de Grâce: more damage below 35% health | Ambush: the first hit after a dodge | Hemorrhage: hits bleed |
+| Healer | Blessed Ward: heals ward | Sanctuary: guarding heals you and allies | Radiant Strikes: hits heal allies |
+| Berserker | Bloodthirst: lifesteal | Berserk: more damage as health runs out | Rampage: damage builds with hits in a row |
+| Duelist | Split Second: precise parries stagger longer | Relentless: riposte hits extend the riposte | Skewer: thrusts pierce to the enemy behind |
+| Ranger | Quarry: criticals mark prey for everyone | Split Shot: a second arrow at another enemy | Nimble Reload: dodges cut the critical's cooldown |
+| Mage | Chain Spark: hits arc to nearby enemies | Mana Shield: damage taken on posture instead | Soul Weave: kills heal allies |
+
+- **Each mechanic reinforces what its class already was**, rather than adding
+  a new role. The Tank's guard, the Assassin's position and timing, the
+  Healer's party, the Berserker's trading, the Duelist's parry, the Ranger's
+  range, the Mage's control of the whole fight.
+- **A mechanic is an effect key, not a branch on class** — the "a class is a
+  row" rule holds. Any tree could carry any of them; which tree carries which
+  is the design. The rules are in `TalentMath` (pure, tested) and
+  CombatServer applies them at the moment each one is about: a swing landing,
+  a kill, a parry, a block, a dodge, and a slow tick for the guard aura.
+- **Everything is still additive.** A mechanic's bonus damage is added to the
+  same multiplier as the tree's flat damage, so no combination multiplies
+  into a runaway.
+- **The capstone is still the deepest node of its branch.** The mastery goes
+  before it — root, head, fork, mastery, capstone — which keeps the ability
+  test's rule that a key is what you get for going all the way down, and makes
+  the mastery a way to the mechanic for players who took the capstone's side.
+- **Some limits, on purpose.** Mana Shield only takes what posture has room
+  for, so it never breaks your own guard; a mechanic's small ward never
+  replaces a bigger one already running; the heal ward only comes with timed
+  heals (a parry, an ability, a kill), never with the per-hit or aura
+  trickles, or it would never end; finisher staggers respect hyper armour.
+- **PvE only, for now.** Duels still resolve on PvPCombatServer's own path and
+  none of the mechanics reach it. Worth deciding before they do: a bleed or a
+  mark means something different against a person who can see it coming.
+- **Two new pictures** (`TalentVFX`): an arc of light when a hit chains, and a
+  diamond over a marked enemy. The rest show as the damage numbers and health
+  bars they already cause.
+
+### Not yet tuned
+
+Every number on the new nodes is a first guess, like the rest of the trees
+were. The trees now have 36–38 ranks against 19 points, so they are further
+from fillable than before, which is the intended direction.
+
 ## Open / not yet decided
 
 - ~~Is solo play fully supported, or is this group-first content? This changes

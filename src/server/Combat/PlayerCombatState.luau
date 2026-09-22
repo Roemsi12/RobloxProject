@@ -122,6 +122,11 @@ export type State = {
 	-- turns away. A warded guard also cannot be broken.
 	wardUntil: number,
 	wardReduction: number,
+	-- Skill-tree mechanics (TalentMath). Hits landed in a row for `frenzy`,
+	-- reset by a miss or by being hit; and the dodge whose ambush has already
+	-- been spent, so one dodge buys one ambush.
+	frenzyStacks: number,
+	ambushSpentFor: number?,
 }
 
 local states: { [Player]: State } = {}
@@ -160,6 +165,8 @@ local function getOrCreate(player: Player): State
 		abilityReadyAt = { 0, 0, 0 },
 		wardUntil = 0,
 		wardReduction = 0,
+		frenzyStacks = 0,
+		ambushSpentFor = nil,
 	}
 	states[player] = created
 	return created

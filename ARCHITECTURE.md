@@ -62,6 +62,10 @@ src/shared/            -> ReplicatedStorage.Shared
                          -- draws from: stone, metal, bone, cloth, firelight,
                          -- plus shade/mix helpers (pure)
   RigDefs.luau           -- the shared R15 skeleton + each rig's look (pure)
+  AppearanceDefs.luau    -- every player-look choice and outfitFor, which turns
+                         -- a saved look into textures + colours (pure)
+  AvatarTextures.luau    -- avatar texture name -> uploaded image id; written
+                         -- by lune/upload-avatar, 0 = not uploaded (pure)
   AnimationDefs.luau     -- every rough animation, as keyframe data (pure). Exports
                          -- `strike`, the timing skeleton generated attacks
                          -- are built on too
@@ -73,6 +77,13 @@ src/shared/            -> ReplicatedStorage.Shared
                          -- something it can produce
   AnimationIds.luau      -- published replacements for those animations (pure)
   KeyframeMath.luau      -- sampling, easing, blending, strike timing (pure)
+  TalentMath.luau        -- the rules of the skill-tree mechanics (bleed,
+                         -- execute, frenzy, mana shield...): pure, tested;
+                         -- CombatServer decides when each applies
+  GripSolver.luau        -- "the weapon is here, pointing there" -> the shoulder,
+                         -- elbow and wrist angles that hold it: two-bone IK,
+                         -- wrist aiming, the off hand onto a haft (pure). How
+                         -- player weapon poses are written
   RigAssembly.luau       -- builds rigs from RigDefs using an API it's handed,
                          -- so the game and the Lune workbench share it
   DungeonDefs.luau       -- the rules dungeons are generated from: room sizes,
@@ -80,7 +91,9 @@ src/shared/            -> ReplicatedStorage.Shared
   DungeonLayout.luau     -- seeded dungeon layout generator: rooms, purposes,
                          -- positions, doors, enemies, corridors (pure)
   WeaponModelDefs.luau   -- weaponId -> the parts its in-hand model is built
-                         -- from, trail and glow colours, upgrade look (pure)
+                         -- from, trail and glow colours, upgrade look (pure).
+                         -- A haft or blade runs through the fist along -Z;
+                         -- `hold` turns a model built standing up into that
   SoundDefs.luau         -- sound name -> asset id, volume, pitch range (pure)
   Remotes.luau           -- every RemoteEvent is created here, from a fixed list;
                          -- nothing created ad hoc elsewhere
@@ -95,8 +108,9 @@ src/server/            -> ServerScriptService.Server
                          -- profile has loaded, hub-dais placement, respawn
   AppearanceService.luau -- the one body everyone wears: applies a
                          -- HumanoidDescription that strips bundles, clothing
-                         -- and accessories, then welds the player's chosen
-                         -- hair, face, markings and garb over it
+                         -- and accessories, then dresses it: our shirt/pants
+                         -- textures, face and marking decals, and a Roblox
+                         -- hair accessory, each tinted the chosen colour
   EquipService.luau      -- the only owner of equipped weapon + upgrade levels;
                          -- onChanged tells listeners when either changes
   InventoryService.luau  -- the only owner of inventory
@@ -135,6 +149,8 @@ src/server/            -> ServerScriptService.Server
                          -- dodge/critical/feint cooldowns, riposte, swing
                          -- timing; one record shared by PvE and PvP
     Characters.luau      -- character lookups + XZ projection + half-ping
+    Shots.luau           -- tells every client a shot went, and where, for a
+                         -- weapon whose attack has a `shot` (WeaponDefs)
   Dungeon/
     DungeonService.luau  -- the run: generates a dungeon well north of the hub,
                          -- tracks room clears and the boss fight, pays the
@@ -207,11 +223,16 @@ src/client/            -> StarterPlayer.StarterPlayerScripts.Client
                          -- between them. Reads the hub's bounds off the Lobby
                          -- model's attributes. All client-side, and
                          -- authoritative over nothing
+  BowVFX.luau            -- a bow's string drawn back to the string hand, the
+                         -- arrow on it, and arrows in flight (PlayerShot)
   SoundFX.luau           -- plays SoundDefs sounds, positional or flat
+  TalentVFX.luau         -- pictures for skill-tree mechanics a number can't
+                         -- show: chain arcs, and a mark over a marked enemy
   GameUI.luau            -- player-facing UI: posture bar, dodge/critical
-                         -- cooldowns, weapon, currency, loot, upgrades,
-                         -- inventory (I), the XP bar and skill tree (K),
-                         -- dungeon status, duel status
+                         -- cooldowns, weapon, currency, loot, upgrades, the
+                         -- XP bar, dungeon status, duel status, and the game
+                         -- menu (M, and the button top-left): skill tree (K),
+                         -- inventory (I) and controls tabs
   DebugHUD.luau          -- Studio-only combat tuning readout, hidden until F2
 
 tests/                 -> mounted only by test.project.json, never shipped
@@ -223,6 +244,8 @@ lune/                  -> not mapped by Rojo; Lune scripts run from the repo roo
                          -- pure modules sandboxed away from the Roblox API
   animation-workbench.luau -- `lune run animation-workbench`: every rig with its
                          -- rough animations as KeyframeSequences, self-checked
+  upload-avatar.luau     -- `lune run upload-avatar`: uploads art/avatar textures
+                         -- and writes their ids into AvatarTextures
   tell-workbench.luau    -- `lune run tell-workbench`: the four tells on rigs,
                          -- as animations to pose by hand in Studio.s
                          -- Animation Editor. `--read` prints the snippet that
@@ -235,6 +258,12 @@ lune/                  -> not mapped by Rojo; Lune scripts run from the repo roo
                          -- Emits a paste-ready Studio script, because whether
                          -- two silhouettes can be told apart is a question for
                          -- an eye rather than for a number
+  weapon-poses.luau      -- `lune run weapon-poses`: every player animation with
+                         -- its weapon in hand, drawn from three sides into
+                         -- workbench/WeaponPoses-<weapon>.html and checked:
+                         -- nothing through the floor, the blade out in front
+                         -- at impact, both hands on a two-handed haft, a bow
+                         -- upright and drawn at the release
   lib/sharedModules.luau -- loads src/shared outside Roblox, sandboxed
 
 workbench/             -> generated by the workbench script; gitignored
@@ -317,6 +346,9 @@ All payloads are a single table.
 | `SpendSkillPoint` | Client → Server | `{ weaponId, nodeId }` | Asks to buy one rank. Every rule is re-checked server-side; a refusal is silent, and the panel stays as it was |
 | `ProgressionChanged` | Server → Client | `{ xp, level, into, toNext, points, weaponId, spent, skills }` | Level and tree state. `into`/`toNext` are XP within the current level, `points` what the level has earned, `spent` and `skills` cover the held weapon's tree only. Sent on every XP gain, every spend, every weapon change, and once on load |
 | `LevelGained` | Server → Client | `{ level, points }` | A level just went up, and how many points came with it. Separate from `ProgressionChanged` because it is a moment, not a state |
+| `ChainArc` | Server → Client (all) | `{ from, to }` | A hit arcing on from one enemy to another (`chainArc`). Picture only; the damage has been dealt |
+| `EnemyMarked` | Server → Client (all) | `{ enemyId, duration }` | A critical marked an enemy (`markOnCrit`): it takes more damage from everyone until the mark runs out |
+| `PlayerShot` | Server → Client (all) | `{ userId, kind, speed, landing, hit }` | A player's shot went, at the moment it resolved: `landing` is the chest of what it hit, or where a miss flies out to at full range. Sent only for a weapon whose attack has a `shot` (WeaponDefs). Picture only — the hit was decided where the shot was taken; BowVFX lets the string go and flies the arrow |
 | *(add new rows here as they're built)* | | | |
 
 ### Retired remote names

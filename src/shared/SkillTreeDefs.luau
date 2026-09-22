@@ -10,7 +10,7 @@
 -- filled-in dagger tree, and doesn't wipe the sword one either. You have as
 -- many points to spend in each tree as your level grants.
 --
--- Three branches per weapon, four tiers deep, and far more ranks than any
+-- Three branches per weapon, five tiers deep, and far more ranks than any
 -- player will ever have points for. That last part is the whole design: a
 -- tree you can fill is a list of chores, and a tree you cannot is a choice.
 --
@@ -74,7 +74,12 @@ export type SpendResult = {
 -- combination can run away.
 export type EffectKind = "flat" | "seconds" | "percent" | "reduction"
 
-export type EffectMeta = { label: string, kind: EffectKind }
+-- `mechanic` marks an effect that changes what happens in a fight rather than
+-- adding to a number the fight already had — a bleed, a counter-blow off a
+-- block, a mark. Each class carries its own set of them (see the trees), and
+-- the panel draws a node carrying one differently. The rules for each live in
+-- TalentMath; CombatServer applies them.
+export type EffectMeta = { label: string, kind: EffectKind, mechanic: boolean? }
 
 local EFFECTS: { [string]: EffectMeta } = {
 	maxHealth = { label = "Max health", kind = "flat" },
@@ -93,6 +98,31 @@ local EFFECTS: { [string]: EffectMeta } = {
 	healPower = { label = "Healing", kind = "percent" },
 	abilityCooldown = { label = "Ability cooldown", kind = "reduction" },
 	abilityPower = { label = "Ability power", kind = "percent" },
+
+	-- Mechanics. Worded so the line explains the rule, not just the number:
+	-- "+50% of a blocked hit struck back at the attacker" has to be enough to
+	-- understand a node the player has never seen work.
+	blockReflect = { label = "of a blocked hit struck back at the attacker", kind = "percent", mechanic = true },
+	parryWard = { label = "Ward after a parry (35% less damage, guard holds)", kind = "seconds", mechanic = true },
+	finisherStagger = { label = "Stagger from the last hit of a combo", kind = "seconds", mechanic = true },
+	execute = { label = "Damage to enemies below 35% health", kind = "percent", mechanic = true },
+	dodgeStrike = { label = "Damage on the first hit within 1.5s of a dodge", kind = "percent", mechanic = true },
+	bleed = { label = "of each hit bled out again over 3s", kind = "percent", mechanic = true },
+	healWard = { label = "Ward on everyone you heal (25% less damage)", kind = "seconds", mechanic = true },
+	guardAura = { label = "health a second to you and allies nearby while guarding", kind = "flat", mechanic = true },
+	healOnHit = { label = "health to you and allies nearby per hit", kind = "flat", mechanic = true },
+	lifesteal = { label = "of damage dealt healed back", kind = "percent", mechanic = true },
+	lowHealthDamage = { label = "Damage, scaling up as your health runs out", kind = "percent", mechanic = true },
+	frenzy = { label = "Damage per hit landed in a row (up to 5)", kind = "percent", mechanic = true },
+	precisionStagger = { label = "Stagger from a split-second parry", kind = "seconds", mechanic = true },
+	riposteChain = { label = "added to the riposte by every riposte hit", kind = "seconds", mechanic = true },
+	pierce = { label = "of a hit carried into the enemy behind", kind = "percent", mechanic = true },
+	markOnCrit = { label = "Damage taken by an enemy your critical marks (6s)", kind = "percent", mechanic = true },
+	multishot = { label = "of each shot loosed at a second enemy", kind = "percent", mechanic = true },
+	dodgeReload = { label = "off the critical's cooldown per dodge", kind = "seconds", mechanic = true },
+	chainArc = { label = "of each hit arcing on to two enemies nearby", kind = "percent", mechanic = true },
+	manaShield = { label = "of unblocked damage taken on posture instead", kind = "percent", mechanic = true },
+	killHeal = { label = "health to you and allies nearby per kill", kind = "flat", mechanic = true },
 }
 
 SkillTreeDefs.EFFECTS = EFFECTS
@@ -101,9 +131,17 @@ SkillTreeDefs.EFFECTS = EFFECTS
 
 -- Every tree is the same shape, and it is a shape rather than three lists:
 -- one root, three branches off it, each branch forking into a pair, each pair
--- leading to a capstone. Drawn out, that is a tree — which is what was asked
--- for, and also what makes the choices legible. Three parallel columns would
--- have been the same rules and none of the meaning.
+-- leading on: one side through a mastery to the capstone (the branch's
+-- ability, always its deepest node), the other to the branch's mechanic. The
+-- mastery deepens that same mechanic, so it can be reached either way. Drawn
+-- out, that is a tree — which is what was asked for, and also
+-- what makes the choices legible. Three parallel columns would have been the
+-- same rules and none of the meaning.
+--
+-- The mechanics are where the classes stop being the same fighter with
+-- different numbers: every class has three, one per branch, and no two
+-- classes share one (tested). A Tank's guard hits back; an Assassin's cuts
+-- keep bleeding; a Ranger's critical marks prey for the whole party.
 --
 -- `column` is the node's place across a nine-wide grid and `tier` its row.
 -- They are data rather than something the panel derives, because the layout
@@ -163,7 +201,7 @@ local SWORD: Tree = {
 		node("second_wind", "Second Wind", "The breath between blows.", "Bulwark", 3, RIGHT[1], 2, "iron_frame", {
 			postureRegen = 6,
 		}),
-		node("unbroken", "Unbroken", "They break first.", "Bulwark", 4, HEADS[1], 1, "deep_stance", { maxHealth = 40 }, "LastStand"),
+		node("unbroken", "Unbroken", "They break first.", "Bulwark", 5, HEADS[1], 1, "bulwark_eternal", { maxHealth = 40 }, "LastStand"),
 
 		node("read_the_blade", "Read the Blade", "Watch the shoulder, not the edge.", "Warden", 2, HEADS[2], 3, "oathbound", {
 			parryWindow = 0.02,
@@ -174,7 +212,7 @@ local SWORD: Tree = {
 		node("shield_wall", "Shield Wall", "A wall that walks.", "Warden", 3, RIGHT[2], 2, "read_the_blade", {
 			maxPosture = 10,
 		}),
-		node("perfect_guard", "Perfect Guard", "Late is still in time.", "Warden", 4, HEADS[2], 1, "recovery", {
+		node("perfect_guard", "Perfect Guard", "Late is still in time.", "Warden", 5, HEADS[2], 1, "unyielding", {
 			parryWindow = 0.03,
 		}, "ShieldBreak"),
 
@@ -187,9 +225,33 @@ local SWORD: Tree = {
 		node("break_their_line", "Break Their Line", "Shove, and shove again.", "Onslaught", 3, RIGHT[3], 2, "heavy_hands", {
 			abilityCooldown = 0.12,
 		}),
-		node("sunder", "Sunder", "Through the guard and the arm behind it.", "Onslaught", 4, HEADS[3], 1, "counterstrike", {
+		node("sunder", "Sunder", "Through the guard and the arm behind it.", "Onslaught", 5, HEADS[3], 1, "juggernaut", {
 			criticalDamage = 0.25,
 		}, "Breach"),
+
+		-- The Tank's mechanics: a guard that hits back, a parry that holds the
+		-- line behind it, and a combo that ends with the enemy on its heels.
+		node("retribution", "Retribution", "The shield is also a weapon.", "Bulwark", 4, RIGHT[1], 2, "second_wind", {
+			blockReflect = 0.4,
+		}),
+		node("bulwark_eternal", "Bulwark Eternal", "Every blow you stop, returned.", "Bulwark", 4, HEADS[1], 1, "deep_stance", {
+			blockReflect = 0.4,
+			maxHealth = 20,
+		}),
+		node("bastion", "Bastion", "Turn one blow and the next finds iron.", "Warden", 4, RIGHT[2], 2, "shield_wall", {
+			parryWard = 1.25,
+		}),
+		node("unyielding", "Unyielding", "The wall does not step back.", "Warden", 4, HEADS[2], 1, "recovery", {
+			parryWard = 1.5,
+			parryRestore = 6,
+		}),
+		node("shield_slam", "Shield Slam", "End it with the rim.", "Onslaught", 4, RIGHT[3], 2, "break_their_line", {
+			finisherStagger = 0.35,
+		}),
+		node("juggernaut", "Juggernaut", "They are still falling when you arrive.", "Onslaught", 4, HEADS[3], 1, "counterstrike", {
+			finisherStagger = 0.4,
+			damage = 0.06,
+		}),
 	},
 }
 
@@ -211,7 +273,7 @@ local DAGGERS: Tree = {
 		node("longer_shadow", "Longer Shadow", "It reaches further than it should.", "Shadow", 3, RIGHT[1], 2, "opening", {
 			abilityPower = 0.15,
 		}),
-		node("assassinate", "Assassinate", "They never see the second one.", "Shadow", 4, HEADS[1], 1, "vital_point", {
+		node("assassinate", "Assassinate", "They never see the second one.", "Shadow", 5, HEADS[1], 1, "deathmark", {
 			backstab = 0.35,
 		}, "Shadowstep"),
 
@@ -224,7 +286,7 @@ local DAGGERS: Tree = {
 		node("flow", "Flow", "Reading it is the same as moving.", "Reflex", 3, RIGHT[2], 2, "quickstep", {
 			parryWindow = 0.02,
 		}),
-		node("untouchable", "Untouchable", "Air where you were.", "Reflex", 4, HEADS[2], 1, "afterimage", {
+		node("untouchable", "Untouchable", "Air where you were.", "Reflex", 5, HEADS[2], 1, "phantom", {
 			dodgeIframes = 0.08,
 		}, "Evasion"),
 
@@ -233,9 +295,32 @@ local DAGGERS: Tree = {
 		node("no_wasted_motion", "No Wasted Motion", "Step, strike, step.", "Edge", 3, RIGHT[3], 2, "keen", {
 			abilityCooldown = 0.15,
 		}),
-		node("thousand_cuts", "Thousand Cuts", "None of them large.", "Edge", 4, HEADS[3], 1, "bloodletting", {
+		node("thousand_cuts", "Thousand Cuts", "None of them large.", "Edge", 5, HEADS[3], 1, "exsanguinate", {
 			damage = 0.12,
 		}, "Flurry"),
+
+		-- The Assassin's mechanics: finishing what is already hurt, striking
+		-- out of a dodge, and wounds that keep working after you have gone.
+		node("coup_de_grace", "Coup de Grâce", "Weak is the same as finished.", "Shadow", 4, RIGHT[1], 2, "longer_shadow", {
+			execute = 0.25,
+		}),
+		node("deathmark", "Deathmark", "Already dead; only slow to notice.", "Shadow", 4, HEADS[1], 1, "vital_point", {
+			execute = 0.3,
+			backstab = 0.1,
+		}),
+		node("ambush", "Ambush", "Out of nowhere, into the ribs.", "Reflex", 4, RIGHT[2], 2, "flow", {
+			dodgeStrike = 0.25,
+		}),
+		node("phantom", "Phantom", "The blow arrives before you do.", "Reflex", 4, HEADS[2], 1, "afterimage", {
+			dodgeStrike = 0.3,
+			dodgeCooldown = 0.08,
+		}),
+		node("hemorrhage", "Hemorrhage", "Small cuts, deep enough.", "Edge", 4, RIGHT[3], 3, "no_wasted_motion", {
+			bleed = 0.15,
+		}),
+		node("exsanguinate", "Exsanguinate", "Walk away. It keeps working.", "Edge", 4, HEADS[3], 1, "bloodletting", {
+			bleed = 0.25,
+		}),
 	},
 }
 
@@ -260,7 +345,7 @@ local STAFF: Tree = {
 		node("wider_light", "Wider Light", "Let it reach the back rank.", "Mercy", 3, RIGHT[1], 2, "kind_hand", {
 			abilityPower = 0.20,
 		}),
-		node("benediction", "Benediction", "Whole, in one word.", "Mercy", 4, HEADS[1], 1, "wellspring", {
+		node("benediction", "Benediction", "Whole, in one word.", "Mercy", 5, HEADS[1], 1, "saints_mantle", {
 			healPower = 0.30,
 		}, "MendingPulse"),
 
@@ -269,7 +354,7 @@ local STAFF: Tree = {
 		node("foresight", "Foresight", "You saw it coming yesterday.", "Ward", 3, RIGHT[2], 2, "aegis", {
 			parryWindow = 0.025,
 		}),
-		node("sanctified", "Sanctified", "Nothing lands on holy ground.", "Ward", 4, HEADS[2], 1, "mending", {
+		node("sanctified", "Sanctified", "Nothing lands on holy ground.", "Ward", 5, HEADS[2], 1, "hallowed_ground", {
 			postureRegen = 5,
 		}, "SanctifiedWard"),
 
@@ -278,9 +363,33 @@ local STAFF: Tree = {
 		node("quickened", "Quickened", "The light comes back faster.", "Arcana", 3, RIGHT[3], 2, "focus", {
 			abilityCooldown = 0.15,
 		}),
-		node("channel", "Channel", "Everything, into one arc.", "Arcana", 4, HEADS[3], 1, "surge", {
+		node("channel", "Channel", "Everything, into one arc.", "Arcana", 5, HEADS[3], 1, "dawnbreaker", {
 			criticalDamage = 0.20,
 		}, "ArcaneNova"),
+
+		-- The Healer's mechanics: heals that shield, a guard that mends the
+		-- people behind it, and a staff that heals with every blow.
+		node("blessed_ward", "Blessed Ward", "What you mend, you also cover.", "Mercy", 4, RIGHT[1], 2, "wider_light", {
+			healWard = 1.0,
+		}),
+		node("saints_mantle", "Saint's Mantle", "Held up, and held safe.", "Mercy", 4, HEADS[1], 1, "wellspring", {
+			healWard = 1.5,
+			healPower = 0.1,
+		}),
+		node("sanctuary", "Sanctuary", "Stand behind me.", "Ward", 4, RIGHT[2], 2, "foresight", {
+			guardAura = 2,
+		}),
+		node("hallowed_ground", "Hallowed Ground", "Where you plant your feet, wounds close.", "Ward", 4, HEADS[2], 1, "mending", {
+			guardAura = 3,
+			maxPosture = 10,
+		}),
+		node("radiant_strikes", "Radiant Strikes", "Every blow a small blessing.", "Arcana", 4, RIGHT[3], 2, "quickened", {
+			healOnHit = 1.5,
+		}),
+		node("dawnbreaker", "Dawnbreaker", "Light, delivered bluntly.", "Arcana", 4, HEADS[3], 1, "surge", {
+			healOnHit = 2,
+			damage = 0.05,
+		}),
 	},
 }
 
@@ -306,7 +415,7 @@ local GREATAXE: Tree = {
 		node("red_mist", "Red Mist", "Stop counting them.", "Fury", 3, RIGHT[1], 2, "momentum", {
 			abilityPower = 0.12,
 		}),
-		node("bloodlust", "Bloodlust", "Nothing left to decide.", "Fury", 4, HEADS[1], 1, "swing_through", {
+		node("bloodlust", "Bloodlust", "Nothing left to decide.", "Fury", 5, HEADS[1], 1, "gorge", {
 			damage = 0.12,
 		}, "Bloodlust"),
 
@@ -319,7 +428,7 @@ local GREATAXE: Tree = {
 		node("second_breath", "Second Breath", "There is always one more.", "Hide", 3, RIGHT[2], 2, "thick_skin", {
 			postureRegen = 5,
 		}),
-		node("ironhide", "Ironhide", "Feel it later.", "Hide", 4, HEADS[2], 1, "stubborn", {
+		node("ironhide", "Ironhide", "Feel it later.", "Hide", 5, HEADS[2], 1, "deathless_rage", {
 			maxHealth = 36,
 		}, "Ironhide"),
 
@@ -332,9 +441,32 @@ local GREATAXE: Tree = {
 		node("shorter_wind", "Shorter Wind", "Less winding, more up.", "Ruin", 3, RIGHT[3], 2, "cleave", {
 			criticalCooldown = 0.12,
 		}),
-		node("earthsplitter", "Earthsplitter", "Take the floor from them.", "Ruin", 4, HEADS[3], 1, "follow_through", {
+		node("earthsplitter", "Earthsplitter", "Take the floor from them.", "Ruin", 5, HEADS[3], 1, "unstoppable", {
 			criticalDamage = 0.3,
 		}, "Earthsplitter"),
+
+		-- The Berserker's mechanics: drinking the fight, getting worse the
+		-- closer it is to dying, and a rhythm that builds as long as it lands.
+		node("bloodthirst", "Bloodthirst", "Take it back from them.", "Fury", 4, RIGHT[1], 3, "red_mist", {
+			lifesteal = 0.05,
+		}),
+		node("gorge", "Gorge", "Never full.", "Fury", 4, HEADS[1], 1, "swing_through", {
+			lifesteal = 0.08,
+		}),
+		node("berserk", "Berserk", "Pain is just more to spend.", "Hide", 4, RIGHT[2], 2, "second_breath", {
+			lowHealthDamage = 0.2,
+		}),
+		node("deathless_rage", "Deathless Rage", "Too angry to fall.", "Hide", 4, HEADS[2], 1, "stubborn", {
+			lowHealthDamage = 0.3,
+			maxHealth = 20,
+		}),
+		node("rampage", "Rampage", "Each one easier than the last.", "Ruin", 4, RIGHT[3], 2, "shorter_wind", {
+			frenzy = 0.03,
+		}),
+		node("unstoppable", "Unstoppable", "Nothing between the axe and the end.", "Ruin", 4, HEADS[3], 1, "follow_through", {
+			frenzy = 0.04,
+			criticalDamage = 0.1,
+		}),
 	},
 }
 
@@ -360,7 +492,7 @@ local RAPIER: Tree = {
 		node("recover", "Recover", "Back on guard before they know.", "Form", 3, RIGHT[1], 2, "footwork", {
 			parryRestore = 7,
 		}),
-		node("perfect_form", "Perfect Form", "Nothing wasted, nothing hurried.", "Form", 4, HEADS[1], 1, "measure", {
+		node("perfect_form", "Perfect Form", "Nothing wasted, nothing hurried.", "Form", 5, HEADS[1], 1, "masterstroke", {
 			parryWindow = 0.03,
 		}, "PerfectForm"),
 
@@ -373,7 +505,7 @@ local RAPIER: Tree = {
 		node("counter_time", "Counter-Time", "Answer the answer.", "Riposte", 3, RIGHT[2], 2, "parry_riposte", {
 			abilityPower = 0.12,
 		}),
-		node("lunge", "Lunge", "The whole body, behind the point.", "Riposte", 4, HEADS[2], 1, "in_time", {
+		node("lunge", "Lunge", "The whole body, behind the point.", "Riposte", 5, HEADS[2], 1, "endless_bout", {
 			riposte = 0.35,
 		}, "Lunge"),
 
@@ -386,9 +518,33 @@ local RAPIER: Tree = {
 		node("quick_hand", "Quick Hand", "Faster than it looks.", "Point", 3, RIGHT[3], 2, "point_control", {
 			criticalCooldown = 0.12,
 		}),
-		node("pierce", "Pierce", "Through, and out the other side.", "Point", 4, HEADS[3], 1, "thrust", {
+		node("pierce", "Pierce", "Through, and out the other side.", "Point", 5, HEADS[3], 1, "impale", {
 			damage = 0.14,
 		}, "Pierce"),
+
+		-- The Duelist's mechanics: rewarding the perfect parry over the good
+		-- one, keeping a riposte going, and a point that goes through.
+		node("split_second", "Split Second", "Not early. Not late. Now.", "Form", 4, RIGHT[1], 2, "recover", {
+			precisionStagger = 0.4,
+		}),
+		node("masterstroke", "Masterstroke", "They will not forget the lesson.", "Form", 4, HEADS[1], 1, "measure", {
+			precisionStagger = 0.5,
+			parryWindow = 0.01,
+		}),
+		node("relentless", "Relentless", "The bout is not over.", "Riposte", 4, RIGHT[2], 2, "counter_time", {
+			riposteChain = 0.4,
+		}),
+		node("endless_bout", "Endless Bout", "Every answer earns another.", "Riposte", 4, HEADS[2], 1, "in_time", {
+			riposteChain = 0.5,
+			riposte = 0.1,
+		}),
+		node("skewer", "Skewer", "One blade, two problems.", "Point", 4, RIGHT[3], 2, "quick_hand", {
+			pierce = 0.4,
+		}),
+		node("impale", "Impale", "Line them up.", "Point", 4, HEADS[3], 1, "thrust", {
+			pierce = 0.4,
+			damage = 0.05,
+		}),
 	},
 }
 
@@ -413,7 +569,7 @@ local BOW: Tree = {
 		node("patience", "Patience", "The shot arrives when it arrives.", "Hunt", 3, RIGHT[1], 2, "sight", {
 			criticalDamage = 0.18,
 		}),
-		node("hunters_mark", "Hunter's Mark", "Chosen, and told so.", "Hunt", 4, HEADS[1], 1, "heavy_draw", {
+		node("hunters_mark", "Hunter's Mark", "Chosen, and told so.", "Hunt", 5, HEADS[1], 1, "apex_predator", {
 			criticalDamage = 0.25,
 		}, "HuntersMark"),
 
@@ -426,7 +582,7 @@ local BOW: Tree = {
 		node("broadheads", "Broadheads", "Wider, and it stays in.", "Quiver", 3, RIGHT[2], 2, "full_quiver", {
 			damage = 0.06,
 		}),
-		node("volley", "Volley", "All of it, at once.", "Quiver", 4, HEADS[2], 1, "loose_fast", {
+		node("volley", "Volley", "All of it, at once.", "Quiver", 5, HEADS[2], 1, "arrowstorm", {
 			abilityPower = 0.22,
 		}, "Volley"),
 
@@ -439,9 +595,33 @@ local BOW: Tree = {
 		node("unencumbered", "Unencumbered", "Carry nothing you will not loose.", "Flight", 3, RIGHT[3], 2, "light_step", {
 			dodgeIframes = 0.04,
 		}),
-		node("disengage", "Disengage", "The fight was never here.", "Flight", 4, HEADS[3], 1, "give_ground", {
+		node("disengage", "Disengage", "The fight was never here.", "Flight", 5, HEADS[3], 1, "windrunner", {
 			moveSpeed = 0.06,
 		}, "Disengage"),
+
+		-- The Ranger's mechanics: marking prey for the whole party, a second
+		-- arrow on every string, and a dodge that reloads the big shot.
+		node("quarry", "Quarry", "That one. Everyone, that one.", "Hunt", 4, RIGHT[1], 2, "patience", {
+			markOnCrit = 0.12,
+		}),
+		node("apex_predator", "Apex Predator", "Nothing marked walks away.", "Hunt", 4, HEADS[1], 1, "heavy_draw", {
+			markOnCrit = 0.15,
+			criticalDamage = 0.1,
+		}),
+		node("split_shot", "Split Shot", "Two arrows, one draw.", "Quiver", 4, RIGHT[2], 2, "broadheads", {
+			multishot = 0.3,
+		}),
+		node("arrowstorm", "Arrowstorm", "The sky, briefly, is yours.", "Quiver", 4, HEADS[2], 1, "loose_fast", {
+			multishot = 0.35,
+			abilityPower = 0.1,
+		}),
+		node("nimble_reload", "Nimble Reload", "Nock it mid-roll.", "Flight", 4, RIGHT[3], 2, "unencumbered", {
+			dodgeReload = 0.8,
+		}),
+		node("windrunner", "Windrunner", "Never still long enough to hit.", "Flight", 4, HEADS[3], 1, "give_ground", {
+			dodgeReload = 1.0,
+			moveSpeed = 0.04,
+		}),
 	},
 }
 
@@ -467,7 +647,7 @@ local FOCUS: Tree = {
 		node("quick_light", "Quick Light", "Sooner, if smaller.", "Flame", 3, RIGHT[1], 2, "draw_heat", {
 			abilityCooldown = 0.12,
 		}),
-		node("cinderburst", "Cinderburst", "All of it, outward.", "Flame", 4, HEADS[1], 1, "bank_it", {
+		node("cinderburst", "Cinderburst", "All of it, outward.", "Flame", 5, HEADS[1], 1, "stormcaller", {
 			abilityPower = 0.2,
 		}, "Cinderburst"),
 
@@ -480,7 +660,7 @@ local FOCUS: Tree = {
 		node("borrowed_time", "Borrowed Time", "Pay it back later.", "Veil", 3, RIGHT[2], 2, "thin_veil", {
 			maxHealth = 14,
 		}),
-		node("mirror_ward", "Mirror Ward", "Let it hit the other one.", "Veil", 4, HEADS[2], 1, "turn_aside", {
+		node("mirror_ward", "Mirror Ward", "Let it hit the other one.", "Veil", 5, HEADS[2], 1, "arcane_bulwark", {
 			abilityPower = 0.18,
 		}, "MirrorWard"),
 
@@ -493,9 +673,33 @@ local FOCUS: Tree = {
 		node("wide_weave", "Wide Weave", "Far enough to reach them.", "Weave", 3, RIGHT[3], 2, "first_thread", {
 			abilityCooldown = 0.1,
 		}),
-		node("wellspring", "Wellspring", "It was under there the whole time.", "Weave", 4, HEADS[3], 1, "steady_weave", {
+		node("wellspring", "Wellspring", "It was under there the whole time.", "Weave", 5, HEADS[3], 1, "lifebloom", {
 			healPower = 0.18,
 		}, "Wellspring"),
+
+		-- The Mage's mechanics: power that leaps between enemies, a shield
+		-- paid for in posture, and life drawn out of every kill.
+		node("chain_spark", "Chain Spark", "It does not stop at one.", "Flame", 4, RIGHT[1], 2, "quick_light", {
+			chainArc = 0.25,
+		}),
+		node("stormcaller", "Stormcaller", "Everything nearby is a conductor.", "Flame", 4, HEADS[1], 1, "bank_it", {
+			chainArc = 0.3,
+			abilityPower = 0.08,
+		}),
+		node("mana_shield", "Mana Shield", "Pay in focus, not in blood.", "Veil", 4, RIGHT[2], 2, "borrowed_time", {
+			manaShield = 0.15,
+		}),
+		node("arcane_bulwark", "Arcane Bulwark", "The veil thickens.", "Veil", 4, HEADS[2], 1, "turn_aside", {
+			manaShield = 0.2,
+			maxPosture = 10,
+		}),
+		node("soul_weave", "Soul Weave", "Nothing that dies is wasted.", "Weave", 4, RIGHT[3], 2, "wide_weave", {
+			killHeal = 8,
+		}),
+		node("lifebloom", "Lifebloom", "Where they fall, something grows.", "Weave", 4, HEADS[3], 1, "steady_weave", {
+			killHeal = 12,
+			healPower = 0.08,
+		}),
 	},
 }
 
@@ -640,6 +844,18 @@ function SkillTreeDefs.canSpend(
 	end
 
 	return { ok = true, reason = "ok" }
+end
+
+-- Whether a node carries a mechanic (EffectMeta.mechanic) rather than only
+-- adding to numbers the fight already has.
+function SkillTreeDefs.isMechanic(entry: Node): boolean
+	for key in entry.effects do
+		local meta = EFFECTS[key]
+		if meta and meta.mechanic then
+			return true
+		end
+	end
+	return false
 end
 
 --[[ Abilities ]]
