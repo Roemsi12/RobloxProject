@@ -458,6 +458,10 @@ end)
 -- replaces the opening keyframe with the pose the body is actually in, so an
 -- interrupted action does not snap back to neutral before the next one
 -- starts.
+
+-- `AnimationDefs.from` is how one authored clip flows into another: it starts
+-- the clip from the pose the body is actually in, so an interrupted action
+-- does not snap back to neutral before the next one begins.
 describe("AnimationDefs.from", function()
 	local START = { RightUpperArm = { rx = 40, ry = -12 }, LeftHand = { rz = 8 } }
 
@@ -467,24 +471,63 @@ describe("AnimationDefs.from", function()
 
 	it("opens on the pose it was given", function()
 		local moved = AnimationDefs.from(swordSwing(), START)
-		expect(moved.keyframes[1].poses).toBe(START)
-		expect(moved.keyframes[1].time).toBe(0)
+		local opening = KeyframeMath.sample(moved, 0)
+		expect(opening.RightUpperArm.rx).toBe(40)
+		expect(opening.RightUpperArm.ry).toBe(-12)
+		expect(opening.LeftHand.rz).toBe(8)
 	end)
 
-	-- The one that matters. Playback stretches everything before `impact` to
-	-- fit the server's wind-up, and the parry window is read off that impact,
-	-- so a transition that moved either would desynchronise what the player
-	-- sees from what the server resolved -- they would watch the blow land
-	-- after being told it had.
+	-- The one that matters most. Playback stretches everything before `impact`
+	-- to fit the server's wind-up and the parry window is read off that
+	-- impact, so moving either would desynchronise what the player sees from
+	-- what the server resolved: they would watch the blow land after being
+	-- told it had.
 	it("moves neither the impact nor the length", function()
 		local original = swordSwing()
 		local moved = AnimationDefs.from(original, START)
 		expect(moved.impact).toBe(original.impact)
 		expect(moved.length).toBe(original.length)
+		expect(moved.tell).toBe(original.tell)
 		expect(#moved.keyframes).toBe(#original.keyframes)
-		for index = 2, #original.keyframes do
-			expect({ index, moved.keyframes[index] }).toEqual({ index, original.keyframes[index] })
+	end)
+
+	-- The other one that matters. From the tell onward the clip is the pose a
+	-- player reads and answers; a transition reaching into it would make the
+	-- same attack look different depending on what came before, which is
+	-- exactly the readability this project keeps paying to protect.
+	it("leaves the tell and everything after it untouched", function()
+		local original = swordSwing()
+		local moved = AnimationDefs.from(original, START)
+		local tell = original.tell :: number
+
+		local checked = 0
+		for index, frame in original.keyframes do
+			if frame.time >= tell then
+				expect({ index, moved.keyframes[index] }).toEqual({ index, frame })
+				checked += 1
+			end
 		end
+		-- Guards the guard: if the tell ever moved past the last keyframe this
+		-- test would pass by checking nothing at all.
+		expect(checked > 0).toBe(true)
+	end)
+
+	-- Rewriting only the opening keyframe would rubber-band -- one frame in
+	-- the captured pose, then a hard cut to the authored anticipation beat.
+	-- The blend has to decay across the approach.
+	it("decays the blend across the approach rather than cutting", function()
+		local original = swordSwing()
+		local moved = AnimationDefs.from(original, START)
+		local tell = original.tell :: number
+
+		local before = KeyframeMath.sample(moved, tell * 0.5).RightUpperArm.rx
+		local authored = KeyframeMath.sample(original, tell * 0.5).RightUpperArm.rx
+		-- Part way along it is neither the captured pose nor the authored one.
+		expect(math.abs(before - 40) > 1e-6).toBe(true)
+		expect(math.abs(before - authored) > 1e-6).toBe(true)
+		-- And by the tell it has arrived.
+		expect(math.abs(KeyframeMath.sample(moved, tell).RightUpperArm.rx
+			- KeyframeMath.sample(original, tell).RightUpperArm.rx) < 1e-9).toBe(true)
 	end)
 
 	it("leaves the animation it was given alone", function()
@@ -494,17 +537,41 @@ describe("AnimationDefs.from", function()
 		expect(original.keyframes[1].poses).toBe(before)
 	end)
 
+	-- Starting a clip from its own opening pose should change nothing: the
+	-- blend runs from the authored value to the authored value.
+	it("is a no-op when the body is already where the clip begins", function()
+		local original = swordSwing()
+		local moved = AnimationDefs.from(original, KeyframeMath.sample(original, 0))
+		for _, at in { 0, 0.05, 0.1, 0.17, 0.3, 0.5 } do
+			local a = KeyframeMath.sample(original, at)
+			local b = KeyframeMath.sample(moved, at)
+			for part, values in a do
+				for component, value in values :: any do
+					expect({ at, part, component, math.abs((b[part] :: any)[component] - value) < 1e-9 })
+						.toEqual({ at, part, component, true })
+				end
+			end
+		end
+	end)
+
 	-- A part the captured pose holds but the clip never mentions has to stay
 	-- in the part set, or the sampler would not know to ease it out and the
 	-- body would keep holding it for the whole swing.
 	it("keeps a part the clip does not pose, so it eases out rather than sticking", function()
 		local moved = AnimationDefs.from(swordSwing(), { LeftHand = { rz = 30 } })
 		expect(table.find(KeyframeMath.partsOf(moved), "LeftHand") ~= nil).toBe(true)
+		expect(KeyframeMath.sample(moved, 0).LeftHand.rz).toBe(30)
+		expect(math.abs(KeyframeMath.sample(moved, moved.length).LeftHand.rz) < 1e-6).toBe(true)
+	end)
 
-		local atStart = KeyframeMath.sample(moved, 0)
-		local atEnd = KeyframeMath.sample(moved, moved.length)
-		expect(atStart.LeftHand.rz).toBe(30)
-		expect(math.abs(atEnd.LeftHand.rz) < 1e-6).toBe(true)
+	-- An idle or a stagger has no tell, so there is no approach to decay
+	-- across and the opening keyframe alone is the best available answer.
+	it("handles an animation with no tell", function()
+		local idle = AnimationDefs.get(RigDefs.PLAYER_RIG, AnimationDefs.idle("SwordAndShield")) :: any
+		expect(idle.tell).toBeNil()
+		local moved = AnimationDefs.from(idle, START)
+		expect(moved.length).toBe(idle.length)
+		expect(KeyframeMath.sample(moved, 0).RightUpperArm.rx).toBe(40)
 	end)
 
 	it("hands back an animation with no keyframes unchanged", function()

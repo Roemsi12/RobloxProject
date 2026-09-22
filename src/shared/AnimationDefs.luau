@@ -610,6 +610,11 @@ local function strike(
 		looped = false,
 		priority = "Action",
 		impact = impact,
+		-- Where the wind-up arrives and the pose a player reads begins.
+		-- Recorded because a transition into this clip has to know where it
+		-- must be finished by: everything before here is approach and may be
+		-- rewritten, everything from here on is the tell and may not.
+		tell = windupAt,
 		keyframes = keyframes,
 	}
 end
@@ -621,42 +626,112 @@ end
 -- player would be reading two different languages.
 AnimationDefs.strike = strike
 
--- The same animation, starting from wherever the body already is.
+-- The six numbers a pose carries. Matches KeyframeMath's own order; kept
+-- here because that one is local to it.
+local COMPONENTS = { "rx", "ry", "rz", "px", "py", "pz" }
+
+-- The same animation, started from wherever the body already is.
 --
--- This is how one authored clip flows into another. An action that is
--- interrupted part way leaves the rig in some pose the next clip knows
--- nothing about; played normally, the next clip opens at rest, so the body
--- snaps back to neutral and starts over. `from` replaces the opening
--- keyframe's poses with the captured one, and the lead-in the clip already
--- has does the travelling instead.
+-- This is how one authored clip flows into another. An action interrupted
+-- part way leaves the rig in a pose the next clip knows nothing about; played
+-- normally the next clip opens at rest, so the body snaps back to neutral and
+-- starts over. On a player rig nothing even softens that, because
+-- `RigAnimation.beginFade` returns immediately for external rigs.
 --
 -- **It adds no time, and that is not a stylistic choice.** Playback stretches
 -- everything before `impact` to fit the server's real wind-up
 -- (`KeyframeMath.alignedTime`), and the parry window is read off that impact.
 -- A transition that prepended time would push the visible hit later than the
 -- hit the server resolves, so a player would watch the blow land after being
--- told it had. Every other keyframe, `impact` and `length` are therefore left
--- exactly as authored, and a spec says so.
+-- told it had. `impact`, `length` and the keyframe count are untouched.
 --
--- A part in `startPose` that the clip never poses stays in the animation's
--- part set and eases to rest across it, which is what should happen: the body
--- gives up whatever the last action left it holding and settles into what
--- this one asks for.
+-- **The blend decays across the approach and is over by the tell.** Rewriting
+-- only the opening keyframe would rubber-band: the rig would sit in the
+-- captured pose for one frame and then hard-cut to the authored anticipation
+-- beat a few hundredths later. So every keyframe before `tell` is blended
+-- toward its authored value, reaching it exactly at the tell.
 --
--- Returns a new def and mutates nothing. `KeyframeMath.partsOf` caches on the
--- def table, so each transition costs one cache miss -- once per interrupted
--- action, not per frame. Do not be tempted to make this return a shared
--- mutable def to avoid that.
+-- That the transition eats the anticipation beat is the point, not a side
+-- effect. The beat is a gather *away* from the swing, and a body arriving
+-- from a previous attack has already done its gathering -- this project found
+-- that once before, in a chain system since removed: "adding a second gather
+-- makes the rig load twice and the link reads as a stutter".
+--
+-- What it must never eat is the tell. From `tell` onward the clip is the pose
+-- the player reads and answers, and a transition that reached into it would
+-- make the same attack look different depending on what preceded it.
+--
+-- Returns a new def and mutates nothing. Keyframes at or after the tell are
+-- shared by reference, since nothing here mutates a def.
 function AnimationDefs.from(anim: AnimationDef, startPose: Poses): AnimationDef
-	local keyframes = table.clone(anim.keyframes)
-	local first = keyframes[1]
+	local first = anim.keyframes[1]
 	if not first then
 		return anim
 	end
 
-	local opening = table.clone(first)
-	opening.poses = startPose
-	keyframes[1] = opening
+	-- Without a tell there is no approach to blend across -- an idle or a
+	-- stagger, not a strike -- so the best available answer is the opening
+	-- keyframe alone.
+	local tell = anim.tell
+	if not tell or tell <= 0 then
+		local keyframes = table.clone(anim.keyframes)
+		local opening = table.clone(first)
+		opening.poses = startPose
+		keyframes[1] = opening
+		local plain = table.clone(anim)
+		plain.keyframes = keyframes
+		return plain
+	end
+
+	-- Carried as an *offset* that decays, not as a blend toward the captured
+	-- pose. The difference matters: blending drags the authored motion even
+	-- when the body is already standing where the clip begins, so a clip
+	-- started from its own opening pose would come out slower than it was
+	-- authored. An offset leaves the clip's own movement exactly as written
+	-- and fades a correction out over the approach, so starting from the
+	-- clip's own opening is a true no-op. There is a spec for that.
+	local opening = KeyframeMath.sample(anim, 0)
+	local offset: { [string]: KeyframeMath.PoseValues } = {}
+	local parts: { [string]: boolean } = {}
+	for part in startPose do
+		parts[part] = true
+	end
+	for part in opening do
+		parts[part] = true
+	end
+	for part in parts do
+		local want = KeyframeMath.resolve(startPose[part])
+		local had = opening[part] or KeyframeMath.REST
+		local difference: any = {}
+		for _, component in COMPONENTS do
+			difference[component] = (want :: any)[component] - (had :: any)[component]
+		end
+		offset[part] = difference
+	end
+
+	local keyframes = table.clone(anim.keyframes)
+	for index, frame in anim.keyframes do
+		if frame.time >= tell then
+			break
+		end
+		-- Eased so the correction leaves quickly and settles, which is the
+		-- shape `strike` gives its own approach.
+		local decay = 1 - KeyframeMath.ease("Out", frame.time / tell)
+		local authored = KeyframeMath.sample(anim, frame.time)
+		local poses: { [string]: KeyframeMath.PoseSpec } = {}
+		for part in parts do
+			local base = authored[part] or KeyframeMath.REST
+			local shift = offset[part]
+			local value: any = {}
+			for _, component in COMPONENTS do
+				value[component] = (base :: any)[component] + (shift :: any)[component] * decay
+			end
+			poses[part] = value
+		end
+		local shifted = table.clone(frame)
+		shifted.poses = poses
+		keyframes[index] = shifted
+	end
 
 	local out = table.clone(anim)
 	out.keyframes = keyframes

@@ -53,6 +53,11 @@ export type AnimationDef = {
 	-- everything before it to fit the real windup, so the visible strike always
 	-- lines up with the server's impact time.
 	impact: number?,
+	-- Strikes only: when the wind-up has arrived and the readable pose begins.
+	-- A transition into this animation has to be finished by here. Before it is
+	-- approach and may be rewritten; from it on is the tell a player answers,
+	-- and rewriting that would change the question the animation asks.
+	tell: number?,
 	keyframes: { Keyframe },
 }
 
